@@ -30,6 +30,6 @@ Thumbs.db
 
 data/
 log/
-scripts/
+/scripts/
 
 "daidai-panel.exe" 
