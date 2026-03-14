@@ -22,6 +22,7 @@ const isBinary = ref(false)
 const loading = ref(false)
 const saving = ref(false)
 const treeLoading = ref(false)
+const isEditing = ref(false)
 
 const showCreateFileDialog = ref(false)
 const showCreateDirDialog = ref(false)
@@ -30,6 +31,17 @@ const showVersionDialog = ref(false)
 const showDebugDialog = ref(false)
 const debugCode = ref('')
 const debugFileName = ref('')
+const showUploadDialog = ref(false)
+const uploadDir = ref('')
+const uploadFileList = ref<File[]>([])
+const showCodeRunner = ref(false)
+const runnerCode = ref('')
+const runnerLanguage = ref('python')
+const runnerRunId = ref('')
+const runnerLogs = ref<string[]>([])
+const runnerRunning = ref(false)
+const runnerExitCode = ref<number | null>(null)
+let runnerTimer: ReturnType<typeof setInterval> | null = null
 
 const newFileName = ref('')
 const newFileParent = ref('')
@@ -78,6 +90,14 @@ watch(showDebugDialog, (val) => {
     clearInterval(debugTimer)
     debugTimer = null
     debugRunning.value = false
+  }
+})
+
+watch(showCodeRunner, (val) => {
+  if (!val && runnerTimer) {
+    clearInterval(runnerTimer)
+    runnerTimer = null
+    runnerRunning.value = false
   }
 })
 
@@ -130,6 +150,10 @@ onBeforeUnmount(() => {
     clearInterval(debugTimer)
     debugTimer = null
   }
+  if (runnerTimer) {
+    clearInterval(runnerTimer)
+    runnerTimer = null
+  }
 })
 
 async function handleNodeClick(data: TreeNode) {
@@ -146,6 +170,7 @@ async function handleNodeClick(data: TreeNode) {
     }
   }
   selectedFile.value = data.key
+  isEditing.value = false
   await loadFileContent(data.key)
 }
 
@@ -202,6 +227,7 @@ async function handleCreateFile() {
     newFileParent.value = ''
     await loadTree()
     selectedFile.value = fullPath
+    isEditing.value = true
     await loadFileContent(fullPath)
   } catch {
     ElMessage.error('创建失败')
@@ -291,26 +317,42 @@ function openRename(path: string) {
 async function handleUpload(file: File) {
   const formData = new FormData()
   formData.append('file', file)
-  formData.append('path', '')
+  if (uploadDir.value) {
+    formData.append('dir', uploadDir.value)
+  }
   try {
     await scriptApi.upload(formData)
     ElMessage.success('上传成功')
+    showUploadDialog.value = false
     await loadTree()
 
+    const targetPath = uploadDir.value ? `${uploadDir.value}/${file.name}` : file.name
     try {
       await ElMessageBox.confirm('是否将此脚本添加到定时任务？', '提示', {
         confirmButtonText: '确定',
         cancelButtonText: '取消',
         type: 'info'
       })
-      navigateToTaskWithScript(file.name)
-    } catch {
-      // 用户取消
-    }
+      navigateToTaskWithScript(targetPath)
+    } catch {}
   } catch {
     ElMessage.error('上传失败')
   }
   return false
+}
+
+function handleUploadFileChange(file: any) {
+  uploadFileList.value = [file.raw]
+}
+
+async function handleUploadSubmit() {
+  if (uploadFileList.value.length === 0) {
+    ElMessage.warning('请选择文件')
+    return
+  }
+  const file = uploadFileList.value[0]
+  if (!file) return
+  await handleUpload(file)
 }
 
 function navigateToTaskWithScript(filePath: string) {
@@ -467,6 +509,63 @@ function handleDownload() {
   URL.revokeObjectURL(url)
 }
 
+function openCodeRunner() {
+  runnerCode.value = ''
+  runnerLanguage.value = 'python'
+  runnerLogs.value = []
+  runnerRunning.value = false
+  runnerExitCode.value = null
+  runnerRunId.value = ''
+  showCodeRunner.value = true
+}
+
+async function handleRunCode() {
+  if (!runnerCode.value.trim()) {
+    ElMessage.warning('请输入代码')
+    return
+  }
+  runnerLogs.value = []
+  runnerExitCode.value = null
+  runnerRunning.value = true
+  try {
+    const res = await scriptApi.runCode(runnerCode.value, runnerLanguage.value)
+    runnerRunId.value = res.run_id
+    pollRunnerLogs()
+  } catch (err: any) {
+    ElMessage.error(err?.response?.data?.error || '运行失败')
+    runnerRunning.value = false
+  }
+}
+
+function pollRunnerLogs() {
+  if (runnerTimer) clearInterval(runnerTimer)
+  runnerTimer = setInterval(async () => {
+    if (!runnerRunId.value) {
+      if (runnerTimer) { clearInterval(runnerTimer); runnerTimer = null }
+      return
+    }
+    try {
+      const res = await scriptApi.debugLogs(runnerRunId.value)
+      runnerLogs.value = res.data.logs || []
+      if (res.data.done) {
+        runnerRunning.value = false
+        runnerExitCode.value = res.data.exit_code ?? null
+        if (runnerTimer) { clearInterval(runnerTimer); runnerTimer = null }
+      }
+    } catch {
+      runnerRunning.value = false
+      if (runnerTimer) { clearInterval(runnerTimer); runnerTimer = null }
+    }
+  }, 500)
+}
+
+async function handleStopRunner() {
+  if (!runnerRunId.value) return
+  try { await scriptApi.debugStop(runnerRunId.value) } catch {}
+  runnerRunning.value = false
+  if (runnerTimer) { clearInterval(runnerTimer); runnerTimer = null }
+}
+
 function getFileIcon(node: TreeNode) {
   if (!node.isLeaf) return 'Folder'
   const ext = node.title.split('.').pop()?.toLowerCase()
@@ -491,24 +590,27 @@ function getFileName(path: string) {
         <div class="sidebar-actions">
           <el-tooltip content="新建文件" placement="bottom">
             <el-button class="action-btn" circle @click="showCreateFileDialog = true">
-              <el-icon :size="18"><DocumentAdd /></el-icon>
+              <el-icon :size="14"><DocumentAdd /></el-icon>
             </el-button>
           </el-tooltip>
           <el-tooltip content="新建目录" placement="bottom">
             <el-button class="action-btn" circle @click="showCreateDirDialog = true">
-              <el-icon :size="18"><FolderAdd /></el-icon>
+              <el-icon :size="14"><FolderAdd /></el-icon>
             </el-button>
           </el-tooltip>
-          <el-upload :show-file-list="false" :before-upload="handleUpload" :auto-upload="true">
-            <el-tooltip content="上传文件" placement="bottom">
-              <el-button class="action-btn" circle>
-                <el-icon :size="18"><Upload /></el-icon>
-              </el-button>
-            </el-tooltip>
-          </el-upload>
+          <el-tooltip content="上传文件" placement="bottom">
+            <el-button class="action-btn" circle @click="showUploadDialog = true; uploadDir = ''; uploadFileList = []">
+              <el-icon :size="14"><Upload /></el-icon>
+            </el-button>
+          </el-tooltip>
+          <el-tooltip content="代码运行器" placement="bottom">
+            <el-button class="action-btn" circle @click="openCodeRunner">
+              <el-icon :size="14"><VideoPlay /></el-icon>
+            </el-button>
+          </el-tooltip>
           <el-tooltip content="刷新" placement="bottom">
             <el-button class="action-btn" circle @click="loadTree">
-              <el-icon :size="18"><Refresh /></el-icon>
+              <el-icon :size="14"><Refresh /></el-icon>
             </el-button>
           </el-tooltip>
         </div>
@@ -551,7 +653,7 @@ function getFileName(path: string) {
 
     <div class="scripts-editor">
       <div v-if="!selectedFile" class="editor-placeholder">
-        <el-empty description="选择一个文件开始编辑" />
+        <el-empty description="选择一个文件查看内容" />
       </div>
       <template v-else>
         <div class="editor-header">
@@ -561,16 +663,19 @@ function getFileName(path: string) {
             <el-tag v-if="hasChanges" size="small" type="warning">未保存</el-tag>
           </div>
           <div class="editor-actions">
-            <el-button size="default" type="success" @click="handleDebugRun" :disabled="isBinary">
+            <el-button v-if="!isEditing" size="default" type="primary" @click="isEditing = true" :disabled="isBinary">
+              <el-icon><Edit /></el-icon>编辑
+            </el-button>
+            <el-button v-if="isEditing" size="default" type="success" @click="handleDebugRun" :disabled="isBinary">
               <el-icon><VideoPlay /></el-icon>调试
             </el-button>
             <el-button size="default" type="primary" @click="handleAddToTask" :disabled="isBinary">
               <el-icon><Plus /></el-icon>添加任务
             </el-button>
-            <el-button size="default" type="primary" @click="handleSave" :loading="saving" :disabled="!hasChanges || isBinary">
+            <el-button v-if="isEditing" size="default" type="primary" @click="handleSave" :loading="saving" :disabled="!hasChanges || isBinary">
               <el-icon><Check /></el-icon>保存
             </el-button>
-            <el-button size="default" @click="handleFormat" :loading="formatting" :disabled="isBinary">
+            <el-button v-if="isEditing" size="default" @click="handleFormat" :loading="formatting" :disabled="isBinary">
               <el-icon><MagicStick /></el-icon>格式化
             </el-button>
             <el-dropdown trigger="click">
@@ -604,6 +709,7 @@ function getFileName(path: string) {
             v-else
             v-model="fileContent"
             :language="editorLanguage"
+            :readonly="!isEditing"
             class="code-editor"
           />
         </div>
@@ -672,6 +778,80 @@ function getFileName(path: string) {
       </el-table>
     </el-dialog>
 
+    <el-dialog v-model="showUploadDialog" title="上传文件" width="480px">
+      <el-form label-width="80px">
+        <el-form-item label="目标目录">
+          <el-select v-model="uploadDir" placeholder="根目录" clearable style="width: 100%">
+            <el-option label="根目录" value="" />
+            <el-option v-for="folder in allFolders.filter(f => f)" :key="folder" :label="folder" :value="folder" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="选择文件">
+          <el-upload
+            :auto-upload="false"
+            :show-file-list="true"
+            :limit="1"
+            :on-change="handleUploadFileChange"
+            drag
+          >
+            <el-icon :size="40"><Upload /></el-icon>
+            <div>拖拽文件到此处或点击选择</div>
+          </el-upload>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showUploadDialog = false">取消</el-button>
+        <el-button type="primary" @click="handleUploadSubmit">上传</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="showCodeRunner" title="代码运行器" width="90%" :close-on-click-modal="false" top="5vh">
+      <div class="debug-container">
+        <div class="debug-code-panel">
+          <div class="panel-header">
+            <el-icon><Edit /></el-icon>
+            <span>代码编辑</span>
+            <el-select v-model="runnerLanguage" size="small" style="width: 130px; margin-left: auto">
+              <el-option label="Python" value="python" />
+              <el-option label="JavaScript" value="javascript" />
+              <el-option label="TypeScript" value="typescript" />
+              <el-option label="Shell" value="shell" />
+            </el-select>
+          </div>
+          <div class="panel-content" style="padding: 0">
+            <MonacoEditor
+              v-model="runnerCode"
+              :language="runnerLanguage === 'shell' ? 'shell' : runnerLanguage"
+              style="height: 100%; min-height: 400px"
+            />
+          </div>
+        </div>
+        <div class="debug-log-panel">
+          <div class="panel-header">
+            <el-icon><Tickets /></el-icon>
+            <span>运行输出</span>
+            <el-tag v-if="runnerRunning" type="warning" size="small" effect="plain">运行中</el-tag>
+            <el-tag v-else-if="runnerLogs.length > 0" :type="runnerExitCode === 0 ? 'success' : 'danger'" size="small" effect="plain">
+              {{ runnerExitCode === 0 ? '成功' : '失败' }}
+            </el-tag>
+          </div>
+          <div class="panel-content">
+            <pre v-if="runnerLogs.length > 0" class="debug-logs">{{ runnerLogs.join('\n') }}</pre>
+            <el-empty v-else description="点击运行按钮执行代码" :image-size="80" />
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <el-button v-if="!runnerRunning" type="primary" @click="handleRunCode">
+          <el-icon><VideoPlay /></el-icon>运行
+        </el-button>
+        <el-button v-if="runnerRunning" type="danger" @click="handleStopRunner">
+          <el-icon><VideoPause /></el-icon>停止
+        </el-button>
+        <el-button @click="showCodeRunner = false">关闭</el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="showDebugDialog" title="调试运行" width="90%" :close-on-click-modal="false" top="5vh">
       <div class="debug-container">
         <div class="debug-code-panel">
@@ -733,7 +913,7 @@ function getFileName(path: string) {
 }
 
 .sidebar-header {
-  padding: 14px 18px;
+  padding: 10px 12px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -743,16 +923,17 @@ function getFileName(path: string) {
   .sidebar-title {
     font-weight: 600;
     font-size: 15px;
+    white-space: nowrap;
   }
 
   .sidebar-actions {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 2px;
 
     .action-btn {
-      width: 32px;
-      height: 32px;
+      width: 28px;
+      height: 28px;
       padding: 0;
       display: flex;
       align-items: center;

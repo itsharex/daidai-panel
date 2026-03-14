@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { subscriptionApi } from '@/api/subscription'
 import { sshKeyApi } from '@/api/notification'
+import { useAuthStore } from '@/stores/auth'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const subList = ref<any[]>([])
@@ -40,6 +41,12 @@ const logPage = ref(1)
 const logSubId = ref(0)
 const logLoading = ref(false)
 
+const showPullLog = ref(false)
+const pullLogLines = ref<string[]>([])
+const pullRunning = ref(false)
+let pullEventSource: EventSource | null = null
+const pullLogRef = ref<HTMLElement>()
+
 async function loadData() {
   loading.value = true
   try {
@@ -67,6 +74,10 @@ async function loadSSHKeys() {
 onMounted(() => {
   loadData()
   loadSSHKeys()
+})
+
+onBeforeUnmount(() => {
+  closePullStream()
 })
 
 function handleSearch() {
@@ -143,9 +154,42 @@ async function handleToggle(row: any) {
 async function handlePull(id: number) {
   try {
     await subscriptionApi.pull(id)
-    ElMessage.success('拉取任务已启动')
-  } catch {
-    ElMessage.error('拉取失败')
+    pullLogLines.value = []
+    pullRunning.value = true
+    showPullLog.value = true
+    connectPullStream(id)
+  } catch (err: any) {
+    ElMessage.error(err?.response?.data?.error || '拉取失败')
+  }
+}
+
+function connectPullStream(id: number) {
+  closePullStream()
+  const auth = useAuthStore()
+  const base = import.meta.env.VITE_API_BASE || '/api/v1'
+  const url = `${base}/subscriptions/${id}/pull-stream?token=${auth.accessToken}`
+  pullEventSource = new EventSource(url)
+  pullEventSource.onmessage = (e) => {
+    pullLogLines.value.push(e.data)
+    nextTick(() => {
+      if (pullLogRef.value) pullLogRef.value.scrollTop = pullLogRef.value.scrollHeight
+    })
+  }
+  pullEventSource.addEventListener('done', () => {
+    pullRunning.value = false
+    closePullStream()
+    loadData()
+  })
+  pullEventSource.onerror = () => {
+    pullRunning.value = false
+    closePullStream()
+  }
+}
+
+function closePullStream() {
+  if (pullEventSource) {
+    pullEventSource.close()
+    pullEventSource = null
   }
 }
 
@@ -250,12 +294,30 @@ function getStatusText(status: number) {
           {{ row.last_pull_at ? new Date(row.last_pull_at).toLocaleString() : '-' }}
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="220" fixed="right">
+      <el-table-column label="操作" width="200" fixed="right">
         <template #default="{ row }">
-          <el-button size="small" text type="primary" @click="handlePull(row.id)">拉取</el-button>
-          <el-button size="small" text @click="openLogs(row.id)">日志</el-button>
-          <el-button size="small" text type="primary" @click="openEdit(row)">编辑</el-button>
-          <el-button size="small" text type="danger" @click="handleDelete(row.id)">删除</el-button>
+          <div class="action-group">
+            <el-tooltip content="拉取" placement="top">
+              <el-button size="small" type="success" plain circle @click="handlePull(row.id)">
+                <el-icon><Download /></el-icon>
+              </el-button>
+            </el-tooltip>
+            <el-tooltip content="日志" placement="top">
+              <el-button size="small" type="info" plain circle @click="openLogs(row.id)">
+                <el-icon><Tickets /></el-icon>
+              </el-button>
+            </el-tooltip>
+            <el-tooltip content="编辑" placement="top">
+              <el-button size="small" type="primary" plain circle @click="openEdit(row)">
+                <el-icon><Edit /></el-icon>
+              </el-button>
+            </el-tooltip>
+            <el-tooltip content="删除" placement="top">
+              <el-button size="small" type="danger" plain circle @click="handleDelete(row.id)">
+                <el-icon><Delete /></el-icon>
+              </el-button>
+            </el-tooltip>
+          </div>
         </template>
       </el-table-column>
     </el-table>
@@ -343,6 +405,19 @@ function getStatusText(status: number) {
         />
       </div>
     </el-dialog>
+
+    <el-dialog v-model="showPullLog" title="拉取日志" width="700px" :close-on-click-modal="false" @close="closePullStream">
+      <div ref="pullLogRef" class="pull-log-content">
+        <div v-for="(line, i) in pullLogLines" :key="i" class="pull-log-line">{{ line }}</div>
+        <div v-if="pullRunning" class="pull-log-line pull-running">拉取中...</div>
+        <el-empty v-if="!pullRunning && pullLogLines.length === 0" description="暂无输出" :image-size="60" />
+      </div>
+      <template #footer>
+        <el-tag v-if="pullRunning" type="warning" effect="plain" size="small" style="margin-right: auto">运行中</el-tag>
+        <el-tag v-else-if="pullLogLines.length > 0" type="success" effect="plain" size="small" style="margin-right: auto">已完成</el-tag>
+        <el-button @click="showPullLog = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -374,5 +449,37 @@ function getStatusText(status: number) {
   margin-top: 16px;
   display: flex;
   justify-content: flex-end;
+}
+
+.action-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pull-log-content {
+  background: #1e1e1e;
+  color: #d4d4d4;
+  font-family: var(--dd-font-mono, monospace);
+  font-size: 13px;
+  line-height: 1.6;
+  padding: 12px 16px;
+  border-radius: 6px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.pull-log-line {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.pull-running {
+  color: #e6a23c;
+  animation: blink 1s infinite;
+}
+
+@keyframes blink {
+  50% { opacity: 0.5; }
 }
 </style>

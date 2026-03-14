@@ -323,7 +323,13 @@ func (h *ScriptHandler) Upload(c *gin.Context) {
 		return
 	}
 
-	full, err := safePath(filename, false)
+	dir := c.PostForm("dir")
+	targetPath := filename
+	if dir != "" {
+		targetPath = filepath.Join(dir, filename)
+	}
+
+	full, err := safePath(targetPath, false)
 	if err != nil {
 		response.BadRequest(c, err.Error())
 		return
@@ -339,7 +345,7 @@ func (h *ScriptHandler) Upload(c *gin.Context) {
 
 	io.Copy(dst, file)
 
-	response.Created(c, gin.H{"message": "上传成功", "path": filename})
+	response.Created(c, gin.H{"message": "上传成功", "path": targetPath})
 }
 
 func (h *ScriptHandler) Delete(c *gin.Context) {
@@ -697,6 +703,25 @@ func (h *ScriptHandler) DebugRun(c *gin.Context) {
 			envMap[e.Name] = e.Value
 		}
 	}
+
+	depsDir := filepath.Join(config.C.Data.Dir, "deps")
+	nodeBin := filepath.Join(depsDir, "nodejs", "node_modules", ".bin")
+	nodeModules := filepath.Join(depsDir, "nodejs", "node_modules")
+	venvBin := filepath.Join(depsDir, "python", "venv", "bin")
+	envMap["NODE_PATH"] = nodeModules
+	if currentPath := os.Getenv("PATH"); currentPath != "" {
+		envMap["PATH"] = strings.Join([]string{nodeBin, venvBin, currentPath}, string(os.PathListSeparator))
+	}
+	venvLib := filepath.Join(depsDir, "python", "venv", "lib")
+	if entries, dirErr := os.ReadDir(venvLib); dirErr == nil {
+		for _, entry := range entries {
+			if entry.IsDir() && strings.HasPrefix(entry.Name(), "python") {
+				envMap["PYTHONPATH"] = filepath.Join(venvLib, entry.Name(), "site-packages")
+				break
+			}
+		}
+	}
+
 	for k, v := range envMap {
 		env = append(env, k+"="+v)
 	}
@@ -943,6 +968,158 @@ func formatJSON(content string) (string, string) {
 	return string(out), "json"
 }
 
+func (h *ScriptHandler) RunCode(c *gin.Context) {
+	var req struct {
+		Code     string `json:"code" binding:"required"`
+		Language string `json:"language" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "请求参数错误")
+		return
+	}
+
+	extMap := map[string]string{
+		"python":     ".py",
+		"javascript": ".js",
+		"typescript": ".ts",
+		"shell":      ".sh",
+	}
+	ext, ok := extMap[req.Language]
+	if !ok {
+		response.BadRequest(c, "不支持的语言类型")
+		return
+	}
+
+	tmpDir := filepath.Join(os.TempDir(), "daidai-debug")
+	os.MkdirAll(tmpDir, 0755)
+	tmpFile := filepath.Join(tmpDir, fmt.Sprintf("code_%d%s", time.Now().UnixMilli(), ext))
+	if err := os.WriteFile(tmpFile, []byte(req.Code), 0644); err != nil {
+		response.InternalError(c, "创建临时文件失败")
+		return
+	}
+
+	interpreterMap := map[string][]string{
+		".py": {"python", "-u"},
+		".js": {"node"},
+		".ts": {"npx", "ts-node"},
+		".sh": {"bash"},
+	}
+	cmdParts := interpreterMap[ext]
+	cmdParts = append(cmdParts, tmpFile)
+
+	var envVars []model.EnvVar
+	database.DB.Where("enabled = ?", true).Find(&envVars)
+
+	env := []string{}
+	for _, k := range []string{"PATH", "HOME", "USER", "LANG", "SYSTEMROOT", "PATHEXT", "TEMP", "TMP"} {
+		if v := os.Getenv(k); v != "" {
+			env = append(env, k+"="+v)
+		}
+	}
+	envMap := make(map[string]string)
+	for _, e := range envVars {
+		if existing, ok := envMap[e.Name]; ok {
+			envMap[e.Name] = existing + "&" + e.Value
+		} else {
+			envMap[e.Name] = e.Value
+		}
+	}
+
+	depsDir := filepath.Join(config.C.Data.Dir, "deps")
+	nodeBin := filepath.Join(depsDir, "nodejs", "node_modules", ".bin")
+	nodeModules := filepath.Join(depsDir, "nodejs", "node_modules")
+	venvBin := filepath.Join(depsDir, "python", "venv", "bin")
+	envMap["NODE_PATH"] = nodeModules
+	if currentPath := os.Getenv("PATH"); currentPath != "" {
+		envMap["PATH"] = strings.Join([]string{nodeBin, venvBin, currentPath}, string(os.PathListSeparator))
+	}
+	venvLib := filepath.Join(depsDir, "python", "venv", "lib")
+	if entries, dirErr := os.ReadDir(venvLib); dirErr == nil {
+		for _, entry := range entries {
+			if entry.IsDir() && strings.HasPrefix(entry.Name(), "python") {
+				envMap["PYTHONPATH"] = filepath.Join(venvLib, entry.Name(), "site-packages")
+				break
+			}
+		}
+	}
+
+	for k, v := range envMap {
+		env = append(env, k+"="+v)
+	}
+
+	cmd := exec.Command(cmdParts[0], cmdParts[1:]...)
+	cmd.Dir = tmpDir
+	cmd.Env = env
+
+	pipeReader, pipeWriter := io.Pipe()
+	cmd.Stdout = pipeWriter
+	cmd.Stderr = pipeWriter
+
+	if err := cmd.Start(); err != nil {
+		pipeWriter.Close()
+		os.Remove(tmpFile)
+		response.InternalError(c, fmt.Sprintf("启动失败: %s", err))
+		return
+	}
+
+	runID := fmt.Sprintf("code_%d", time.Now().UnixMilli())
+
+	run := &debugRun{
+		Process: cmd.Process,
+		Logs:    []string{},
+		Status:  "running",
+	}
+
+	h.mu.Lock()
+	h.debugRuns[runID] = run
+	h.mu.Unlock()
+
+	startTime := time.Now()
+	scanDone := make(chan struct{})
+
+	go func() {
+		scanner := bufio.NewScanner(pipeReader)
+		scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+		for scanner.Scan() {
+			line := scanner.Text()
+			run.mu.Lock()
+			run.Logs = append(run.Logs, line)
+			run.mu.Unlock()
+		}
+		close(scanDone)
+	}()
+
+	go func() {
+		err := cmd.Wait()
+		pipeWriter.Close()
+		<-scanDone
+		os.Remove(tmpFile)
+		elapsed := time.Since(startTime).Seconds()
+
+		run.mu.Lock()
+		exitCode := 0
+		if err != nil {
+			if exitErr, ok := err.(*exec.ExitError); ok {
+				exitCode = exitErr.ExitCode()
+			} else {
+				exitCode = 1
+			}
+		}
+		run.ExitCode = &exitCode
+		run.Done = true
+		if exitCode == 0 {
+			run.Status = "success"
+			run.Logs = append(run.Logs, fmt.Sprintf("[进程结束, 退出码: %d, 耗时: %.2f秒]", exitCode, elapsed))
+		} else {
+			run.Status = "failed"
+			run.Logs = append(run.Logs, fmt.Sprintf("[进程异常退出, 退出码: %d, 耗时: %.2f秒]", exitCode, elapsed))
+		}
+		run.mu.Unlock()
+	}()
+
+	response.Created(c, gin.H{"message": "代码已启动", "run_id": runID})
+}
+
 func (h *ScriptHandler) RegisterRoutes(r *gin.RouterGroup) {
 	scripts := r.Group("/scripts", middleware.JWTAuth())
 	{
@@ -961,6 +1138,7 @@ func (h *ScriptHandler) RegisterRoutes(r *gin.RouterGroup) {
 		scripts.GET("/versions/:id", h.GetVersion)
 		scripts.PUT("/versions/:id/rollback", h.Rollback)
 		scripts.POST("/run", h.DebugRun)
+		scripts.POST("/run-code", h.RunCode)
 		scripts.GET("/run/:run_id/logs", h.DebugLogs)
 		scripts.PUT("/run/:run_id/stop", h.DebugStop)
 		scripts.DELETE("/run/:run_id", h.DebugClear)

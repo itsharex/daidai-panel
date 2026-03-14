@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { logApi } from '@/api/log'
+import { taskApi } from '@/api/task'
 import { useAuthStore } from '@/stores/auth'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
@@ -20,6 +21,14 @@ const autoRefresh = ref(true)
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 let logEventSource: EventSource | null = null
 const logContentRef = ref<HTMLElement>()
+
+const showFileBrowser = ref(false)
+const currentTaskId = ref<number>(0)
+const logFiles = ref<any[]>([])
+const logFilesLoading = ref(false)
+const showFileContent = ref(false)
+const fileContentData = ref('')
+const fileContentName = ref('')
 
 async function loadLogs() {
   loading.value = true
@@ -168,6 +177,49 @@ function toggleAutoRefresh() {
   }
 }
 
+async function browseLogFiles(log: any) {
+  currentTaskId.value = log.task_id
+  logFiles.value = []
+  showFileBrowser.value = true
+  logFilesLoading.value = true
+  try {
+    const res = await taskApi.logFiles(log.task_id)
+    logFiles.value = res || []
+  } catch {
+    ElMessage.error('获取日志文件列表失败')
+  } finally {
+    logFilesLoading.value = false
+  }
+}
+
+async function viewLogFile(file: any) {
+  try {
+    const res = await taskApi.logFileContent(currentTaskId.value, file.filename)
+    fileContentData.value = res.content || '(空文件)'
+    fileContentName.value = file.filename
+    showFileContent.value = true
+  } catch {
+    ElMessage.error('读取日志文件失败')
+  }
+}
+
+async function deleteLogFile(file: any) {
+  await ElMessageBox.confirm(`确定删除日志文件 ${file.filename}？`, '确认', { type: 'warning' })
+  try {
+    await taskApi.deleteLogFile(currentTaskId.value, file.filename)
+    ElMessage.success('已删除')
+    logFiles.value = logFiles.value.filter((f: any) => f.filename !== file.filename)
+  } catch {
+    ElMessage.error('删除失败')
+  }
+}
+
+function formatFileSize(size: number) {
+  if (size < 1024) return size + ' B'
+  if (size < 1024 * 1024) return (size / 1024).toFixed(1) + ' KB'
+  return (size / 1024 / 1024).toFixed(1) + ' MB'
+}
+
 onBeforeUnmount(() => {
   if (refreshTimer) {
     clearInterval(refreshTimer)
@@ -225,9 +277,10 @@ onBeforeUnmount(() => {
       <el-table-column label="结束时间" width="180">
         <template #default="{ row }">{{ formatTime(row.ended_at) }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="130" fixed="right">
+      <el-table-column label="操作" width="180" fixed="right">
         <template #default="{ row }">
           <el-button type="primary" text size="small" @click="viewDetail(row)">查看</el-button>
+          <el-button type="info" text size="small" @click="browseLogFiles(row)">文件</el-button>
           <el-button type="danger" text size="small" @click="handleDelete(row)">删除</el-button>
         </template>
       </el-table-column>
@@ -258,6 +311,29 @@ onBeforeUnmount(() => {
         </el-descriptions>
       </div>
       <pre ref="logContentRef" class="log-content">{{ detailContent }}</pre>
+    </el-dialog>
+
+    <el-dialog v-model="showFileBrowser" title="日志文件" width="650px">
+      <el-table :data="logFiles" v-loading="logFilesLoading" max-height="400px" size="small">
+        <el-table-column prop="filename" label="文件名" min-width="200" />
+        <el-table-column label="大小" width="100">
+          <template #default="{ row }">{{ formatFileSize(row.size) }}</template>
+        </el-table-column>
+        <el-table-column label="时间" width="180">
+          <template #default="{ row }">{{ new Date(row.created_at).toLocaleString() }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="120" fixed="right">
+          <template #default="{ row }">
+            <el-button type="primary" text size="small" @click="viewLogFile(row)">查看</el-button>
+            <el-button type="danger" text size="small" @click="deleteLogFile(row)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-empty v-if="!logFilesLoading && logFiles.length === 0" description="暂无日志文件" />
+    </el-dialog>
+
+    <el-dialog v-model="showFileContent" :title="fileContentName" width="800px">
+      <pre class="log-content">{{ fileContentData }}</pre>
     </el-dialog>
   </div>
 </template>

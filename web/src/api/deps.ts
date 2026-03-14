@@ -9,8 +9,8 @@ export const depsApi = {
     return request.post('/deps', { type, names }) as Promise<{ message: string; data: any[] }>
   },
 
-  delete(id: number) {
-    return request.delete(`/deps/${id}`) as Promise<{ message: string }>
+  delete(id: number, force?: boolean) {
+    return request.delete(`/deps/${id}`, { params: force ? { force: true } : undefined }) as Promise<{ message: string }>
   },
 
   getStatus(id: number) {

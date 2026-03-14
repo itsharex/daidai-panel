@@ -5,6 +5,8 @@ import (
 	"log"
 	"math/rand"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -62,11 +64,13 @@ func (e *TaskExecutor) OnTaskExecuting(req *ExecutionRequest) error {
 		return fmt.Errorf("failed to create log: %w", err)
 	}
 
+	relLogPath := GetRelativeLogPath(task.ID)
 	runningStatus := model.LogStatusRunning
 	taskLog := &model.TaskLog{
 		TaskID:    task.ID,
 		Status:    &runningStatus,
 		StartedAt: now,
+		LogPath:   &relLogPath,
 	}
 	database.DB.Create(taskLog)
 
@@ -122,6 +126,28 @@ func (e *TaskExecutor) runTask(req *ExecutionRequest, taskLog *model.TaskLog, ti
 			envVars[ev.Name] = existing + "&" + ev.Value
 		} else {
 			envVars[ev.Name] = ev.Value
+		}
+	}
+
+	depsDir := filepath.Join(config.C.Data.Dir, "deps")
+	nodeBin := filepath.Join(depsDir, "nodejs", "node_modules", ".bin")
+	nodeModules := filepath.Join(depsDir, "nodejs", "node_modules")
+	venvBin := filepath.Join(depsDir, "python", "venv", "bin")
+
+	envVars["NODE_PATH"] = nodeModules
+	if currentPath := os.Getenv("PATH"); currentPath != "" {
+		envVars["PATH"] = strings.Join([]string{nodeBin, venvBin, currentPath}, string(os.PathListSeparator))
+	} else {
+		envVars["PATH"] = strings.Join([]string{nodeBin, venvBin}, string(os.PathListSeparator))
+	}
+
+	venvLib := filepath.Join(depsDir, "python", "venv", "lib")
+	if entries, err := os.ReadDir(venvLib); err == nil {
+		for _, entry := range entries {
+			if entry.IsDir() && strings.HasPrefix(entry.Name(), "python") {
+				envVars["PYTHONPATH"] = filepath.Join(venvLib, entry.Name(), "site-packages")
+				break
+			}
 		}
 	}
 
@@ -182,8 +208,22 @@ func (e *TaskExecutor) runTask(req *ExecutionRequest, taskLog *model.TaskLog, ti
 		e.OnTaskCompleted(req, result)
 	}()
 
+	logMgr := GetLogStreamManager()
+	var fullLogPath string
+	if taskLog.LogPath != nil {
+		fullLogPath = filepath.Join(e.logDir, *taskLog.LogPath)
+	}
+	defer func() {
+		if fullLogPath != "" {
+			logMgr.CloseStream(fullLogPath)
+		}
+	}()
+
 	onOutput := func(line string) {
 		fmt.Fprintf(tinyLog, "%s\n", line)
+		if fullLogPath != "" {
+			logMgr.Write(fullLogPath, line+"\n")
+		}
 	}
 
 	onOutput(fmt.Sprintf("=== 开始执行 [%s] ===", startTime.Format("2006-01-02 15:04:05")))

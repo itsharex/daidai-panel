@@ -63,6 +63,10 @@ export const scriptApi = {
     return request.post('/scripts/run', data) as Promise<{ message: string; run_id: string }>
   },
 
+  runCode(code: string, language: string) {
+    return request.post('/scripts/run-code', { code, language }) as Promise<{ message: string; run_id: string }>
+  },
+
   debugLogs(runId: string) {
     return request.get(`/scripts/run/${runId}/logs`) as Promise<{ data: { logs: string[]; done: boolean; exit_code?: number; status?: string } }>
   },

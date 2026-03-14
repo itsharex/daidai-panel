@@ -289,6 +289,26 @@ func (s *SchedulerV2) GetHandler() SchedulerEventHandler {
 	return s.handler
 }
 
+func (s *SchedulerV2) ReloadAllJobs() {
+	s.entryLock.Lock()
+	for taskID, entryID := range s.entryMap {
+		s.cron.Remove(entryID)
+		delete(s.entryMap, taskID)
+	}
+	s.entryLock.Unlock()
+
+	var tasks []model.Task
+	database.DB.Where("status = ?", model.TaskStatusEnabled).Find(&tasks)
+
+	for i := range tasks {
+		if err := s.AddJob(&tasks[i]); err != nil {
+			log.Printf("reload job failed for task %d: %v", tasks[i].ID, err)
+		}
+	}
+
+	log.Printf("scheduler reloaded: %d jobs", len(tasks))
+}
+
 func getGoroutineID() int64 {
 	return time.Now().UnixNano()
 }

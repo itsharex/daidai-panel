@@ -190,8 +190,16 @@ func (h *LogHandler) Detail(c *gin.Context) {
 }
 
 func (h *LogHandler) Delete(c *gin.Context) {
-	logID, _ := strconv.ParseUint(c.Param("id"), 10, 32)
-	database.DB.Where("id = ?", logID).Delete(&model.TaskLog{})
+	logID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		response.BadRequest(c, "无效的日志ID")
+		return
+	}
+	result := database.DB.Where("id = ?", logID).Delete(&model.TaskLog{})
+	if result.RowsAffected == 0 {
+		response.NotFound(c, "日志不存在")
+		return
+	}
 	response.Success(c, gin.H{"message": "日志已删除"})
 }
 

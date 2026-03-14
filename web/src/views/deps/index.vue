@@ -15,6 +15,20 @@
       <el-button @click="openMirrorDialog">
         <el-icon><Setting /></el-icon>镜像源设置
       </el-button>
+      <div class="deps-stats">
+        <div class="stat-item" :class="{ active: activeTab === 'nodejs' }" @click="activeTab = 'nodejs'; loadData()">
+          <span class="stat-label">Node.js</span>
+          <span class="stat-value">{{ nodejsCount }}</span>
+        </div>
+        <div class="stat-item" :class="{ active: activeTab === 'python' }" @click="activeTab = 'python'; loadData()">
+          <span class="stat-label">Python</span>
+          <span class="stat-value">{{ pythonCount }}</span>
+        </div>
+        <div class="stat-item" :class="{ active: activeTab === 'linux' }" @click="activeTab = 'linux'; loadData()">
+          <span class="stat-label">Linux</span>
+          <span class="stat-value">{{ linuxCount }}</span>
+        </div>
+      </div>
     </div>
     <el-table :data="depsList" v-loading="loading" border size="small">
       <el-table-column prop="name" label="名称" min-width="200" />
@@ -26,11 +40,12 @@
       <el-table-column prop="created_at" label="创建时间" width="180">
         <template #default="{ row }">{{ new Date(row.created_at).toLocaleString('zh-CN') }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="180" align="center">
+      <el-table-column label="操作" width="250" align="center">
         <template #default="{ row }">
           <el-button type="primary" link size="small" @click="viewLog(row)">日志</el-button>
           <el-button type="warning" link size="small" @click="handleReinstall(row)" :disabled="row.status === 'installing' || row.status === 'removing'">重装</el-button>
           <el-button type="danger" link size="small" @click="handleDelete(row)" :disabled="row.status === 'installing' || row.status === 'removing'">卸载</el-button>
+          <el-button type="danger" link size="small" @click="handleForceDelete(row)" :disabled="row.status === 'installing' || row.status === 'removing'">强制卸载</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -138,6 +153,10 @@ const mirrorLoading = ref(false)
 const mirrorSaving = ref(false)
 const mirrorForm = ref({ pip_mirror: '', npm_mirror: '' })
 
+const nodejsCount = ref(0)
+const pythonCount = ref(0)
+const linuxCount = ref(0)
+
 function statusType(status: string) {
   switch (status) {
     case 'installed': return 'success'
@@ -163,6 +182,12 @@ async function loadData() {
   try {
     const res = await depsApi.list(activeTab.value)
     depsList.value = res.data || []
+    const countMap: Record<string, (v: number) => void> = {
+      nodejs: (v) => nodejsCount.value = v,
+      python: (v) => pythonCount.value = v,
+      linux: (v) => linuxCount.value = v,
+    }
+    countMap[activeTab.value]?.(depsList.value.length)
     checkPending()
   } catch {
     depsList.value = []
@@ -206,6 +231,15 @@ async function handleDelete(row: any) {
     await ElMessageBox.confirm(`确认卸载 ${row.name}？`, '提示', { type: 'warning' })
     await depsApi.delete(row.id)
     ElMessage.success('卸载中')
+    loadData()
+  } catch {}
+}
+
+async function handleForceDelete(row: any) {
+  try {
+    await ElMessageBox.confirm(`确认强制卸载 ${row.name}？\n强制卸载会跳过依赖检查直接删除`, '强制卸载', { type: 'warning' })
+    await depsApi.delete(row.id, true)
+    ElMessage.success('强制卸载中')
     loadData()
   } catch {}
 }
@@ -288,13 +322,68 @@ async function handleSaveMirrors() {
   } finally { mirrorSaving.value = false }
 }
 
-onMounted(() => { createType.value = activeTab.value; loadData() })
+onMounted(async () => {
+  createType.value = activeTab.value
+  loadData()
+  const types = ['nodejs', 'python', 'linux'] as const
+  const countRefs = { nodejs: nodejsCount, python: pythonCount, linux: linuxCount }
+  for (const t of types) {
+    if (t !== activeTab.value) {
+      depsApi.list(t).then(res => { countRefs[t].value = (res.data || []).length }).catch(() => {})
+    }
+  }
+})
 onBeforeUnmount(() => { closeSSE(); if (refreshTimer) clearInterval(refreshTimer) })
 </script>
 
 <style scoped lang="scss">
 .deps-page { padding: 0; }
-.deps-toolbar { display: flex; gap: 8px; margin-bottom: 16px; }
+.deps-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.deps-stats {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  margin-left: auto;
+  background: var(--el-border-color-lighter);
+  border-radius: 6px;
+  overflow: hidden;
+
+  .stat-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 6px 16px;
+    background: var(--el-bg-color);
+    cursor: pointer;
+    transition: all 0.2s;
+    min-width: 64px;
+
+    &:hover { background: var(--el-color-primary-light-9); }
+    &.active {
+      background: var(--el-color-primary-light-9);
+      .stat-value { color: var(--el-color-primary); }
+    }
+  }
+
+  .stat-label {
+    font-size: 11px;
+    color: var(--el-text-color-secondary);
+    line-height: 1;
+  }
+
+  .stat-value {
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 1.4;
+    color: var(--el-text-color-primary);
+  }
+}
 .log-content {
   background: #1e1e1e;
   color: #d4d4d4;

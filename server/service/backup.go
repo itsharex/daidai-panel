@@ -176,7 +176,12 @@ func RestoreBackup(filename, password string) error {
 		tx.Create(&item)
 	}
 
-	return tx.Commit().Error
+	if err := tx.Commit().Error; err != nil {
+		return err
+	}
+
+	GetSchedulerV2().ReloadAllJobs()
+	return nil
 }
 
 func ListBackups() ([]map[string]interface{}, error) {

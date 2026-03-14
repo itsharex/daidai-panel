@@ -4,11 +4,13 @@ import (
 	"bufio"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"daidai-panel/config"
 	"daidai-panel/database"
 	"daidai-panel/middleware"
 	"daidai-panel/model"
@@ -177,6 +179,13 @@ func (h *DepsHandler) Delete(c *gin.Context) {
 
 	if dep.Status == model.DepStatusInstalling || dep.Status == model.DepStatusRemoving {
 		response.BadRequest(c, "依赖正在处理中")
+		return
+	}
+
+	if c.Query("force") == "true" {
+		database.DB.Delete(&dep)
+		go forceUninstallDependency(dep.Type, dep.Name)
+		response.Success(c, gin.H{"message": "强制卸载中"})
 		return
 	}
 
@@ -471,11 +480,13 @@ func runCmdWithSSE(cmd *exec.Cmd, id uint, successStatus string, deleteOnSuccess
 
 func installDependency(id uint, depType, name string) {
 	var cmd *exec.Cmd
+	depsDir := filepath.Join(config.C.Data.Dir, "deps")
 	switch depType {
 	case model.DepTypeNodeJS:
-		cmd = exec.Command("npm", "install", "-g", name)
+		cmd = exec.Command("npm", "install", "--prefix", filepath.Join(depsDir, "nodejs"), name)
 	case model.DepTypePython:
-		cmd = exec.Command("pip3", "install", "--break-system-packages", "--root-user-action=ignore", name)
+		pipBin := filepath.Join(depsDir, "python", "venv", "bin", "pip")
+		cmd = exec.Command(pipBin, "install", name)
 	case model.DepTypeLinux:
 		cmd = exec.Command("bash", "-c", "apt-get install -y "+name+" 2>&1 || yum install -y "+name+" 2>&1 || apk add "+name+" 2>&1")
 	default:
@@ -491,11 +502,13 @@ func installDependency(id uint, depType, name string) {
 
 func uninstallDependency(id uint, depType, name string) {
 	var cmd *exec.Cmd
+	depsDir := filepath.Join(config.C.Data.Dir, "deps")
 	switch depType {
 	case model.DepTypeNodeJS:
-		cmd = exec.Command("npm", "uninstall", "-g", name)
+		cmd = exec.Command("npm", "uninstall", "--prefix", filepath.Join(depsDir, "nodejs"), name)
 	case model.DepTypePython:
-		cmd = exec.Command("pip3", "uninstall", "--break-system-packages", "--root-user-action=ignore", "-y", name)
+		pipBin := filepath.Join(depsDir, "python", "venv", "bin", "pip")
+		cmd = exec.Command(pipBin, "uninstall", "-y", name)
 	case model.DepTypeLinux:
 		cmd = exec.Command("bash", "-c", "apt-get remove -y "+name+" 2>&1 || yum remove -y "+name+" 2>&1 || apk del "+name+" 2>&1")
 	default:
@@ -504,6 +517,23 @@ func uninstallDependency(id uint, depType, name string) {
 	}
 
 	runCmdWithSSE(cmd, id, model.DepStatusInstalled, true)
+}
+
+func forceUninstallDependency(depType, name string) {
+	depsDir := filepath.Join(config.C.Data.Dir, "deps")
+	var cmd *exec.Cmd
+	switch depType {
+	case model.DepTypeNodeJS:
+		cmd = exec.Command("npm", "uninstall", "--prefix", filepath.Join(depsDir, "nodejs"), "--force", name)
+	case model.DepTypePython:
+		pipBin := filepath.Join(depsDir, "python", "venv", "bin", "pip")
+		cmd = exec.Command(pipBin, "uninstall", "-y", "--no-deps", name)
+	case model.DepTypeLinux:
+		cmd = exec.Command("bash", "-c", "apt-get remove --force-yes -y "+name+" 2>&1 || yum remove -y "+name+" 2>&1 || apk del --force-broken-world "+name+" 2>&1")
+	default:
+		return
+	}
+	cmd.CombinedOutput()
 }
 
 func (h *DepsHandler) RegisterRoutes(r *gin.RouterGroup) {

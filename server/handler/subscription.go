@@ -3,6 +3,9 @@ package handler
 import (
 	"fmt"
 	"strconv"
+	"strings"
+	"sync"
+	"time"
 
 	"daidai-panel/database"
 	"daidai-panel/middleware"
@@ -12,6 +15,88 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+type subPullBroadcaster struct {
+	mu   sync.RWMutex
+	subs map[chan string]struct{}
+	log  strings.Builder
+}
+
+var (
+	subPullStreams   = make(map[uint]*subPullBroadcaster)
+	subPullStreamsMu sync.RWMutex
+)
+
+func getOrCreateSubBroadcaster(id uint) *subPullBroadcaster {
+	subPullStreamsMu.Lock()
+	defer subPullStreamsMu.Unlock()
+	if b, ok := subPullStreams[id]; ok {
+		return b
+	}
+	b := &subPullBroadcaster{subs: make(map[chan string]struct{})}
+	subPullStreams[id] = b
+	return b
+}
+
+func removeSubBroadcaster(id uint) {
+	subPullStreamsMu.Lock()
+	defer subPullStreamsMu.Unlock()
+	if b, ok := subPullStreams[id]; ok {
+		b.mu.Lock()
+		for ch := range b.subs {
+			close(ch)
+		}
+		b.mu.Unlock()
+		delete(subPullStreams, id)
+	}
+}
+
+func (b *subPullBroadcaster) subscribe() chan string {
+	ch := make(chan string, 64)
+	b.mu.Lock()
+	b.subs[ch] = struct{}{}
+	b.mu.Unlock()
+	return ch
+}
+
+func (b *subPullBroadcaster) unsubscribe(ch chan string) {
+	b.mu.Lock()
+	delete(b.subs, ch)
+	b.mu.Unlock()
+}
+
+func (b *subPullBroadcaster) broadcast(line string) {
+	b.mu.Lock()
+	b.log.WriteString(line)
+	b.log.WriteString("\n")
+	b.mu.Unlock()
+
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	for ch := range b.subs {
+		select {
+		case ch <- line:
+		default:
+		}
+	}
+}
+
+func (b *subPullBroadcaster) done() {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	for ch := range b.subs {
+		select {
+		case ch <- "\x00DONE":
+		default:
+		}
+	}
+}
+
+func (b *subPullBroadcaster) history() string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.log.String()
+}
 
 type SubscriptionHandler struct{}
 
@@ -182,9 +267,93 @@ func (h *SubscriptionHandler) Pull(c *gin.Context) {
 		return
 	}
 
-	go service.PullSubscription(&sub)
+	subPullStreamsMu.RLock()
+	_, running := subPullStreams[uint(subID)]
+	subPullStreamsMu.RUnlock()
+	if running {
+		response.BadRequest(c, "该订阅正在拉取中")
+		return
+	}
+
+	broadcaster := getOrCreateSubBroadcaster(uint(subID))
+
+	go func() {
+		defer removeSubBroadcaster(uint(subID))
+		service.PullSubscriptionWithCallback(&sub, func(line string) {
+			broadcaster.broadcast(line)
+		})
+		broadcaster.done()
+	}()
 
 	response.Success(c, gin.H{"message": "拉取任务已启动"})
+}
+
+func (h *SubscriptionHandler) PullStream(c *gin.Context) {
+	subID, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+
+	tokenStr := c.Query("token")
+	if tokenStr == "" {
+		c.JSON(401, gin.H{"error": "缺少令牌"})
+		return
+	}
+	claims, err := middleware.ParseToken(tokenStr)
+	if err != nil || claims.TokenType != "access" {
+		c.JSON(401, gin.H{"error": "令牌无效"})
+		return
+	}
+
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+
+	subPullStreamsMu.RLock()
+	broadcaster, exists := subPullStreams[uint(subID)]
+	subPullStreamsMu.RUnlock()
+
+	if !exists {
+		fmt.Fprintf(c.Writer, "event: done\ndata: not_running\n\n")
+		c.Writer.Flush()
+		return
+	}
+
+	history := broadcaster.history()
+	if history != "" {
+		for _, line := range strings.Split(strings.TrimRight(history, "\n"), "\n") {
+			if line != "" {
+				fmt.Fprintf(c.Writer, "data: %s\n\n", line)
+			}
+		}
+		c.Writer.Flush()
+	}
+
+	sub := broadcaster.subscribe()
+	defer broadcaster.unsubscribe(sub)
+
+	ctx := c.Request.Context()
+	for {
+		select {
+		case line, ok := <-sub:
+			if !ok {
+				fmt.Fprintf(c.Writer, "event: done\ndata: closed\n\n")
+				c.Writer.Flush()
+				return
+			}
+			if line == "\x00DONE" {
+				fmt.Fprintf(c.Writer, "event: done\ndata: finished\n\n")
+				c.Writer.Flush()
+				return
+			}
+			fmt.Fprintf(c.Writer, "data: %s\n\n", line)
+			c.Writer.Flush()
+		case <-ctx.Done():
+			return
+		case <-time.After(5 * time.Minute):
+			fmt.Fprintf(c.Writer, "event: done\ndata: timeout\n\n")
+			c.Writer.Flush()
+			return
+		}
+	}
 }
 
 func (h *SubscriptionHandler) Logs(c *gin.Context) {
@@ -243,6 +412,7 @@ func (h *SubscriptionHandler) RegisterRoutes(r *gin.RouterGroup) {
 		subs.PUT("/:id/enable", h.Enable)
 		subs.PUT("/:id/disable", h.Disable)
 		subs.PUT("/:id/pull", h.Pull)
+		subs.GET("/:id/pull-stream", h.PullStream)
 		subs.GET("/:id/logs", h.Logs)
 		subs.DELETE("/batch", h.BatchDelete)
 	}
