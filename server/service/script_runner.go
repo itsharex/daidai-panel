@@ -19,7 +19,9 @@ type ScriptResult struct {
 
 type OnOutputFunc func(line string)
 
-func RunCommand(command, scriptsDir string, timeout int, envVars map[string]string, maxLogSize int, onOutput OnOutputFunc) (*ScriptResult, *os.Process, error) {
+type OnProcessStartFunc func(process *os.Process)
+
+func RunCommand(command, scriptsDir string, timeout int, envVars map[string]string, maxLogSize int, onOutput OnOutputFunc, onProcessStart ...OnProcessStartFunc) (*ScriptResult, *os.Process, error) {
 	interpreter, scriptPath, err := validateCommand(command, scriptsDir)
 	if err != nil {
 		return nil, nil, err
@@ -38,6 +40,10 @@ func RunCommand(command, scriptsDir string, timeout int, envVars map[string]stri
 	}
 
 	process := cmd.Process
+
+	if len(onProcessStart) > 0 && onProcessStart[0] != nil {
+		onProcessStart[0](process)
+	}
 
 	var outputBuilder strings.Builder
 	totalSize := 0

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, nextTick, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, nextTick, computed } from 'vue'
 import { envApi } from '@/api/env'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import Sortable from 'sortablejs'
@@ -31,6 +31,7 @@ const exportFormat = ref('shell')
 const exportContent = ref('')
 
 const tableRef = ref()
+let sortableInstance: any = null
 
 async function loadData() {
   loading.value = true
@@ -64,10 +65,21 @@ onMounted(() => {
   loadGroups()
 })
 
+onBeforeUnmount(() => {
+  if (sortableInstance) {
+    sortableInstance.destroy()
+    sortableInstance = null
+  }
+})
+
 function initSortable() {
+  if (sortableInstance) {
+    sortableInstance.destroy()
+    sortableInstance = null
+  }
   const el = document.querySelector('.env-table .el-table__body-wrapper tbody')
   if (!el) return
-  Sortable.create(el as HTMLElement, {
+  sortableInstance = Sortable.create(el as HTMLElement, {
     animation: 150,
     handle: '.drag-handle',
     ghostClass: 'sortable-ghost',
@@ -144,13 +156,22 @@ async function handleSave() {
   }
 }
 
-async function handleMoveToTop(row: any) {
+function isTopPinned(row: any) {
+  return row.position < 10000
+}
+
+async function handleToggleTop(row: any) {
   try {
-    await envApi.moveToTop(row.id)
-    ElMessage.success('已置顶')
+    if (isTopPinned(row)) {
+      await envApi.cancelTop(row.id)
+      ElMessage.success('已取消置顶')
+    } else {
+      await envApi.moveToTop(row.id)
+      ElMessage.success('已置顶')
+    }
     loadData()
   } catch {
-    ElMessage.error('置顶失败')
+    ElMessage.error('操作失败')
   }
 }
 
@@ -421,7 +442,9 @@ function copyExport() {
       <el-table-column label="操作" width="200" fixed="right">
         <template #default="{ row }">
           <el-button size="small" text type="primary" @click="openEdit(row)">编辑</el-button>
-          <el-button size="small" text type="warning" @click="handleMoveToTop(row)">置顶</el-button>
+          <el-button size="small" text :type="isTopPinned(row) ? 'info' : 'warning'" @click="handleToggleTop(row)">
+            {{ isTopPinned(row) ? '取消置顶' : '置顶' }}
+          </el-button>
           <el-button size="small" text type="danger" @click="handleDelete(row.id)">删除</el-button>
         </template>
       </el-table-column>

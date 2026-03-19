@@ -45,6 +45,10 @@ export const envApi = {
     return request.put(`/envs/${id}/move-top`) as Promise<{ message: string }>
   },
 
+  cancelTop(id: number) {
+    return request.put(`/envs/${id}/cancel-top`) as Promise<{ message: string }>
+  },
+
   groups() {
     return request.get('/envs/groups') as Promise<{ data: string[] }>
   },

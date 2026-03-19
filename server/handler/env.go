@@ -566,6 +566,21 @@ func (h *EnvHandler) MoveToTop(c *gin.Context) {
 	response.Success(c, gin.H{"message": "已置顶"})
 }
 
+func (h *EnvHandler) CancelMoveToTop(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	var env model.EnvVar
+	if err := database.DB.First(&env, id).Error; err != nil {
+		response.NotFound(c, "环境变量不存在")
+		return
+	}
+
+	var maxPos float64
+	database.DB.Model(&model.EnvVar{}).Select("COALESCE(MAX(position), 10000)").Scan(&maxPos)
+	database.DB.Model(&env).Update("position", maxPos+1)
+
+	response.Success(c, gin.H{"message": "已取消置顶"})
+}
+
 func (h *EnvHandler) RegisterRoutes(r *gin.RouterGroup) {
 	envs := r.Group("/envs", middleware.JWTAuth())
 	{
@@ -581,6 +596,7 @@ func (h *EnvHandler) RegisterRoutes(r *gin.RouterGroup) {
 		envs.GET("/export", h.Export)
 		envs.PUT("/sort", h.Sort)
 		envs.PUT("/:id/move-top", h.MoveToTop)
+		envs.PUT("/:id/cancel-top", h.CancelMoveToTop)
 		envs.GET("/groups", h.Groups)
 		envs.GET("/export-all", h.ExportAll)
 		envs.POST("/export-files", h.ExportFiles)

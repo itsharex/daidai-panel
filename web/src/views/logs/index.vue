@@ -285,11 +285,25 @@ onBeforeUnmount(() => {
       <el-table-column label="结束时间" width="180">
         <template #default="{ row }">{{ formatTime(row.ended_at) }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="180" fixed="right">
+      <el-table-column label="操作" width="160" fixed="right">
         <template #default="{ row }">
-          <el-button type="primary" text size="small" @click="viewDetail(row)">查看</el-button>
-          <el-button type="info" text size="small" @click="browseLogFiles(row)">文件</el-button>
-          <el-button type="danger" text size="small" @click="handleDelete(row)">删除</el-button>
+          <div class="action-group">
+            <el-tooltip content="查看日志" placement="top">
+              <el-button size="small" type="primary" plain circle @click="viewDetail(row)">
+                <el-icon><View /></el-icon>
+              </el-button>
+            </el-tooltip>
+            <el-tooltip content="日志文件" placement="top">
+              <el-button size="small" type="info" plain circle @click="browseLogFiles(row)">
+                <el-icon><Folder /></el-icon>
+              </el-button>
+            </el-tooltip>
+            <el-tooltip content="删除" placement="top">
+              <el-button size="small" type="danger" plain circle @click="handleDelete(row)">
+                <el-icon><Delete /></el-icon>
+              </el-button>
+            </el-tooltip>
+          </div>
         </template>
       </el-table-column>
     </el-table>
@@ -387,6 +401,12 @@ onBeforeUnmount(() => {
 
 .log-meta {
   margin-bottom: 16px;
+}
+
+.action-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .log-content {

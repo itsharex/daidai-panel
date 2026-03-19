@@ -420,12 +420,12 @@ async function handleImport(event: Event) {
           </div>
         </template>
       </el-table-column>
-      <el-table-column label="命令" min-width="160" show-overflow-tooltip>
+      <el-table-column label="命令" min-width="160">
         <template #default="{ row }">
           <code class="command-text">
             <template v-if="extractScriptPath(row.command)">
               <span>{{ row.command.replace(extractScriptPath(row.command), '') }}</span>
-              <span class="script-link" @click="navigateToScript(extractScriptPath(row.command)!)">{{ extractScriptPath(row.command) }}</span>
+              <span class="script-link" @click.stop="navigateToScript(extractScriptPath(row.command)!)">{{ extractScriptPath(row.command) }}</span>
             </template>
             <template v-else>{{ row.command }}</template>
           </code>

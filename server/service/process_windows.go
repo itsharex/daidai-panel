@@ -10,6 +10,9 @@ import (
 func setPgid(cmd *exec.Cmd) {
 }
 
+func SetPgid(cmd *exec.Cmd) {
+}
+
 func killGroup(p *os.Process) {
 }
 

@@ -143,11 +143,9 @@ async function loadPanelSettings() {
 
       <el-main class="layout-main">
         <router-view v-slot="{ Component, route: viewRoute }">
-          <transition name="page-fade" mode="out-in">
-            <keep-alive :max="3">
-              <component :is="Component" :key="viewRoute.path" />
-            </keep-alive>
-          </transition>
+          <keep-alive :max="3">
+            <component :is="Component" :key="viewRoute.path" />
+          </keep-alive>
         </router-view>
       </el-main>
     </el-container>

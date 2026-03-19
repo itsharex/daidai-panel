@@ -301,20 +301,19 @@ func (s *Scheduler) executeTaskInner(taskID uint) {
 			time.Sleep(time.Duration(task.RetryInterval) * time.Second)
 		}
 
-		result, process, err := RunCommand(task.Command, s.scriptsDir, timeout, envVars, maxLogSize, onOutput)
-		if err != nil {
-			onOutput(fmt.Sprintf("[执行错误: %s]", err.Error()))
-			retries++
-			lastExitCode = 1
-			continue
-		}
-
-		if process != nil {
+		onStart := func(process *os.Process) {
 			s.processLock.Lock()
 			s.runningProcesses[taskID] = process
 			pid := process.Pid
 			s.processLock.Unlock()
 			database.DB.Model(&task).Update("pid", pid)
+		}
+		result, _, err := RunCommand(task.Command, s.scriptsDir, timeout, envVars, maxLogSize, onOutput, onStart)
+		if err != nil {
+			onOutput(fmt.Sprintf("[执行错误: %s]", err.Error()))
+			retries++
+			lastExitCode = 1
+			continue
 		}
 
 		lastExitCode = result.ReturnCode

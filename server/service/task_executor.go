@@ -263,7 +263,8 @@ func (e *TaskExecutor) runTask(req *ExecutionRequest, taskLog *model.TaskLog, ti
 
 	retries := 0
 	var lastExitCode int
-	depInstalled := false
+	depInstallCount := 0
+	maxDepInstalls := 5
 
 	for retries <= task.MaxRetries {
 		if retries > 0 {
@@ -272,20 +273,19 @@ func (e *TaskExecutor) runTask(req *ExecutionRequest, taskLog *model.TaskLog, ti
 		}
 
 		outputCollector.Reset()
-		result, process, err := RunCommand(task.Command, e.scriptsDir, timeout, envVars, maxLogSize, onOutputWithCollect)
-		if err != nil {
-			onOutput(fmt.Sprintf("[执行错误: %s]", err.Error()))
-			retries++
-			lastExitCode = 1
-			continue
-		}
-
-		if process != nil {
+		onStart := func(process *os.Process) {
 			e.processLock.Lock()
 			e.runningProcesses[req.TaskID] = process
 			pid := process.Pid
 			e.processLock.Unlock()
 			database.DB.Model(task).Update("pid", pid)
+		}
+		result, _, err := RunCommand(task.Command, e.scriptsDir, timeout, envVars, maxLogSize, onOutputWithCollect, onStart)
+		if err != nil {
+			onOutput(fmt.Sprintf("[执行错误: %s]", err.Error()))
+			retries++
+			lastExitCode = 1
+			continue
 		}
 
 		lastExitCode = result.ReturnCode
@@ -294,11 +294,11 @@ func (e *TaskExecutor) runTask(req *ExecutionRequest, taskLog *model.TaskLog, ti
 			break
 		}
 
-		if !depInstalled && model.GetConfigInt("auto_install_deps", 1) == 1 {
+		if depInstallCount < maxDepInstalls && model.GetConfigInt("auto_install_deps", 1) == 1 {
 			collected := outputCollector.String()
 			if e.detectAndInstallDeps(collected, envVars, onOutput) {
-				depInstalled = true
-				onOutput("[依赖已安装，自动重试执行]")
+				depInstallCount++
+				onOutput(fmt.Sprintf("[依赖已安装 (%d/%d)，自动重试执行]", depInstallCount, maxDepInstalls))
 				continue
 			}
 		}
@@ -325,7 +325,7 @@ func (e *TaskExecutor) runTask(req *ExecutionRequest, taskLog *model.TaskLog, ti
 
 var (
 	pyModuleRe  = regexp.MustCompile(`(?:ModuleNotFoundError|ImportError):\s*No module named\s+'([^']+)'`)
-	nodeModuleRe = regexp.MustCompile(`(?:Cannot find module|Error \[ERR_MODULE_NOT_FOUND\].*)'([^']+)'`)
+	nodeModuleRe = regexp.MustCompile(`(?:Cannot find module|Error \[ERR_MODULE_NOT_FOUND\].*)\s*'([^']+)'`)
 )
 
 func (e *TaskExecutor) detectAndInstallDeps(output string, envVars map[string]string, onOutput OnOutputFunc) bool {
@@ -348,6 +348,7 @@ func (e *TaskExecutor) detectAndInstallDeps(output string, envVars map[string]st
 		} else {
 			onOutput(fmt.Sprintf("[安装成功: %s]", modName))
 			installed = true
+			recordAutoInstalledDep(model.DepTypePython, modName, string(out))
 		}
 	}
 
@@ -367,10 +368,29 @@ func (e *TaskExecutor) detectAndInstallDeps(output string, envVars map[string]st
 		} else {
 			onOutput(fmt.Sprintf("[安装成功: %s]", modName))
 			installed = true
+			recordAutoInstalledDep(model.DepTypeNodeJS, modName, string(out))
 		}
 	}
 
 	return installed
+}
+
+func recordAutoInstalledDep(depType, name, installLog string) {
+	var existing model.Dependency
+	if err := database.DB.Where("type = ? AND name = ?", depType, name).First(&existing).Error; err == nil {
+		database.DB.Model(&existing).Updates(map[string]interface{}{
+			"status": model.DepStatusInstalled,
+			"log":    installLog,
+		})
+		return
+	}
+	dep := model.Dependency{
+		Type:   depType,
+		Name:   name,
+		Status: model.DepStatusInstalled,
+		Log:    installLog,
+	}
+	database.DB.Create(&dep)
 }
 
 func buildEnvSlice(envVars map[string]string) []string {

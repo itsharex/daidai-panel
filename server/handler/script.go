@@ -22,6 +22,7 @@ import (
 	"daidai-panel/middleware"
 	"daidai-panel/model"
 	"daidai-panel/pkg/response"
+	"daidai-panel/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -780,6 +781,72 @@ func (h *ScriptHandler) DebugRun(c *gin.Context) {
 				exitCode = 1
 			}
 		}
+
+		if exitCode != 0 && model.GetConfigInt("auto_install_deps", 1) == 1 {
+			output := strings.Join(run.Logs, "\n")
+			depName := detectMissingDep(output, envMap)
+			if depName != "" {
+				run.Logs = append(run.Logs, fmt.Sprintf("[检测到缺失依赖: %s，正在自动安装...]", depName))
+				run.mu.Unlock()
+
+				installOk := installDepForDebug(depName, ext, envMap)
+
+				run.mu.Lock()
+				if installOk {
+					run.Logs = append(run.Logs, fmt.Sprintf("[安装成功: %s，自动重试执行]", depName))
+					run.mu.Unlock()
+
+					retryCmd := exec.Command(cmdParts[0], cmdParts[1:]...)
+					retryCmd.Dir = workDir
+					retryCmd.Env = env
+					service.SetPgid(retryCmd)
+
+					retryPipeReader, retryPipeWriter := io.Pipe()
+					retryCmd.Stdout = retryPipeWriter
+					retryCmd.Stderr = retryPipeWriter
+
+					if startErr := retryCmd.Start(); startErr == nil {
+						run.mu.Lock()
+						run.Process = retryCmd.Process
+						run.mu.Unlock()
+
+						retryScanDone := make(chan struct{})
+						go func() {
+							scanner := bufio.NewScanner(retryPipeReader)
+							scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+							for scanner.Scan() {
+								line := scanner.Text()
+								run.mu.Lock()
+								run.Logs = append(run.Logs, line)
+								run.mu.Unlock()
+							}
+							close(retryScanDone)
+						}()
+
+						retryErr := retryCmd.Wait()
+						retryPipeWriter.Close()
+						<-retryScanDone
+						elapsed = time.Since(startTime).Seconds()
+
+						run.mu.Lock()
+						exitCode = 0
+						if retryErr != nil {
+							if exitErr, ok := retryErr.(*exec.ExitError); ok {
+								exitCode = exitErr.ExitCode()
+							} else {
+								exitCode = 1
+							}
+						}
+					} else {
+						run.mu.Lock()
+						run.Logs = append(run.Logs, fmt.Sprintf("[重试启动失败: %s]", startErr))
+					}
+				} else {
+					run.Logs = append(run.Logs, fmt.Sprintf("[安装失败: %s]", depName))
+				}
+			}
+		}
+
 		run.ExitCode = &exitCode
 		run.Done = true
 		if exitCode == 0 {
@@ -1139,4 +1206,49 @@ func (h *ScriptHandler) RegisterRoutes(r *gin.RouterGroup) {
 		scripts.DELETE("/run/:run_id", h.DebugClear)
 		scripts.POST("/format", h.Format)
 	}
+}
+
+var (
+	debugNodeModuleRe = regexp.MustCompile(`(?:Cannot find module|Error \[ERR_MODULE_NOT_FOUND\].*)\s*'([^']+)'`)
+	debugPyModuleRe   = regexp.MustCompile(`(?:ModuleNotFoundError|ImportError):\s*No module named\s+'([^']+)'`)
+)
+
+func detectMissingDep(output string, envMap map[string]string) string {
+	if matches := debugNodeModuleRe.FindStringSubmatch(output); len(matches) > 1 {
+		mod := matches[1]
+		if !strings.HasPrefix(mod, ".") && !strings.HasPrefix(mod, "/") {
+			return mod
+		}
+	}
+	if matches := debugPyModuleRe.FindStringSubmatch(output); len(matches) > 1 {
+		return strings.Split(matches[1], ".")[0]
+	}
+	return ""
+}
+
+func installDepForDebug(depName, ext string, envMap map[string]string) bool {
+	depsDir := filepath.Join(config.C.Data.Dir, "deps")
+	env := os.Environ()
+	for k, v := range envMap {
+		env = append(env, k+"="+v)
+	}
+
+	isPython := ext == ".py"
+	if isPython {
+		venvPip := filepath.Join(depsDir, "python", "venv", "bin", "pip3")
+		if _, err := os.Stat(venvPip); err != nil {
+			venvPip = "pip3"
+		}
+		cmd := exec.Command(venvPip, "install", depName)
+		cmd.Env = env
+		_, err := cmd.CombinedOutput()
+		return err == nil
+	}
+
+	nodeDir := filepath.Join(depsDir, "nodejs")
+	os.MkdirAll(nodeDir, 0755)
+	cmd := exec.Command("npm", "install", depName, "--prefix", nodeDir)
+	cmd.Env = env
+	_, err := cmd.CombinedOutput()
+	return err == nil
 }
