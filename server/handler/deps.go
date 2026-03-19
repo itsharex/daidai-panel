@@ -3,6 +3,7 @@ package handler
 import (
 	"bufio"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -356,8 +357,9 @@ func (h *DepsHandler) NpmList(c *gin.Context) {
 
 func (h *DepsHandler) GetMirrors(c *gin.Context) {
 	result := gin.H{
-		"pip_mirror": "",
-		"npm_mirror": "",
+		"pip_mirror":   "",
+		"npm_mirror":   "",
+		"linux_mirror": "",
 	}
 
 	if out, err := exec.Command("pip3", "config", "get", "global.index-url").Output(); err == nil {
@@ -373,13 +375,27 @@ func (h *DepsHandler) GetMirrors(c *gin.Context) {
 		}
 	}
 
+	if data, err := os.ReadFile("/etc/apk/repositories"); err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			line = strings.TrimSpace(line)
+			if line != "" && !strings.HasPrefix(line, "#") {
+				parts := strings.SplitN(line, "/v", 2)
+				if len(parts) > 0 {
+					result["linux_mirror"] = strings.TrimRight(parts[0], "/")
+					break
+				}
+			}
+		}
+	}
+
 	response.Success(c, result)
 }
 
 func (h *DepsHandler) SetMirrors(c *gin.Context) {
 	var req struct {
-		PipMirror *string `json:"pip_mirror"`
-		NpmMirror *string `json:"npm_mirror"`
+		PipMirror   *string `json:"pip_mirror"`
+		NpmMirror   *string `json:"npm_mirror"`
+		LinuxMirror *string `json:"linux_mirror"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "请求参数错误")
@@ -423,6 +439,30 @@ func (h *DepsHandler) SetMirrors(c *gin.Context) {
 				if out, err := exec.Command("npm", "config", "set", "registry", mirror).CombinedOutput(); err != nil {
 					errors = append(errors, "设置 npm 镜像源失败: "+string(out))
 				}
+			}
+		}
+	}
+
+	if req.LinuxMirror != nil {
+		mirror := strings.TrimSpace(*req.LinuxMirror)
+		if mirror == "" {
+			mirror = "https://dl-cdn.alpinelinux.org/alpine"
+		}
+		if !strings.HasPrefix(mirror, "http://") && !strings.HasPrefix(mirror, "https://") {
+			errors = append(errors, "Linux 镜像源必须以 http:// 或 https:// 开头")
+		} else {
+			mirror = strings.TrimRight(mirror, "/")
+			out, err := exec.Command("cat", "/etc/alpine-release").Output()
+			ver := "3.19"
+			if err == nil {
+				parts := strings.Split(strings.TrimSpace(string(out)), ".")
+				if len(parts) >= 2 {
+					ver = parts[0] + "." + parts[1]
+				}
+			}
+			content := fmt.Sprintf("%s/v%s/main\n%s/v%s/community\n", mirror, ver, mirror, ver)
+			if err := os.WriteFile("/etc/apk/repositories", []byte(content), 0644); err != nil {
+				errors = append(errors, "设置 Linux 镜像源失败: "+err.Error())
 			}
 		}
 	}

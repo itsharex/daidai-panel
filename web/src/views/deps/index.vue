@@ -131,6 +131,25 @@
             </template>
           </el-input>
         </el-form-item>
+        <el-form-item label="Linux (apk)">
+          <el-input v-model="mirrorForm.linux_mirror" placeholder="留空使用官方源" clearable>
+            <template #append>
+              <el-dropdown @command="(v: string) => mirrorForm.linux_mirror = v" trigger="click">
+                <el-button>快捷选择</el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="https://mirrors.tuna.tsinghua.edu.cn/alpine">清华大学</el-dropdown-item>
+                    <el-dropdown-item command="https://mirrors.aliyun.com/alpine">阿里云</el-dropdown-item>
+                    <el-dropdown-item command="https://mirrors.cloud.tencent.com/alpine">腾讯云</el-dropdown-item>
+                    <el-dropdown-item command="https://repo.huaweicloud.com/alpine">华为云</el-dropdown-item>
+                    <el-dropdown-item command="https://mirrors.ustc.edu.cn/alpine">中科大</el-dropdown-item>
+                    <el-dropdown-item command="">官方源 (默认)</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </template>
+          </el-input>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="showMirrorDialog = false">取消</el-button>
@@ -165,7 +184,7 @@ let refreshTimer: ReturnType<typeof setInterval> | null = null
 const showMirrorDialog = ref(false)
 const mirrorLoading = ref(false)
 const mirrorSaving = ref(false)
-const mirrorForm = ref({ pip_mirror: '', npm_mirror: '' })
+const mirrorForm = ref({ pip_mirror: '', npm_mirror: '', linux_mirror: '' })
 
 const nodejsCount = ref(0)
 const pythonCount = ref(0)
@@ -340,6 +359,7 @@ async function openMirrorDialog() {
     const res = await depsApi.getMirrors()
     mirrorForm.value.pip_mirror = res.pip_mirror || ''
     mirrorForm.value.npm_mirror = res.npm_mirror || ''
+    mirrorForm.value.linux_mirror = res.linux_mirror || ''
   } catch { ElMessage.error('获取镜像源配置失败') }
   finally { mirrorLoading.value = false }
 }
