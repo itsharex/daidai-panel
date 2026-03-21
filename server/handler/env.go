@@ -16,14 +16,133 @@ import (
 	"daidai-panel/pkg/response"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 var envNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+const (
+	envNormalSortOrder = 0
+	envPinnedSortOrder = 1
+	envPositionStep    = 1000.0
+)
 
 type EnvHandler struct{}
 
 func NewEnvHandler() *EnvHandler {
 	return &EnvHandler{}
+}
+
+func orderedEnvQuery() *gorm.DB {
+	return database.DB.Model(&model.EnvVar{}).
+		Order("sort_order DESC, position ASC, created_at ASC, id ASC")
+}
+
+func normalizeEnvGroupValue(value string) string {
+	return strings.TrimSpace(value)
+}
+
+func nextEnvPosition(tx *gorm.DB, sortOrder int) (float64, error) {
+	var last model.EnvVar
+	err := tx.Where("sort_order = ?", sortOrder).
+		Order("position DESC, id DESC").
+		First(&last).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return envPositionStep, nil
+		}
+		return 0, err
+	}
+	return last.Position + envPositionStep, nil
+}
+
+func appendEnvToSortBucket(tx *gorm.DB, env *model.EnvVar, sortOrder int) error {
+	if env == nil {
+		return fmt.Errorf("环境变量不存在")
+	}
+
+	nextPos, err := nextEnvPosition(tx, sortOrder)
+	if err != nil {
+		return err
+	}
+
+	return tx.Model(env).Updates(map[string]interface{}{
+		"sort_order": sortOrder,
+		"position":   nextPos,
+	}).Error
+}
+
+func reorderEnvWithinSortBucket(tx *gorm.DB, sourceID uint, targetID *uint) error {
+	var source model.EnvVar
+	if err := tx.First(&source, sourceID).Error; err != nil {
+		return fmt.Errorf("源环境变量不存在")
+	}
+
+	if targetID != nil && *targetID == source.ID {
+		return nil
+	}
+
+	if targetID != nil {
+		var target model.EnvVar
+		if err := tx.First(&target, *targetID).Error; err != nil {
+			return fmt.Errorf("目标环境变量不存在")
+		}
+		if target.SortOrder != source.SortOrder {
+			return fmt.Errorf("置顶项和普通项请分别排序，需要跨区移动时请使用置顶按钮")
+		}
+	}
+
+	var siblings []model.EnvVar
+	if err := tx.Where("sort_order = ?", source.SortOrder).
+		Order("position ASC, created_at ASC, id ASC").
+		Find(&siblings).Error; err != nil {
+		return err
+	}
+
+	ordered := make([]model.EnvVar, 0, len(siblings))
+	insertIndex := len(siblings) - 1
+	if insertIndex < 0 {
+		insertIndex = 0
+	}
+
+	filtered := make([]model.EnvVar, 0, len(siblings))
+	for _, item := range siblings {
+		if item.ID == source.ID {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+
+	insertIndex = len(filtered)
+	if targetID != nil {
+		insertIndex = -1
+		for idx, item := range filtered {
+			if item.ID == *targetID {
+				insertIndex = idx
+				break
+			}
+		}
+		if insertIndex == -1 {
+			return fmt.Errorf("目标环境变量不存在")
+		}
+	}
+
+	ordered = append(ordered, filtered[:insertIndex]...)
+	ordered = append(ordered, source)
+	ordered = append(ordered, filtered[insertIndex:]...)
+
+	for idx, item := range ordered {
+		if err := tx.Model(&model.EnvVar{}).
+			Where("id = ?", item.ID).
+			Updates(map[string]interface{}{
+				"sort_order": source.SortOrder,
+				"position":   float64(idx+1) * envPositionStep,
+			}).Error; err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (h *EnvHandler) List(c *gin.Context) {
@@ -39,7 +158,7 @@ func (h *EnvHandler) List(c *gin.Context) {
 		pageSize = 20
 	}
 
-	query := database.DB.Model(&model.EnvVar{})
+	query := orderedEnvQuery()
 
 	if keyword != "" {
 		like := "%" + keyword + "%"
@@ -53,8 +172,7 @@ func (h *EnvHandler) List(c *gin.Context) {
 	query.Count(&total)
 
 	var envs []model.EnvVar
-	query.Order("position ASC, created_at ASC").
-		Offset((page - 1) * pageSize).Limit(pageSize).Find(&envs)
+	query.Offset((page - 1) * pageSize).Limit(pageSize).Find(&envs)
 
 	data := make([]map[string]interface{}, len(envs))
 	for i, e := range envs {
@@ -129,7 +247,7 @@ func (h *EnvHandler) Create(c *gin.Context) {
 		if found {
 			updates := map[string]interface{}{"value": item.Value}
 			if item.Group != "" {
-				updates["group"] = item.Group
+				updates["group"] = normalizeEnvGroupValue(item.Group)
 			}
 			database.DB.Model(&existing).Updates(updates)
 			database.DB.First(&existing, existing.ID)
@@ -137,13 +255,20 @@ func (h *EnvHandler) Create(c *gin.Context) {
 			continue
 		}
 
+		nextPos, err := nextEnvPosition(database.DB, envNormalSortOrder)
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("item %d: %s", i+1, err.Error()))
+			continue
+		}
+
 		env := model.EnvVar{
-			Name:     item.Name,
-			Value:    item.Value,
-			Remarks:  item.Remarks,
-			Group:    item.Group,
-			Enabled:  true,
-			Position: 10000.0,
+			Name:      item.Name,
+			Value:     item.Value,
+			Remarks:   item.Remarks,
+			Group:     normalizeEnvGroupValue(item.Group),
+			Enabled:   true,
+			SortOrder: envNormalSortOrder,
+			Position:  nextPos,
 		}
 
 		if err := database.DB.Create(&env).Error; err != nil {
@@ -184,6 +309,12 @@ func (h *EnvHandler) Update(c *gin.Context) {
 	updates := make(map[string]interface{})
 	for k, v := range req {
 		if allowed[k] {
+			if k == "group" {
+				if group, ok := v.(string); ok {
+					updates[k] = normalizeEnvGroupValue(group)
+				}
+				continue
+			}
 			updates[k] = v
 		}
 	}
@@ -294,29 +425,16 @@ func (h *EnvHandler) Sort(c *gin.Context) {
 		return
 	}
 
-	if req.TargetID == nil {
-		var maxPos float64
-		database.DB.Model(&model.EnvVar{}).Select("COALESCE(MAX(position), 0)").Scan(&maxPos)
-		database.DB.Model(&source).Update("position", maxPos+1000)
-	} else {
-		var target model.EnvVar
-		if err := database.DB.First(&target, *req.TargetID).Error; err != nil {
-			response.NotFound(c, "目标环境变量不存在")
-			return
+	if err := database.DB.Transaction(func(tx *gorm.DB) error {
+		return reorderEnvWithinSortBucket(tx, req.SourceID, req.TargetID)
+	}); err != nil {
+		switch err.Error() {
+		case "源环境变量不存在", "目标环境变量不存在":
+			response.NotFound(c, err.Error())
+		default:
+			response.BadRequest(c, err.Error())
 		}
-
-		var prev model.EnvVar
-		err := database.DB.Where("position < ? AND id != ?", target.Position, source.ID).
-			Order("position DESC").First(&prev).Error
-
-		var newPos float64
-		if err != nil {
-			newPos = target.Position / 2.0
-		} else {
-			newPos = (prev.Position + target.Position) / 2.0
-		}
-
-		database.DB.Model(&source).Update("position", newPos)
+		return
 	}
 
 	response.Success(c, gin.H{"message": "排序更新成功"})
@@ -334,7 +452,7 @@ func (h *EnvHandler) Groups(c *gin.Context) {
 
 func (h *EnvHandler) Export(c *gin.Context) {
 	var envs []model.EnvVar
-	database.DB.Where("enabled = ?", true).Order("position ASC").Find(&envs)
+	orderedEnvQuery().Where("enabled = ?", true).Find(&envs)
 
 	data := make(map[string]string)
 	for _, e := range envs {
@@ -346,7 +464,7 @@ func (h *EnvHandler) Export(c *gin.Context) {
 
 func (h *EnvHandler) ExportAll(c *gin.Context) {
 	var envs []model.EnvVar
-	database.DB.Order("position ASC").Find(&envs)
+	orderedEnvQuery().Find(&envs)
 
 	data := make([]map[string]interface{}, len(envs))
 	for i, e := range envs {
@@ -374,7 +492,7 @@ func (h *EnvHandler) ExportFiles(c *gin.Context) {
 		req.Format = "all"
 	}
 
-	query := database.DB.Model(&model.EnvVar{}).Order("position ASC")
+	query := orderedEnvQuery()
 	if req.EnabledOnly != nil && *req.EnabledOnly {
 		query = query.Where("enabled = ?", true)
 	}
@@ -525,13 +643,20 @@ func (h *EnvHandler) Import(c *gin.Context) {
 			}
 		}
 
+		nextPos, err := nextEnvPosition(database.DB, envNormalSortOrder)
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("item %d: %s", i+1, err.Error()))
+			continue
+		}
+
 		env := model.EnvVar{
-			Name:     name,
-			Value:    value,
-			Remarks:  remarks,
-			Group:    group,
-			Enabled:  enabled,
-			Position: 10000.0,
+			Name:      name,
+			Value:     value,
+			Remarks:   remarks,
+			Group:     normalizeEnvGroupValue(group),
+			Enabled:   enabled,
+			SortOrder: envNormalSortOrder,
+			Position:  nextPos,
 		}
 		if err := database.DB.Create(&env).Error; err != nil {
 			errors = append(errors, fmt.Sprintf("item %d: %s", i+1, err.Error()))
@@ -559,9 +684,27 @@ func (h *EnvHandler) MoveToTop(c *gin.Context) {
 		return
 	}
 
-	var minPos float64
-	database.DB.Model(&model.EnvVar{}).Select("COALESCE(MIN(position), 10000)").Scan(&minPos)
-	database.DB.Model(&env).Update("position", minPos-1000)
+	if err := database.DB.Transaction(func(tx *gorm.DB) error {
+		var firstPinned model.EnvVar
+		err := tx.Where("sort_order = ?", envPinnedSortOrder).
+			Order("position ASC, id ASC").
+			First(&firstPinned).Error
+
+		newPos := envPositionStep
+		if err == nil {
+			newPos = firstPinned.Position - envPositionStep
+		} else if err != gorm.ErrRecordNotFound {
+			return err
+		}
+
+		return tx.Model(&env).Updates(map[string]interface{}{
+			"sort_order": envPinnedSortOrder,
+			"position":   newPos,
+		}).Error
+	}); err != nil {
+		response.InternalError(c, "置顶失败")
+		return
+	}
 
 	response.Success(c, gin.H{"message": "已置顶"})
 }
@@ -574,9 +717,12 @@ func (h *EnvHandler) CancelMoveToTop(c *gin.Context) {
 		return
 	}
 
-	var maxPos float64
-	database.DB.Model(&model.EnvVar{}).Select("COALESCE(MAX(position), 10000)").Scan(&maxPos)
-	database.DB.Model(&env).Update("position", maxPos+1)
+	if err := database.DB.Transaction(func(tx *gorm.DB) error {
+		return appendEnvToSortBucket(tx, &env, envNormalSortOrder)
+	}); err != nil {
+		response.InternalError(c, "取消置顶失败")
+		return
+	}
 
 	response.Success(c, gin.H{"message": "已取消置顶"})
 }
@@ -591,8 +737,15 @@ func (h *EnvHandler) BatchSetGroup(c *gin.Context) {
 		return
 	}
 
-	database.DB.Model(&model.EnvVar{}).Where("id IN ?", req.IDs).Update("\"group\"", req.Group)
-	response.Success(c, gin.H{"message": fmt.Sprintf("已更新 %d 个变量的分组", len(req.IDs))})
+	result := database.DB.Model(&model.EnvVar{}).
+		Where("id IN ?", req.IDs).
+		Updates(map[string]interface{}{"group": normalizeEnvGroupValue(req.Group)})
+	if result.Error != nil {
+		response.InternalError(c, "批量分组失败")
+		return
+	}
+
+	response.Success(c, gin.H{"message": fmt.Sprintf("已更新 %d 个变量的分组", result.RowsAffected)})
 }
 
 func (h *EnvHandler) RegisterRoutes(r *gin.RouterGroup) {

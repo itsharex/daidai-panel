@@ -571,7 +571,6 @@ func restoreBackupManifest(manifest BackupManifest, extractedDir string) error {
 
 	var createdDependencies []model.Dependency
 	taskIDMap := map[uint]uint{}
-	userIDMap := map[uint]uint{}
 	sshKeyIDMap := map[uint]uint{}
 
 	rollback := func(err error) error {
@@ -606,14 +605,7 @@ func restoreBackupManifest(manifest BackupManifest, extractedDir string) error {
 			"api_call_logs",
 			"open_apps",
 			"notify_channels",
-			"user_sessions",
-			"two_factor_auths",
 			"ip_whitelists",
-			"login_attempts",
-			"login_logs",
-			"security_audits",
-			"token_blocklist",
-			"users",
 			"system_configs",
 		} {
 			if err := deleteAll(tx, table); err != nil {
@@ -631,11 +623,6 @@ func restoreBackupManifest(manifest BackupManifest, extractedDir string) error {
 		if err := restoreSystemConfigs(tx, manifest.Data.Configs.SystemConfigs); err != nil {
 			return rollback(err)
 		}
-		var err error
-		userIDMap, err = restoreUsers(tx, manifest.Data.Configs.Users)
-		if err != nil {
-			return rollback(err)
-		}
 		if err := restoreNotifyChannels(tx, manifest.Data.Configs.NotifyChannels); err != nil {
 			return rollback(err)
 		}
@@ -643,9 +630,6 @@ func restoreBackupManifest(manifest BackupManifest, extractedDir string) error {
 			return rollback(err)
 		}
 		if err := restoreIPWhitelists(tx, manifest.Data.Configs.IPWhitelists); err != nil {
-			return rollback(err)
-		}
-		if err := restoreTwoFactorAuths(tx, manifest.Data.Configs.TwoFactorAuths, userIDMap); err != nil {
 			return rollback(err)
 		}
 	}
@@ -714,7 +698,7 @@ func restoreBackupManifest(manifest BackupManifest, extractedDir string) error {
 		subScheduler.ReloadAllJobs()
 	}
 	if selection.Dependencies {
-		reinstallDependenciesAsync(createdDependencies)
+		dependencyReinstallBatchFunc(createdDependencies)
 	}
 
 	return nil
@@ -843,7 +827,7 @@ func restoreTasks(tx *gorm.DB, tasks []model.Task) (map[uint]uint, error) {
 		item.Status = normalizeRestoredTaskStatus(item.Status)
 		item.DependsOn = nil
 
-		if err := tx.Create(&item).Error; err != nil {
+		if err := tx.Select("*").Create(&item).Error; err != nil {
 			return nil, err
 		}
 		idMap[oldID] = item.ID
@@ -940,7 +924,7 @@ func restoreTaskLogs(tx *gorm.DB, logs []BackupTaskLog, taskIDMap map[uint]uint)
 }
 
 func restoreDependencies(tx *gorm.DB, deps []BackupDependency) ([]model.Dependency, error) {
-	created := make([]model.Dependency, 0, len(deps))
+	pending := make([]model.Dependency, 0, len(deps))
 	seen := map[string]struct{}{}
 	for _, item := range deps {
 		depType := strings.TrimSpace(item.Type)
@@ -956,17 +940,24 @@ func restoreDependencies(tx *gorm.DB, deps []BackupDependency) ([]model.Dependen
 		seen[key] = struct{}{}
 
 		dep := model.Dependency{
-			Type:   depType,
-			Name:   name,
-			Status: model.DepStatusInstalling,
-			Log:    "[恢复备份] 已提交依赖重装",
+			Type: depType,
+			Name: name,
+		}
+		if DependencyInstalled(depType, name) {
+			dep.Status = model.DepStatusInstalled
+			dep.Log = "[恢复备份] 已检测到依赖已存在，无需重装"
+		} else {
+			dep.Status = model.DepStatusInstalling
+			dep.Log = "[恢复备份] 已提交依赖重装"
 		}
 		if err := tx.Create(&dep).Error; err != nil {
 			return nil, err
 		}
-		created = append(created, dep)
+		if dep.Status == model.DepStatusInstalling {
+			pending = append(pending, dep)
+		}
 	}
-	return created, nil
+	return pending, nil
 }
 
 func restoreScriptFiles(extractedDir, source string) error {
@@ -1087,14 +1078,14 @@ func reinstallDependency(dep model.Dependency) {
 	switch dep.Type {
 	case model.DepTypeNodeJS:
 		cmd = exec.Command("npm", "install", "--prefix", filepath.Join(depsDir, "nodejs"), dep.Name)
-		cmd.Env = AppendProxyEnv(os.Environ())
+		cmd.Env = NpmInstallEnv(AppendProxyEnv(os.Environ()), CurrentNpmMirror())
 	case model.DepTypePython:
 		pipBin := filepath.Join(depsDir, "python", "venv", "bin", "pip")
 		if _, err := os.Stat(pipBin); err != nil {
 			pipBin = "pip3"
 		}
 		cmd = exec.Command(pipBin, "install", dep.Name)
-		cmd.Env = append(AppendProxyEnv(os.Environ()), "TMPDIR=/tmp")
+		cmd.Env = append(PipInstallEnv(AppendProxyEnv(os.Environ()), CurrentPipMirror()), "TMPDIR=/tmp")
 	case model.DepTypeLinux:
 		var err error
 		cmd, err = buildLinuxDependencyInstallCommand(dep.Name)

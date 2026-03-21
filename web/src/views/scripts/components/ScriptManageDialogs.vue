@@ -25,7 +25,7 @@ const props = defineProps<{
   onCreateDir: () => void | Promise<void>
   onRename: () => void | Promise<void>
   onRollback: (versionId: number) => void | Promise<void>
-  onUploadFileChange: (file: any) => void
+  onUploadFileChange: (file: any, files: any[]) => void
   onUploadSubmit: () => void | Promise<void>
 }>()
 
@@ -107,12 +107,14 @@ const nestedFolders = computed(() => props.allFolders.filter(folder => folder))
         <el-upload
           :auto-upload="false"
           :show-file-list="true"
-          :limit="1"
+          multiple
           :on-change="onUploadFileChange"
+          :on-remove="onUploadFileChange"
           drag
         >
           <el-icon :size="40"><Upload /></el-icon>
           <div>拖拽文件到此处或点击选择</div>
+          <div class="el-upload__tip">支持一次选择多个脚本文件，单个文件大小不超过 10MB。</div>
         </el-upload>
       </el-form-item>
     </el-form>

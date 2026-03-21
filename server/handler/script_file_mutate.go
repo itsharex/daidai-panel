@@ -3,14 +3,36 @@ package handler
 import (
 	"fmt"
 	"io"
+	"mime/multipart"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"daidai-panel/pkg/pathutil"
 	"daidai-panel/pkg/response"
 
 	"github.com/gin-gonic/gin"
 )
+
+type scriptUploadTarget struct {
+	header     *multipart.FileHeader
+	targetPath string
+	fullPath   string
+}
+
+func resolveScriptUploadPath(targetPath string) (string, error) {
+	baseDir, err := filepath.Abs(scriptsDir())
+	if err != nil {
+		return "", fmt.Errorf("脚本目录无效")
+	}
+
+	fullPath := filepath.Clean(filepath.Join(baseDir, filepath.FromSlash(targetPath)))
+	if !pathutil.IsWithinBase(baseDir, fullPath) {
+		return "", fmt.Errorf("检测到路径穿越")
+	}
+
+	return fullPath, nil
+}
 
 func (h *ScriptHandler) SaveContent(c *gin.Context) {
 	var req struct {
@@ -51,43 +73,75 @@ func (h *ScriptHandler) SaveContent(c *gin.Context) {
 }
 
 func (h *ScriptHandler) Upload(c *gin.Context) {
-	header, err := c.FormFile("file")
+	form, err := c.MultipartForm()
 	if err != nil {
 		response.BadRequest(c, "未选择文件")
 		return
 	}
 
-	if header.Size > maxUploadSize {
-		response.BadRequest(c, "文件过大（最大 10MB）")
-		return
-	}
-
-	filename := header.Filename
-	ext := strings.ToLower(filepath.Ext(filename))
-	if ext != "" && !allowedExtensions[ext] {
-		response.BadRequest(c, "不支持的文件类型")
+	headers := form.File["file"]
+	if len(headers) == 0 {
+		response.BadRequest(c, "未选择文件")
 		return
 	}
 
 	dir := c.PostForm("dir")
-	targetPath := filename
-	if dir != "" {
-		targetPath = filepath.Join(dir, filename)
+	targets := make([]scriptUploadTarget, 0, len(headers))
+	for _, header := range headers {
+		if header.Size > maxUploadSize {
+			response.BadRequest(c, fmt.Sprintf("文件 %s 过大（最大 10MB）", header.Filename))
+			return
+		}
+
+		filename := header.Filename
+		ext := strings.ToLower(filepath.Ext(filename))
+		if ext != "" && !allowedExtensions[ext] {
+			response.BadRequest(c, fmt.Sprintf("文件 %s 类型不支持", header.Filename))
+			return
+		}
+
+		targetPath := filename
+		if dir != "" {
+			targetPath = filepath.ToSlash(filepath.Join(dir, filename))
+		}
+
+		full, err := resolveScriptUploadPath(targetPath)
+		if err != nil {
+			response.BadRequest(c, err.Error())
+			return
+		}
+
+		targets = append(targets, scriptUploadTarget{
+			header:     header,
+			targetPath: filepath.ToSlash(targetPath),
+			fullPath:   full,
+		})
 	}
 
-	full, err := safePath(targetPath, false)
-	if err != nil {
-		response.BadRequest(c, err.Error())
-		return
+	uploadedPaths := make([]string, 0, len(targets))
+	for _, target := range targets {
+		if err := os.MkdirAll(filepath.Dir(target.fullPath), 0755); err != nil {
+			response.InternalError(c, "创建目录失败")
+			return
+		}
+		if err := c.SaveUploadedFile(target.header, target.fullPath); err != nil {
+			response.InternalError(c, fmt.Sprintf("保存文件失败: %s", target.header.Filename))
+			return
+		}
+		uploadedPaths = append(uploadedPaths, target.targetPath)
 	}
 
-	os.MkdirAll(filepath.Dir(full), 0755)
-	if err := c.SaveUploadedFile(header, full); err != nil {
-		response.InternalError(c, "保存文件失败")
-		return
+	message := "上传成功"
+	if len(uploadedPaths) > 1 {
+		message = fmt.Sprintf("成功上传 %d 个文件", len(uploadedPaths))
 	}
 
-	response.Created(c, gin.H{"message": "上传成功", "path": targetPath})
+	response.Created(c, gin.H{
+		"message":        message,
+		"path":           uploadedPaths[0],
+		"paths":          uploadedPaths,
+		"uploaded_count": len(uploadedPaths),
+	})
 }
 
 func (h *ScriptHandler) Delete(c *gin.Context) {

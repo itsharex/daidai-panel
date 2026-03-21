@@ -101,7 +101,7 @@ func installDepForDebug(depName, ext string, envMap map[string]string) bool {
 			venvPip = "pip3"
 		}
 		cmd := exec.Command(venvPip, "install", installName)
-		cmd.Env = env
+		cmd.Env = service.PipInstallEnv(env, service.CurrentPipMirror())
 		out, err := cmd.CombinedOutput()
 		if err == nil {
 			service.RecordAutoInstalledDep(model.DepTypePython, installName, string(out))
@@ -113,7 +113,7 @@ func installDepForDebug(depName, ext string, envMap map[string]string) bool {
 	nodeDir := filepath.Join(depsDir, "nodejs")
 	os.MkdirAll(nodeDir, 0755)
 	cmd := exec.Command("npm", "install", depName, "--prefix", nodeDir)
-	cmd.Env = env
+	cmd.Env = service.NpmInstallEnv(env, service.CurrentNpmMirror())
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		service.RecordAutoInstalledDep(model.DepTypeNodeJS, depName, string(out))

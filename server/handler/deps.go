@@ -398,27 +398,14 @@ func (h *DepsHandler) NpmList(c *gin.Context) {
 
 func (h *DepsHandler) GetMirrors(c *gin.Context) {
 	result := gin.H{
-		"pip_mirror":             "",
-		"npm_mirror":             "",
+		"pip_mirror":             service.CurrentEffectivePipMirror(),
+		"npm_mirror":             service.CurrentEffectiveNpmMirror(),
 		"linux_mirror":           "",
 		"linux_package_manager":  "",
 		"linux_distribution":     "",
 		"linux_mirror_supported": false,
 		"linux_mirror_label":     "Linux",
 		"linux_mirror_message":   "",
-	}
-
-	if out, err := exec.Command("pip3", "config", "get", "global.index-url").Output(); err == nil {
-		result["pip_mirror"] = strings.TrimSpace(string(out))
-	} else if out, err := exec.Command("pip", "config", "get", "global.index-url").Output(); err == nil {
-		result["pip_mirror"] = strings.TrimSpace(string(out))
-	}
-
-	if out, err := exec.Command("npm", "config", "get", "registry").Output(); err == nil {
-		val := strings.TrimSpace(string(out))
-		if val != "https://registry.npmjs.org/" {
-			result["npm_mirror"] = val
-		}
 	}
 
 	linuxMirrorInfo := getLinuxMirrorInfo()
@@ -446,33 +433,26 @@ func (h *DepsHandler) SetMirrors(c *gin.Context) {
 	var errors []string
 
 	if req.PipMirror != nil {
-		mirror := strings.TrimSpace(*req.PipMirror)
-		if mirror == "" {
-			if out, err := exec.Command("pip3", "config", "unset", "global.index-url").CombinedOutput(); err != nil {
-				exec.Command("pip", "config", "unset", "global.index-url").CombinedOutput()
-				_ = out
-			}
+		mirror := service.EffectivePipMirror(strings.TrimSpace(*req.PipMirror))
+		if !strings.HasPrefix(mirror, "http://") && !strings.HasPrefix(mirror, "https://") {
+			errors = append(errors, "pip 镜像源必须以 http:// 或 https:// 开头")
 		} else {
-			if !strings.HasPrefix(mirror, "http://") && !strings.HasPrefix(mirror, "https://") {
-				errors = append(errors, "pip 镜像源必须以 http:// 或 https:// 开头")
-			} else {
-				if out, err := exec.Command("pip3", "config", "set", "global.index-url", mirror).CombinedOutput(); err != nil {
-					if out2, err2 := exec.Command("pip", "config", "set", "global.index-url", mirror).CombinedOutput(); err2 != nil {
-						errors = append(errors, "设置 pip 镜像源失败: "+string(out)+string(out2))
-					}
+			if out, err := exec.Command("pip3", "config", "set", "global.index-url", mirror).CombinedOutput(); err != nil {
+				if out2, err2 := exec.Command("pip", "config", "set", "global.index-url", mirror).CombinedOutput(); err2 != nil {
+					errors = append(errors, "设置 pip 镜像源失败: "+string(out)+string(out2))
 				}
-				host := extractHost(mirror)
-				if host != "" {
-					exec.Command("pip3", "config", "set", "global.trusted-host", host).Run()
-				}
+			}
+			host := extractHost(mirror)
+			if host != "" {
+				exec.Command("pip3", "config", "set", "global.trusted-host", host).Run()
 			}
 		}
 	}
 
 	if req.NpmMirror != nil {
-		mirror := strings.TrimSpace(*req.NpmMirror)
+		mirror := service.EffectiveNpmMirror(strings.TrimSpace(*req.NpmMirror))
 		if mirror == "" {
-			exec.Command("npm", "config", "set", "registry", "https://registry.npmjs.org/").Run()
+			errors = append(errors, "npm 镜像源不能为空")
 		} else {
 			if !strings.HasPrefix(mirror, "http://") && !strings.HasPrefix(mirror, "https://") {
 				errors = append(errors, "npm 镜像源必须以 http:// 或 https:// 开头")
@@ -681,11 +661,11 @@ func installDependency(id uint, depType, name string) {
 	switch depType {
 	case model.DepTypeNodeJS:
 		cmd = exec.Command("npm", "install", "--prefix", filepath.Join(depsDir, "nodejs"), name)
-		cmd.Env = service.AppendProxyEnv(os.Environ())
+		cmd.Env = service.NpmInstallEnv(service.AppendProxyEnv(os.Environ()), service.CurrentNpmMirror())
 	case model.DepTypePython:
 		pipBin := filepath.Join(depsDir, "python", "venv", "bin", "pip")
 		cmd = exec.Command(pipBin, "install", name)
-		cmd.Env = append(service.AppendProxyEnv(os.Environ()), "TMPDIR=/tmp")
+		cmd.Env = append(service.PipInstallEnv(service.AppendProxyEnv(os.Environ()), service.CurrentPipMirror()), "TMPDIR=/tmp")
 	case model.DepTypeLinux:
 		linuxPackageOperationMu.Lock()
 		defer linuxPackageOperationMu.Unlock()

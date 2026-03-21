@@ -359,7 +359,7 @@ func (e *TaskExecutor) detectAndInstallDeps(output string, envVars map[string]st
 			venvPip = "pip3"
 		}
 		cmd := exec.Command(venvPip, "install", installName)
-		cmd.Env = buildEnvSlice(envVars)
+		cmd.Env = PipInstallEnv(buildEnvSlice(envVars), CurrentPipMirror())
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			onOutput(fmt.Sprintf("[安装失败: %s]", strings.TrimSpace(string(out))))
@@ -379,7 +379,7 @@ func (e *TaskExecutor) detectAndInstallDeps(output string, envVars map[string]st
 		nodeDir := filepath.Join(depsDir, "nodejs")
 		os.MkdirAll(nodeDir, 0755)
 		cmd := exec.Command("npm", "install", modName, "--prefix", nodeDir)
-		cmd.Env = buildEnvSlice(envVars)
+		cmd.Env = NpmInstallEnv(buildEnvSlice(envVars), CurrentNpmMirror())
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			onOutput(fmt.Sprintf("[安装失败: %s]", strings.TrimSpace(string(out))))

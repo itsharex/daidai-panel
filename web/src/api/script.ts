@@ -20,7 +20,7 @@ export const scriptApi = {
   upload(formData: FormData) {
     return request.post('/scripts/upload', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
-    }) as Promise<{ message: string }>
+    }) as Promise<{ message: string; path?: string; paths?: string[]; uploaded_count?: number }>
   },
 
   delete(path: string, type?: string) {

@@ -109,7 +109,7 @@
     <el-dialog v-model="showMirrorDialog" title="软件包镜像源设置" width="560px">
       <el-form label-width="110px" v-loading="mirrorLoading">
         <el-form-item label="Python (pip)">
-          <el-input v-model="mirrorForm.pip_mirror" placeholder="留空使用官方源" clearable>
+          <el-input v-model="mirrorForm.pip_mirror" placeholder="留空恢复默认加速源" clearable>
             <template #append>
               <el-dropdown @command="(v: string) => mirrorForm.pip_mirror = v" trigger="click">
                 <el-button>快捷选择</el-button>
@@ -120,7 +120,7 @@
                     <el-dropdown-item command="https://pypi.doubanio.com/simple">豆瓣</el-dropdown-item>
                     <el-dropdown-item command="https://mirrors.cloud.tencent.com/pypi/simple">腾讯云</el-dropdown-item>
                     <el-dropdown-item command="https://repo.huaweicloud.com/repository/pypi/simple">华为云</el-dropdown-item>
-                    <el-dropdown-item command="">官方源 (默认)</el-dropdown-item>
+                    <el-dropdown-item command="">恢复默认加速源</el-dropdown-item>
                   </el-dropdown-menu>
                 </template>
               </el-dropdown>
@@ -128,7 +128,7 @@
           </el-input>
         </el-form-item>
         <el-form-item label="Node.js (npm)">
-          <el-input v-model="mirrorForm.npm_mirror" placeholder="留空使用官方源" clearable>
+          <el-input v-model="mirrorForm.npm_mirror" placeholder="留空恢复默认加速源" clearable>
             <template #append>
               <el-dropdown @command="(v: string) => mirrorForm.npm_mirror = v" trigger="click">
                 <el-button>快捷选择</el-button>
@@ -137,7 +137,7 @@
                     <el-dropdown-item command="https://registry.npmmirror.com">淘宝 (npmmirror)</el-dropdown-item>
                     <el-dropdown-item command="https://mirrors.cloud.tencent.com/npm/">腾讯云</el-dropdown-item>
                     <el-dropdown-item command="https://repo.huaweicloud.com/repository/npm/">华为云</el-dropdown-item>
-                    <el-dropdown-item command="">官方源 (默认)</el-dropdown-item>
+                    <el-dropdown-item command="">恢复默认加速源</el-dropdown-item>
                   </el-dropdown-menu>
                 </template>
               </el-dropdown>
@@ -147,7 +147,7 @@
         <el-form-item :label="linuxMirrorLabel">
           <el-input
             v-model="mirrorForm.linux_mirror"
-            :placeholder="linuxMirrorSupported ? '留空使用官方源' : '当前包管理器暂不支持镜像设置'"
+            :placeholder="linuxMirrorSupported ? '留空恢复默认加速源' : '当前包管理器暂不支持镜像设置'"
             :disabled="!linuxMirrorSupported"
             clearable
           >
@@ -163,7 +163,7 @@
                     >
                       {{ option.label }}
                     </el-dropdown-item>
-                    <el-dropdown-item command="">官方源 (默认)</el-dropdown-item>
+                    <el-dropdown-item command="">恢复默认加速源</el-dropdown-item>
                   </el-dropdown-menu>
                 </template>
               </el-dropdown>
@@ -175,6 +175,9 @@
             <span v-if="linuxMirrorMessage">。{{ linuxMirrorMessage }}</span>
           </div>
         </el-form-item>
+        <el-alert type="info" :closable="false" show-icon>
+          依赖管理默认优先使用加速源；清空输入框并保存，会恢复到内置的默认加速源配置。
+        </el-alert>
       </el-form>
       <template #footer>
         <el-button @click="showMirrorDialog = false">取消</el-button>

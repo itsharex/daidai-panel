@@ -486,7 +486,7 @@ export const apiCategories: ApiCategory[] = [
         method: 'POST',
         path: '/api/notifications',
         title: '创建通知渠道',
-        description: '创建新的通知渠道，支持：webhook / email / telegram / dingtalk / wecom / bark / pushplus / serverchan / feishu / gotify / pushdeer / pushme / chanify / igot / qmsg / pushover / discord / slack / ntfy / wxpusher / custom',
+        description: '创建新的通知渠道，支持：webhook / email / telegram / dingtalk / wecom(企业微信机器人，支持 text/markdown/markdown_v2/image/news/template_card) / wecom_app(企业微信应用，支持 text/markdown/image/file/video/news/template_card) / bark / pushplus / serverchan / feishu / gotify / pushdeer / pushme / chanify / igot / qmsg / pushover / discord / slack / ntfy / wxpusher / custom',
         auth: 'jwt',
         bodyParams: [
           { name: 'name', type: 'string', required: true, description: '渠道名称' },

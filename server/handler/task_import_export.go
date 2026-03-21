@@ -106,7 +106,7 @@ func (h *TaskHandler) Import(c *gin.Context) {
 			task.TaskAfter = &value
 		}
 
-		if err := database.DB.Create(&task).Error; err != nil {
+		if err := database.DB.Select("*").Create(&task).Error; err != nil {
 			errors = append(errors, fmt.Sprintf("task %d: %s", i+1, err.Error()))
 			continue
 		}

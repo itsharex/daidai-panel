@@ -20,6 +20,11 @@ import (
 	"daidai-panel/model"
 )
 
+var (
+	wecomAppTokenURL = "https://qyapi.weixin.qq.com/cgi-bin/gettoken"
+	wecomAppSendURL  = "https://qyapi.weixin.qq.com/cgi-bin/message/send"
+)
+
 func SendNotification(title, content string) {
 	var channels []model.NotifyChannel
 	database.DB.Where("enabled = ?", true).Find(&channels)
@@ -50,6 +55,8 @@ func sendToChannel(ch model.NotifyChannel, title, content string) error {
 		return sendDingtalk(cfg, title, content)
 	case "wecom":
 		return sendWecom(cfg, title, content)
+	case "wecom_app":
+		return sendWecomApp(cfg, title, content)
 	case "bark":
 		return sendBark(cfg, title, content)
 	case "pushplus":
@@ -195,11 +202,247 @@ func sendDingtalk(cfg map[string]string, title, content string) error {
 
 func sendWecom(cfg map[string]string, title, content string) error {
 	webhook := cfg["webhook"]
-	body := map[string]interface{}{
-		"msgtype": "text",
-		"text":    map[string]string{"content": fmt.Sprintf("%s\n%s", title, content)},
+	if webhook == "" {
+		return fmt.Errorf("企业微信机器人 Webhook URL 为空")
 	}
+
+	msgType := strings.ToLower(strings.TrimSpace(cfg["msg_type"]))
+	if msgType == "" {
+		msgType = "text"
+	}
+
+	body := map[string]interface{}{"msgtype": msgType}
+	switch msgType {
+	case "text":
+		textBody := map[string]interface{}{
+			"content": renderNotificationTemplate(cfg["content_template"], title, content, "{{title}}\n{{content}}"),
+		}
+		if mentioned := splitNotificationTargets(cfg["mentioned_list"]); len(mentioned) > 0 {
+			textBody["mentioned_list"] = mentioned
+		}
+		if mobiles := splitNotificationTargets(cfg["mentioned_mobile_list"]); len(mobiles) > 0 {
+			textBody["mentioned_mobile_list"] = mobiles
+		}
+		body["text"] = textBody
+	case "markdown", "markdown_v2":
+		body[msgType] = map[string]string{
+			"content": renderNotificationTemplate(cfg["content_template"], title, content, "**{{title}}**\n{{content}}"),
+		}
+	case "image":
+		base64Data := strings.TrimSpace(cfg["image_base64"])
+		md5Value := strings.TrimSpace(cfg["image_md5"])
+		if base64Data == "" || md5Value == "" {
+			return fmt.Errorf("企业微信机器人图片消息需要 image_base64 和 image_md5")
+		}
+		body["image"] = map[string]string{
+			"base64": base64Data,
+			"md5":    md5Value,
+		}
+	case "news":
+		articles, err := parseNotificationJSONTemplate(cfg["news_articles"], title, content)
+		if err != nil {
+			return fmt.Errorf("企业微信机器人图文消息配置无效: %w", err)
+		}
+		articleList, ok := articles.([]interface{})
+		if !ok || len(articleList) == 0 {
+			return fmt.Errorf("企业微信机器人图文消息需要至少一条 articles")
+		}
+		body["news"] = map[string]interface{}{
+			"articles": articleList,
+		}
+	case "template_card":
+		cardPayload, err := parseNotificationJSONTemplate(cfg["template_card_payload"], title, content)
+		if err != nil {
+			return fmt.Errorf("企业微信机器人模版卡片配置无效: %w", err)
+		}
+		cardBody, ok := cardPayload.(map[string]interface{})
+		if !ok || len(cardBody) == 0 {
+			return fmt.Errorf("企业微信机器人模版卡片配置不能为空对象")
+		}
+		body["template_card"] = cardBody
+	default:
+		return fmt.Errorf("不支持的企业微信机器人消息类型: %s", msgType)
+	}
+
 	return httpPost(webhook, body, nil)
+}
+
+func sendWecomApp(cfg map[string]string, title, content string) error {
+	corpID := strings.TrimSpace(cfg["corp_id"])
+	secret := strings.TrimSpace(cfg["secret"])
+	agentID := strings.TrimSpace(cfg["agent_id"])
+	if corpID == "" || secret == "" || agentID == "" {
+		return fmt.Errorf("企业微信应用 corp_id、secret 或 agent_id 为空")
+	}
+
+	agentIDInt, err := strconv.Atoi(agentID)
+	if err != nil || agentIDInt <= 0 {
+		return fmt.Errorf("企业微信应用 agent_id 无效")
+	}
+
+	tokenURL := fmt.Sprintf("%s?corpid=%s&corpsecret=%s", wecomAppTokenURL, url.QueryEscape(corpID), url.QueryEscape(secret))
+	client := NewHTTPClient(10 * time.Second)
+	tokenResp, err := client.Get(tokenURL)
+	if err != nil {
+		return fmt.Errorf("获取企业微信应用 access_token 失败: %w", err)
+	}
+	defer tokenResp.Body.Close()
+
+	tokenBody, _ := io.ReadAll(tokenResp.Body)
+	if tokenResp.StatusCode >= 400 {
+		return fmt.Errorf("获取企业微信应用 access_token 失败: HTTP %d: %s", tokenResp.StatusCode, strings.TrimSpace(string(tokenBody)))
+	}
+
+	var tokenPayload struct {
+		ErrCode     int    `json:"errcode"`
+		ErrMsg      string `json:"errmsg"`
+		AccessToken string `json:"access_token"`
+	}
+	if err := json.Unmarshal(tokenBody, &tokenPayload); err != nil {
+		return fmt.Errorf("解析企业微信应用 access_token 响应失败: %w", err)
+	}
+	if tokenPayload.ErrCode != 0 {
+		return fmt.Errorf("获取企业微信应用 access_token 失败: %s", tokenPayload.ErrMsg)
+	}
+	if strings.TrimSpace(tokenPayload.AccessToken) == "" {
+		return fmt.Errorf("企业微信应用 access_token 为空")
+	}
+
+	sendURL := fmt.Sprintf("%s?access_token=%s", wecomAppSendURL, url.QueryEscape(tokenPayload.AccessToken))
+	msgType := strings.ToLower(strings.TrimSpace(cfg["msg_type"]))
+	if msgType == "" {
+		msgType = "text"
+	}
+
+	receivers := map[string]string{
+		"touser":  strings.TrimSpace(cfg["to_user"]),
+		"toparty": strings.TrimSpace(cfg["to_party"]),
+		"totag":   strings.TrimSpace(cfg["to_tag"]),
+	}
+	if receivers["touser"] == "" && receivers["toparty"] == "" && receivers["totag"] == "" {
+		receivers["touser"] = "@all"
+	}
+
+	enableDuplicateCheck := notificationConfigInt(cfg["enable_duplicate_check"], 0)
+	duplicateCheckInterval := notificationConfigInt(cfg["duplicate_check_interval"], 1800)
+	if duplicateCheckInterval <= 0 {
+		duplicateCheckInterval = 1800
+	}
+	if duplicateCheckInterval > 4*3600 {
+		duplicateCheckInterval = 4 * 3600
+	}
+
+	body := map[string]interface{}{
+		"msgtype":                  msgType,
+		"agentid":                  agentIDInt,
+		"touser":                   receivers["touser"],
+		"toparty":                  receivers["toparty"],
+		"totag":                    receivers["totag"],
+		"enable_duplicate_check":   enableDuplicateCheck,
+		"duplicate_check_interval": duplicateCheckInterval,
+	}
+
+	switch msgType {
+	case "text":
+		body["safe"] = notificationConfigInt(cfg["safe"], 0)
+		body["enable_id_trans"] = notificationConfigInt(cfg["enable_id_trans"], 0)
+		body["text"] = map[string]string{
+			"content": renderNotificationTemplate(cfg["content_template"], title, content, "{{title}}\n{{content}}"),
+		}
+	case "markdown":
+		body["markdown"] = map[string]string{
+			"content": renderNotificationTemplate(cfg["content_template"], title, content, "**{{title}}**\n{{content}}"),
+		}
+	case "image", "file", "video":
+		body["safe"] = notificationConfigInt(cfg["safe"], 0)
+		mediaID := strings.TrimSpace(cfg["media_id"])
+		if mediaID == "" {
+			return fmt.Errorf("企业微信应用 %s 消息需要 media_id", msgType)
+		}
+		body[msgType] = map[string]string{
+			"media_id": mediaID,
+		}
+	case "news":
+		articles, err := parseNotificationJSONTemplate(cfg["news_articles"], title, content)
+		if err != nil {
+			return fmt.Errorf("企业微信应用图文消息配置无效: %w", err)
+		}
+		articleList, ok := articles.([]interface{})
+		if !ok || len(articleList) == 0 {
+			return fmt.Errorf("企业微信应用图文消息需要至少一条 articles")
+		}
+		body["news"] = map[string]interface{}{
+			"articles": articleList,
+		}
+	case "template_card":
+		body["enable_id_trans"] = notificationConfigInt(cfg["enable_id_trans"], 0)
+		cardPayload, err := parseNotificationJSONTemplate(cfg["template_card_payload"], title, content)
+		if err != nil {
+			return fmt.Errorf("企业微信应用模版卡片配置无效: %w", err)
+		}
+		cardBody, ok := cardPayload.(map[string]interface{})
+		if !ok || len(cardBody) == 0 {
+			return fmt.Errorf("企业微信应用模版卡片配置不能为空对象")
+		}
+		body["template_card"] = cardBody
+	default:
+		return fmt.Errorf("不支持的企业微信应用消息类型: %s", msgType)
+	}
+
+	data, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, sendURL, bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	sendResp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("发送企业微信应用消息失败: %w", err)
+	}
+	defer sendResp.Body.Close()
+
+	sendBody, _ := io.ReadAll(sendResp.Body)
+	if sendResp.StatusCode >= 400 {
+		return fmt.Errorf("发送企业微信应用消息失败: HTTP %d: %s", sendResp.StatusCode, strings.TrimSpace(string(sendBody)))
+	}
+
+	var sendPayload struct {
+		ErrCode        int    `json:"errcode"`
+		ErrMsg         string `json:"errmsg"`
+		InvalidUser    string `json:"invaliduser"`
+		InvalidParty   string `json:"invalidparty"`
+		InvalidTag     string `json:"invalidtag"`
+		UnlicensedUser string `json:"unlicenseduser"`
+	}
+	if err := json.Unmarshal(sendBody, &sendPayload); err != nil {
+		return fmt.Errorf("解析企业微信应用发送响应失败: %w", err)
+	}
+	if sendPayload.ErrCode != 0 {
+		var details []string
+		if v := strings.TrimSpace(sendPayload.InvalidUser); v != "" {
+			details = append(details, "invaliduser="+v)
+		}
+		if v := strings.TrimSpace(sendPayload.InvalidParty); v != "" {
+			details = append(details, "invalidparty="+v)
+		}
+		if v := strings.TrimSpace(sendPayload.InvalidTag); v != "" {
+			details = append(details, "invalidtag="+v)
+		}
+		if v := strings.TrimSpace(sendPayload.UnlicensedUser); v != "" {
+			details = append(details, "unlicenseduser="+v)
+		}
+		if len(details) > 0 {
+			return fmt.Errorf("发送企业微信应用消息失败: %s (%s)", sendPayload.ErrMsg, strings.Join(details, ", "))
+		}
+		return fmt.Errorf("发送企业微信应用消息失败: %s", sendPayload.ErrMsg)
+	}
+
+	return nil
 }
 
 func sendBark(cfg map[string]string, title, content string) error {
@@ -626,6 +869,62 @@ func splitNotificationIntTargets(raw string) ([]int, error) {
 		result = append(result, value)
 	}
 	return result, nil
+}
+
+func notificationConfigInt(raw string, defaultValue int) int {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return defaultValue
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		return defaultValue
+	}
+	return value
+}
+
+func renderNotificationTemplate(template, title, content, fallback string) string {
+	template = strings.TrimSpace(template)
+	if template == "" {
+		template = fallback
+	}
+	template = strings.ReplaceAll(template, "{{title}}", title)
+	template = strings.ReplaceAll(template, "{{content}}", content)
+	return template
+}
+
+func parseNotificationJSONTemplate(raw, title, content string) (interface{}, error) {
+	rendered := renderNotificationTemplate(raw, title, content, "")
+	if strings.TrimSpace(rendered) == "" {
+		return nil, fmt.Errorf("JSON 模板为空")
+	}
+
+	var payload interface{}
+	if err := json.Unmarshal([]byte(rendered), &payload); err != nil {
+		return nil, err
+	}
+	return renderNotificationJSONValue(payload, title, content), nil
+}
+
+func renderNotificationJSONValue(value interface{}, title, content string) interface{} {
+	switch v := value.(type) {
+	case string:
+		return renderNotificationTemplate(v, title, content, v)
+	case []interface{}:
+		items := make([]interface{}, 0, len(v))
+		for _, item := range v {
+			items = append(items, renderNotificationJSONValue(item, title, content))
+		}
+		return items
+	case map[string]interface{}:
+		result := make(map[string]interface{}, len(v))
+		for key, item := range v {
+			result[key] = renderNotificationJSONValue(item, title, content)
+		}
+		return result
+	default:
+		return value
+	}
 }
 
 func sendCustomWebhook(cfg map[string]string, title, content string) error {

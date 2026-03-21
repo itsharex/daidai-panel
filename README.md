@@ -168,6 +168,42 @@ ports:
 
 也就是：**只改左侧宿主机端口，右侧容器内 Nginx 端口仍保持 `5700`。**
 
+### Debian 运行时镜像
+
+如果你需要在面板内安装 **仅 Debian / Ubuntu 提供、Alpine 无法安装** 的 Linux 软件包，可以直接使用仓库内提供的 Debian 运行时版本。
+
+这个版本的区别是：
+
+- 面板容器运行在 Debian 系基础镜像上
+- 依赖管理里的 Linux 包安装会识别为 `apt`
+- 更适合 `apk` 仓库里缺失、但 `apt` 可以直接安装的软件包
+
+直接使用仓库内示例：
+
+```bash
+docker compose -f docker-compose.debian.yml up -d
+```
+
+启动后访问：`http://localhost:5700`
+
+如果你是基于当前源码本地试跑，也可以手动构建：
+
+```bash
+docker build --build-arg VERSION=1.9.0 -f Dockerfile.debian -t daidai-panel:debian-local .
+```
+
+从 `v1.9.0` 开始，仓库里的发布工作流会自动发布 Debian 运行时镜像。Debian 运行时只保留一个滚动标签：
+
+- `linzixuanzz/daidai-panel:debian`
+
+发布完成后，可以按下面方式直接拉取：
+
+```bash
+docker pull linzixuanzz/daidai-panel:debian
+```
+
+> **说明**：默认 `docker-compose.yml` 和 Docker Hub `latest` / `<版本号>` 仍是 Alpine 运行时；只有使用 `Dockerfile.debian`、`docker-compose.debian.yml`，或者 Docker Hub 上的 `debian` tag 时，容器内 Linux 依赖安装才会切换到 Debian / `apt` 链路。
+
 ### Docker Run
 
 ```bash
@@ -315,6 +351,22 @@ docker run -d \
 
 镜像同时支持 `linux/amd64` 和 `linux/arm64`，可在 x86 服务器和 ARM 设备（如树莓派、Oracle ARM 云服务器）上直接运行。
 
+## 自动发布
+
+仓库已配置 GitHub Actions 发布工作流。推送形如 `v1.9.0` 的 tag 后，会自动完成：
+
+- 创建 GitHub Release
+- 推送 Alpine 运行时镜像：`linzixuanzz/daidai-panel:latest`
+- 推送 Alpine 版本镜像：`linzixuanzz/daidai-panel:1.9.0`
+- 推送 Debian 运行时镜像：`linzixuanzz/daidai-panel:debian`
+
+本次版本发布命令示例：
+
+```bash
+git tag v1.9.0
+git push origin v1.9.0
+```
+
 ## 更新方法
 
 ### 方式一：面板内一键更新（推荐）
@@ -326,6 +378,19 @@ docker run -d \
 ```bash
 docker pull linzixuanzz/daidai-panel:latest
 docker compose up -d
+```
+
+如果你当前使用的是源码仓库里手动本地构建的 Debian 运行时镜像，更新方式是重新构建：
+
+```bash
+docker build --build-arg VERSION=1.9.0 -f Dockerfile.debian -t daidai-panel:debian-local .
+```
+
+如果你使用的是 Debian 运行时镜像，则按下面方式更新：
+
+```bash
+docker pull linzixuanzz/daidai-panel:debian
+docker compose -f docker-compose.debian.yml up -d
 ```
 
 ## 数据目录

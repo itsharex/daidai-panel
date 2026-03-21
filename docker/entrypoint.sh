@@ -20,7 +20,19 @@ fi
 
 PANEL_PORT=${PANEL_PORT:-5700}
 
-sed -i "s/listen [0-9]*/listen ${PANEL_PORT}/" /etc/nginx/http.d/default.conf
+NGINX_CONF_PATH=${NGINX_DEFAULT_CONF:-}
+if [ -z "${NGINX_CONF_PATH}" ]; then
+  for candidate in /etc/nginx/http.d/default.conf /etc/nginx/conf.d/default.conf /etc/nginx/sites-enabled/default; do
+    if [ -f "${candidate}" ]; then
+      NGINX_CONF_PATH="${candidate}"
+      break
+    fi
+  done
+fi
+
+if [ -n "${NGINX_CONF_PATH}" ] && [ -f "${NGINX_CONF_PATH}" ]; then
+  sed -i "s/listen [0-9]*/listen ${PANEL_PORT}/" "${NGINX_CONF_PATH}"
+fi
 
 cat > /app/config.yaml <<YAML
 server:

@@ -145,6 +145,9 @@ func buildLinuxPackageCommand(manager linuxPackageManager, action, packageName s
 	switch action {
 	case "install":
 		refreshApt := manager.Name == "apt" && shouldRefreshAptPackageLists()
+		if mirrorErr := ensureDefaultLinuxMirror(manager, detectLinuxDistribution()); mirrorErr != nil {
+			return nil, mirrorErr
+		}
 		bin, args, err := linuxInstallCommandSpec(manager, packageName, refreshApt)
 		if err != nil {
 			return nil, err
@@ -205,12 +208,16 @@ func getLinuxMirrorInfo() linuxMirrorInfo {
 		info.Mirror, err = readAPKMirror()
 		if err != nil {
 			info.Message = "读取 apk 镜像源失败：" + err.Error()
+		} else {
+			info.Mirror = effectiveLinuxMirror(manager, info.Distribution, info.Mirror)
 		}
 	case "apt":
 		info.Supported = true
 		info.Mirror, err = readAPTMirror()
 		if err != nil {
 			info.Message = "读取 apt 镜像源失败：" + err.Error()
+		} else {
+			info.Mirror = effectiveLinuxMirror(manager, info.Distribution, info.Mirror)
 		}
 	default:
 		info.Supported = false
@@ -223,9 +230,9 @@ func getLinuxMirrorInfo() linuxMirrorInfo {
 func setLinuxMirror(manager linuxPackageManager, distribution, mirror string) error {
 	switch manager.Name {
 	case "apk":
-		return writeAPKMirror(mirror)
+		return writeAPKMirror(effectiveLinuxMirror(manager, distribution, mirror))
 	case "apt":
-		return writeAPTMirror(distribution, mirror)
+		return writeAPTMirror(distribution, effectiveLinuxMirror(manager, distribution, mirror))
 	default:
 		return fmt.Errorf("当前系统使用 %s，暂不支持镜像设置", manager.Binary)
 	}
@@ -254,7 +261,7 @@ func readAPKMirror() (string, error) {
 func writeAPKMirror(mirror string) error {
 	mirror = strings.TrimSpace(mirror)
 	if mirror == "" {
-		mirror = "https://dl-cdn.alpinelinux.org/alpine"
+		mirror = defaultLinuxMirror(linuxPackageManager{Name: "apk", Binary: "apk"}, "")
 	}
 	if !isHTTPMirror(mirror) {
 		return errors.New("Linux 镜像源必须以 http:// 或 https:// 开头")
@@ -526,47 +533,79 @@ func resolveAPTMirrorURI(distribution, requestedMirror, currentURI, suites strin
 		return requestedMirror
 	}
 
-	return officialAPTMirrorURI(distribution, currentURI, suites)
-}
-
-func officialAPTMirrorURI(distribution, currentURI, suites string) string {
-	currentURI = strings.TrimRight(strings.TrimSpace(currentURI), "/")
-	suites = strings.ToLower(strings.TrimSpace(suites))
-	currentLower := strings.ToLower(currentURI)
-
-	isSecurity := strings.Contains(suites, "security") ||
-		strings.Contains(currentLower, "security.ubuntu.com") ||
-		strings.Contains(currentLower, "debian-security")
-
-	switch distribution {
-	case "ubuntu":
-		if isSecurity {
-			return "http://security.ubuntu.com/ubuntu"
-		}
-		return "http://archive.ubuntu.com/ubuntu"
-	case "debian":
-		if isSecurity {
-			return "http://security.debian.org/debian-security"
-		}
-		return "http://deb.debian.org/debian"
-	default:
-		if strings.Contains(currentLower, "/ubuntu") || strings.Contains(currentLower, "ubuntu.com") {
-			if isSecurity {
-				return "http://security.ubuntu.com/ubuntu"
-			}
-			return "http://archive.ubuntu.com/ubuntu"
-		}
-		if strings.Contains(currentLower, "debian") {
-			if isSecurity {
-				return "http://security.debian.org/debian-security"
-			}
-			return "http://deb.debian.org/debian"
-		}
-		return currentURI
-	}
+	return strings.TrimRight(defaultLinuxMirror(linuxPackageManager{Name: "apt", Binary: "apt-get"}, distribution), "/")
 }
 
 func isHTTPMirror(value string) bool {
 	value = strings.TrimSpace(value)
 	return strings.HasPrefix(value, "http://") || strings.HasPrefix(value, "https://")
+}
+
+func defaultLinuxMirror(manager linuxPackageManager, distribution string) string {
+	switch manager.Name {
+	case "apk":
+		return "https://mirrors.tuna.tsinghua.edu.cn/alpine"
+	case "apt":
+		switch strings.ToLower(strings.TrimSpace(distribution)) {
+		case "debian":
+			return "https://mirrors.tuna.tsinghua.edu.cn/debian"
+		default:
+			return "https://mirrors.tuna.tsinghua.edu.cn/ubuntu"
+		}
+	default:
+		return ""
+	}
+}
+
+func effectiveLinuxMirror(manager linuxPackageManager, distribution, current string) string {
+	current = strings.TrimRight(strings.TrimSpace(current), "/")
+	if current == "" || isOfficialLinuxMirror(manager, distribution, current) {
+		return strings.TrimRight(defaultLinuxMirror(manager, distribution), "/")
+	}
+	return current
+}
+
+func isOfficialLinuxMirror(manager linuxPackageManager, distribution, current string) bool {
+	currentLower := strings.ToLower(strings.TrimRight(strings.TrimSpace(current), "/"))
+	switch manager.Name {
+	case "apk":
+		return currentLower == "https://dl-cdn.alpinelinux.org/alpine" || currentLower == "http://dl-cdn.alpinelinux.org/alpine"
+	case "apt":
+		switch distribution {
+		case "debian":
+			return currentLower == "http://deb.debian.org/debian" ||
+				currentLower == "https://deb.debian.org/debian" ||
+				currentLower == "http://security.debian.org/debian-security" ||
+				currentLower == "https://security.debian.org/debian-security"
+		default:
+			return currentLower == "http://archive.ubuntu.com/ubuntu" ||
+				currentLower == "https://archive.ubuntu.com/ubuntu" ||
+				currentLower == "http://security.ubuntu.com/ubuntu" ||
+				currentLower == "https://security.ubuntu.com/ubuntu"
+		}
+	default:
+		return false
+	}
+}
+
+func ensureDefaultLinuxMirror(manager linuxPackageManager, distribution string) error {
+	current := ""
+	var err error
+
+	switch manager.Name {
+	case "apk":
+		current, err = readAPKMirror()
+	case "apt":
+		current, err = readAPTMirror()
+	default:
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if current != "" && !isOfficialLinuxMirror(manager, distribution, current) {
+		return nil
+	}
+
+	return setLinuxMirror(manager, distribution, "")
 }

@@ -153,48 +153,58 @@ export function useScriptWorkspaceActions({
     uploadFileList.value = []
   }
 
-  async function handleUpload(file: File) {
+  async function handleUpload(files: File[]) {
     const formData = new FormData()
-    formData.append('file', file)
+    for (const file of files) {
+      formData.append('file', file)
+    }
     if (uploadDir.value) {
       formData.append('dir', uploadDir.value)
     }
     try {
-      await scriptApi.upload(formData)
-      ElMessage.success('上传成功')
+      const res = await scriptApi.upload(formData)
+      const uploadedPaths = Array.isArray(res.paths) && res.paths.length > 0
+        ? res.paths
+        : files.map((file) => (uploadDir.value ? `${uploadDir.value}/${file.name}` : file.name))
+
+      ElMessage.success(uploadedPaths.length > 1 ? `成功上传 ${uploadedPaths.length} 个文件` : '上传成功')
       showUploadDialog.value = false
+      uploadDir.value = ''
+      uploadFileList.value = []
       await loadTree()
 
-      const targetPath = uploadDir.value ? `${uploadDir.value}/${file.name}` : file.name
-      try {
-        await ElMessageBox.confirm('是否将此脚本添加到定时任务？', '提示', {
-          confirmButtonText: '确定',
-          cancelButtonText: '取消',
-          type: 'info'
-        })
-        navigateToTaskWithScript(targetPath)
-      } catch {
-        // cancelled
+      if (uploadedPaths.length === 1) {
+        const targetPath = uploadedPaths[0]
+        if (!targetPath) return false
+        try {
+          await ElMessageBox.confirm('是否将此脚本添加到定时任务？', '提示', {
+            confirmButtonText: '确定',
+            cancelButtonText: '取消',
+            type: 'info'
+          })
+          navigateToTaskWithScript(targetPath)
+        } catch {
+          // cancelled
+        }
       }
-    } catch {
-      ElMessage.error('上传失败')
+    } catch (err: any) {
+      ElMessage.error(err?.response?.data?.error || err?.message || '上传失败')
     }
     return false
   }
 
-  function handleUploadFileChange(file: { raw?: File }) {
-    if (!file.raw) return
-    uploadFileList.value = [file.raw]
+  function handleUploadFileChange(_file: { raw?: File } | undefined, files: Array<{ raw?: File }>) {
+    uploadFileList.value = files
+      .map((item) => item.raw)
+      .filter((file): file is File => Boolean(file))
   }
 
   async function handleUploadSubmit() {
     if (uploadFileList.value.length === 0) {
-      ElMessage.warning('请选择文件')
+      ElMessage.warning('请至少选择一个文件')
       return
     }
-    const file = uploadFileList.value[0]
-    if (!file) return
-    await handleUpload(file)
+    await handleUpload(uploadFileList.value)
   }
 
   function navigateToTaskWithScript(filePath: string) {

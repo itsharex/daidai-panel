@@ -81,7 +81,7 @@ function triggerUploadBackup() {
       <el-form-item label="备份内容">
         <div class="backup-selection-grid">
           <el-checkbox v-model="backupSelection.configs">配置项
-            <span class="backup-selection-hint">系统设置、Open API、通知渠道、用户与安全配置</span>
+            <span class="backup-selection-hint">系统设置、Open API、通知渠道与安全配置；恢复时不会覆盖当前面板账号密码</span>
           </el-checkbox>
           <el-checkbox v-model="backupSelection.tasks">定时任务
             <span class="backup-selection-hint">任务定义、标签、执行参数与依赖关系</span>

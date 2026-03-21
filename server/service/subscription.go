@@ -330,7 +330,7 @@ func syncSubscriptionTasks(sub *model.Subscription, emit PullCallback) {
 				NotifyOnFailure: true,
 			}
 			task.SetLabelsFromSlice([]string{label})
-			if database.DB.Create(&task).Error == nil {
+			if database.DB.Select("*").Create(&task).Error == nil {
 				GetSchedulerV2().AddJob(&task)
 				managedByCommand[command] = &task
 				created++

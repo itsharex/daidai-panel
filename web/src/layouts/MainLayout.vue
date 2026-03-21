@@ -146,10 +146,16 @@ async function loadVersion() {
 <template>
   <el-container class="layout-container">
     <el-aside v-if="!isMobile" :width="isCollapsed ? '64px' : '220px'" class="layout-aside">
-      <div class="logo-area">
-        <img :src="panelIcon || '/favicon.svg'" alt="logo" class="logo-img" />
-        <span v-show="!isCollapsed" class="logo-text">{{ panelTitle }}</span>
-        <span v-show="!isCollapsed && panelVersion" class="version-badge">v{{ panelVersion }}</span>
+      <div class="logo-area" :class="{ 'is-collapsed': isCollapsed }">
+        <div class="brand-shell">
+          <div class="brand-mark">
+            <img :src="panelIcon || '/favicon.svg'" alt="logo" class="logo-img" />
+          </div>
+          <div v-show="!isCollapsed" class="brand-copy">
+            <span class="logo-text">{{ panelTitle }}</span>
+            <span v-if="panelVersion" class="version-badge">v{{ panelVersion }}</span>
+          </div>
+        </div>
       </div>
       <el-menu
         :default-active="activeMenu"
@@ -174,9 +180,15 @@ async function loadVersion() {
       :show-close="false"
     >
       <div class="logo-area mobile-logo">
-        <img :src="panelIcon || '/favicon.svg'" alt="logo" class="logo-img" />
-        <span class="logo-text">{{ panelTitle }}</span>
-        <span v-if="panelVersion" class="version-badge">v{{ panelVersion }}</span>
+        <div class="brand-shell">
+          <div class="brand-mark">
+            <img :src="panelIcon || '/favicon.svg'" alt="logo" class="logo-img" />
+          </div>
+          <div class="brand-copy">
+            <span class="logo-text">{{ panelTitle }}</span>
+            <span v-if="panelVersion" class="version-badge">v{{ panelVersion }}</span>
+          </div>
+        </div>
       </div>
       <el-menu
         :default-active="activeMenu"
@@ -194,7 +206,10 @@ async function loadVersion() {
       <el-header class="layout-header">
         <div class="header-left">
           <el-button :icon="sidebarToggleIcon" text @click="toggleSidebar" />
-          <span v-if="isMobile" class="mobile-title">{{ panelTitle }}</span>
+          <div v-if="isMobile" class="mobile-brand-inline">
+            <span class="mobile-title">{{ panelTitle }}</span>
+            <span v-if="panelVersion" class="mobile-version">v{{ panelVersion }}</span>
+          </div>
           <el-tag size="small" effect="plain" class="section-tag">{{ sectionLabel }}</el-tag>
         </div>
         <div class="header-right">
@@ -248,62 +263,147 @@ async function loadVersion() {
   height: 60px;
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 10px;
   border-bottom: 1px solid var(--el-border-color-light);
   flex-shrink: 0;
-  padding: 0 16px;
+  padding: 8px 10px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--el-color-primary-light-9) 48%, white) 0%, var(--el-bg-color) 100%);
 
-  .logo-img {
-    width: 32px;
-    height: 32px;
-    transition: transform 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
-    will-change: transform;
-
-    &:hover {
-      transform: rotate(10deg) scale(1.1);
-    }
+  &.is-collapsed {
+    justify-content: center;
+    padding-inline: 8px;
   }
+}
 
-  .logo-text {
-    font-size: 18px;
-    font-weight: 700;
-    white-space: nowrap;
-    background: linear-gradient(135deg, #409EFF, #7B5CFA);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-  }
+.brand-shell {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  min-height: 42px;
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--el-bg-color) 88%, white) 0%, var(--el-bg-color) 100%);
+  border: 1px solid color-mix(in srgb, var(--el-color-primary) 10%, var(--el-border-color-lighter));
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
+  transition: box-shadow var(--dd-transition), border-color var(--dd-transition);
 
-  .version-badge {
-    font-size: 10px;
-    font-weight: 600;
-    padding: 1px 6px;
-    border-radius: 8px;
-    background: linear-gradient(135deg, #409EFF, #7B5CFA);
-    color: #fff;
-    white-space: nowrap;
-    line-height: 1.4;
-    letter-spacing: 0.3px;
-    flex-shrink: 0;
-    align-self: center;
+  .logo-area:hover & {
+    box-shadow: 0 6px 16px rgba(15, 23, 42, 0.06);
+    border-color: color-mix(in srgb, var(--el-color-primary) 18%, var(--el-border-color-lighter));
   }
+}
+
+.logo-area.is-collapsed .brand-shell {
+  width: 40px;
+  min-height: 40px;
+  padding: 6px;
+  justify-content: center;
+}
+
+.brand-mark {
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background:
+    linear-gradient(145deg, var(--el-color-primary-light-8), var(--el-color-primary-light-9));
+  border: 1px solid color-mix(in srgb, var(--el-color-primary) 18%, transparent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 4px 10px rgba(64, 158, 255, 0.12);
+  transition: transform var(--dd-transition), box-shadow var(--dd-transition);
+
+  .logo-area:hover & {
+    transform: translateY(-1px);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.55),
+      0 6px 12px rgba(64, 158, 255, 0.15);
+  }
+}
+
+.logo-img {
+  width: 16px;
+  height: 16px;
+}
+
+.brand-copy {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.logo-text {
+  min-width: 0;
+  flex: 1;
+  font-size: 15px;
+  line-height: 1;
+  font-weight: 700;
+  color: var(--el-text-color-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.version-badge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-family: var(--dd-font-mono);
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--el-color-primary-dark-2);
+  background: color-mix(in srgb, var(--el-color-primary) 10%, white);
+  border: 1px solid color-mix(in srgb, var(--el-color-primary) 18%, transparent);
 }
 
 .mobile-logo {
   border-bottom: 1px solid var(--el-border-color-light);
   justify-content: flex-start;
-  padding: 0 16px;
+  padding: 10px 12px;
+}
+
+.mobile-brand-inline {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
 }
 
 .mobile-title {
-  font-size: 16px;
-  font-weight: 600;
-  margin-left: 4px;
-  background: linear-gradient(135deg, #409EFF, #7B5CFA);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  min-width: 0;
+  font-size: 15px;
+  line-height: 1;
+  font-weight: 700;
+  color: var(--el-text-color-primary);
+  letter-spacing: 0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-version {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-family: var(--dd-font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--el-color-primary);
+  background: color-mix(in srgb, var(--el-color-primary) 10%, var(--el-bg-color));
+  border: 1px solid color-mix(in srgb, var(--el-color-primary) 18%, transparent);
 }
 
 .layout-header {
@@ -321,6 +421,7 @@ async function loadVersion() {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
 }
 
 .header-right {
@@ -362,17 +463,6 @@ async function loadVersion() {
   padding: 20px;
 }
 
-@media screen and (max-width: 768px) {
-  .layout-header {
-    padding: 0 12px;
-    height: 50px;
-  }
-
-  .layout-main {
-    padding: 12px;
-  }
-}
-
 .theme-btn {
   transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
 
@@ -407,5 +497,40 @@ async function loadVersion() {
 @keyframes pageFadeOut {
   from { opacity: 1; }
   to { opacity: 0; }
+}
+
+@media screen and (max-width: 768px) {
+  .layout-header {
+    padding: 0 12px;
+    height: 50px;
+  }
+
+  .layout-main {
+    padding: 12px;
+  }
+
+  .logo-area {
+    height: 56px;
+    padding: 8px 10px;
+  }
+
+  .brand-shell {
+    min-height: 38px;
+    padding: 6px 9px;
+  }
+
+  .brand-mark {
+    width: 26px;
+    height: 26px;
+  }
+
+  .logo-img {
+    width: 15px;
+    height: 15px;
+  }
+
+  .header-left {
+    gap: 6px;
+  }
 }
 </style>

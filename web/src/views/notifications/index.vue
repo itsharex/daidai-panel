@@ -22,6 +22,8 @@ const sshKeyForm = ref({ id: 0, name: '', private_key: '' })
 
 const configFields = computed(() => {
   const t = channelForm.value.type
+  const wecomMsgType = (configData.value.msg_type || 'text').trim() || 'text'
+  const wecomAppMsgType = (configData.value.msg_type || 'text').trim() || 'text'
   switch (t) {
     case 'webhook': return [
       { key: 'url', label: 'Webhook URL', type: 'input', placeholder: 'https://example.com/webhook' },
@@ -46,6 +48,74 @@ const configFields = computed(() => {
     ]
     case 'wecom': return [
       { key: 'webhook', label: 'Webhook URL', type: 'input', placeholder: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx' },
+      { key: 'msg_type', label: '消息类型', type: 'select', placeholder: '选择企业微信机器人消息类型', options: [
+        { label: '文本', value: 'text' },
+        { label: 'Markdown', value: 'markdown' },
+        { label: 'Markdown V2', value: 'markdown_v2' },
+        { label: '图片', value: 'image' },
+        { label: '图文', value: 'news' },
+        { label: '模版卡片', value: 'template_card' },
+      ]},
+      ...(wecomMsgType === 'text' ? [
+        { key: 'content_template', label: '文本模板', type: 'textarea', placeholder: '支持 {{title}} 和 {{content}}，留空默认 {{title}}\\n{{content}}' },
+        { key: 'mentioned_list', label: '提醒成员 (可选)', type: 'textarea', placeholder: '多个成员用逗号、分号或换行分隔，可填 @all' },
+        { key: 'mentioned_mobile_list', label: '提醒手机号 (可选)', type: 'textarea', placeholder: '多个手机号用逗号、分号或换行分隔，可填 @all' },
+      ] : []),
+      ...((wecomMsgType === 'markdown' || wecomMsgType === 'markdown_v2') ? [
+        { key: 'content_template', label: '内容模板', type: 'textarea', placeholder: '支持 {{title}} 和 {{content}} 占位符' },
+      ] : []),
+      ...(wecomMsgType === 'image' ? [
+        { key: 'image_base64', label: '图片 Base64', type: 'textarea', placeholder: '填写图片的 Base64 内容' },
+        { key: 'image_md5', label: '图片 MD5', type: 'input', placeholder: '填写图片内容对应的 MD5 值' },
+      ] : []),
+      ...(wecomMsgType === 'news' ? [
+        { key: 'news_articles', label: '图文 Articles(JSON)', type: 'textarea', placeholder: '[{\"title\":\"{{title}}\",\"description\":\"{{content}}\",\"url\":\"https://example.com\",\"picurl\":\"https://example.com/demo.png\"}]' },
+      ] : []),
+      ...(wecomMsgType === 'template_card' ? [
+        { key: 'template_card_payload', label: '卡片配置(JSON)', type: 'textarea', placeholder: '{\"card_type\":\"text_notice\",\"main_title\":{\"title\":\"{{title}}\",\"desc\":\"{{content}}\"}}' },
+      ] : []),
+    ]
+    case 'wecom_app': return [
+      { key: 'corp_id', label: '企业 ID', type: 'input', placeholder: '企业微信 CorpID' },
+      { key: 'secret', label: '应用 Secret', type: 'password', placeholder: '应用 Secret' },
+      { key: 'agent_id', label: 'Agent ID', type: 'input', placeholder: '应用 AgentId' },
+      { key: 'to_user', label: '成员账号 (可选)', type: 'input', placeholder: '多个成员用 | 分隔，留空默认 @all' },
+      { key: 'to_party', label: '部门 ID (可选)', type: 'input', placeholder: '多个部门用 | 分隔' },
+      { key: 'to_tag', label: '标签 ID (可选)', type: 'input', placeholder: '多个标签用 | 分隔' },
+      { key: 'msg_type', label: '消息类型', type: 'select', placeholder: '选择企业微信应用消息类型', options: [
+        { label: '文本', value: 'text' },
+        { label: 'Markdown', value: 'markdown' },
+        { label: '图片', value: 'image' },
+        { label: '文件', value: 'file' },
+        { label: '视频', value: 'video' },
+        { label: '图文', value: 'news' },
+        { label: '模版卡片', value: 'template_card' },
+      ]},
+      ...((wecomAppMsgType === 'text' || wecomAppMsgType === 'markdown') ? [
+        { key: 'content_template', label: '内容模板', type: 'textarea', placeholder: '支持 {{title}} 和 {{content}} 占位符' },
+      ] : []),
+      ...((wecomAppMsgType === 'image' || wecomAppMsgType === 'file' || wecomAppMsgType === 'video') ? [
+        { key: 'media_id', label: 'Media ID', type: 'input', placeholder: '调用上传临时素材接口后得到的 media_id' },
+      ] : []),
+      ...(wecomAppMsgType === 'news' ? [
+        { key: 'news_articles', label: '图文 Articles(JSON)', type: 'textarea', placeholder: '[{\"title\":\"{{title}}\",\"description\":\"{{content}}\",\"url\":\"https://example.com\",\"picurl\":\"https://example.com/demo.png\"}]' },
+      ] : []),
+      ...(wecomAppMsgType === 'template_card' ? [
+        { key: 'template_card_payload', label: '卡片配置(JSON)', type: 'textarea', placeholder: '{\"card_type\":\"text_notice\",\"main_title\":{\"title\":\"{{title}}\",\"desc\":\"{{content}}\"}}' },
+      ] : []),
+      { key: 'safe', label: '保密消息', type: 'select', placeholder: '默认 0', options: [
+        { label: '否 (0)', value: '0' },
+        { label: '是 (1)', value: '1' },
+      ]},
+      { key: 'enable_id_trans', label: 'ID 转译', type: 'select', placeholder: '默认 0', options: [
+        { label: '关闭 (0)', value: '0' },
+        { label: '开启 (1)', value: '1' },
+      ]},
+      { key: 'enable_duplicate_check', label: '重复检查', type: 'select', placeholder: '默认 0', options: [
+        { label: '关闭 (0)', value: '0' },
+        { label: '开启 (1)', value: '1' },
+      ]},
+      { key: 'duplicate_check_interval', label: '去重间隔(秒)', type: 'input', placeholder: '默认 1800，最大 14400' },
     ]
     case 'bark': return [
       { key: 'key', label: 'Device Key', type: 'input', placeholder: 'Bark App 中的推送 Key' },

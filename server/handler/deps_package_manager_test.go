@@ -105,12 +105,12 @@ func TestRewriteAPTListLine(t *testing.T) {
 		t.Fatalf("unexpected updated line: %s", updated)
 	}
 
-	official, changed := rewriteAPTListLine(updated, "ubuntu", "")
-	if !changed {
-		t.Fatalf("expected apt list line to revert to official")
+	defaulted, changed := rewriteAPTListLine(updated, "ubuntu", "")
+	if changed {
+		t.Fatalf("expected apt list line already using default accelerated mirror to remain unchanged")
 	}
-	if official != "deb [arch=amd64] http://archive.ubuntu.com/ubuntu jammy main restricted" {
-		t.Fatalf("unexpected reverted line: %s", official)
+	if defaulted != "deb [arch=amd64] https://mirrors.tuna.tsinghua.edu.cn/ubuntu jammy main restricted" {
+		t.Fatalf("unexpected defaulted line: %s", defaulted)
 	}
 }
 
@@ -122,5 +122,26 @@ func TestRewriteAPTSourcesContent(t *testing.T) {
 	}
 	if !strings.Contains(updated, "URIs: https://mirrors.aliyun.com/ubuntu") {
 		t.Fatalf("unexpected rewritten sources content: %s", updated)
+	}
+}
+
+func TestEffectiveLinuxMirrorFallsBackToDefaultAcceleratedMirror(t *testing.T) {
+	apkManager := linuxPackageManager{Name: "apk", Binary: "apk"}
+	if got := effectiveLinuxMirror(apkManager, "", ""); got != "https://mirrors.tuna.tsinghua.edu.cn/alpine" {
+		t.Fatalf("expected apk default mirror, got %q", got)
+	}
+	if got := effectiveLinuxMirror(apkManager, "", "https://dl-cdn.alpinelinux.org/alpine"); got != "https://mirrors.tuna.tsinghua.edu.cn/alpine" {
+		t.Fatalf("expected apk official mirror to fall back to accelerated mirror, got %q", got)
+	}
+
+	aptManager := linuxPackageManager{Name: "apt", Binary: "apt-get"}
+	if got := effectiveLinuxMirror(aptManager, "ubuntu", ""); got != "https://mirrors.tuna.tsinghua.edu.cn/ubuntu" {
+		t.Fatalf("expected ubuntu default mirror, got %q", got)
+	}
+	if got := effectiveLinuxMirror(aptManager, "debian", "http://deb.debian.org/debian"); got != "https://mirrors.tuna.tsinghua.edu.cn/debian" {
+		t.Fatalf("expected debian official mirror to fall back to accelerated mirror, got %q", got)
+	}
+	if got := effectiveLinuxMirror(aptManager, "ubuntu", "https://mirrors.aliyun.com/ubuntu"); got != "https://mirrors.aliyun.com/ubuntu" {
+		t.Fatalf("expected custom ubuntu mirror to be preserved, got %q", got)
 	}
 }

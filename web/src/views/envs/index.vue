@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, nextTick, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, nextTick, computed, type CSSProperties } from 'vue'
 import { envApi } from '@/api/env'
 import { ElMessage, ElMessageBox } from 'element-plus'
+
+const envTableDensityStorageKey = 'daidai-env-table-density'
 
 const envList = ref<any[]>([])
 const loading = ref(false)
@@ -13,6 +15,18 @@ const currentGroup = ref('')
 const groupFilter = ref('')
 const groups = ref<string[]>([])
 const selectedIds = ref<number[]>([])
+const selectedIdSet = computed(() => new Set(selectedIds.value))
+const selectedCountInCurrentPage = computed(() =>
+  envList.value.filter((item) => selectedIdSet.value.has(item.id)).length
+)
+const pinnedCountInCurrentPage = computed(() =>
+  envList.value.filter((item) => isTopPinned(item)).length
+)
+const tableDensity = ref<'comfortable' | 'compact'>(
+  typeof window !== 'undefined' && window.localStorage.getItem(envTableDensityStorageKey) === 'compact'
+    ? 'compact'
+    : 'comfortable'
+)
 
 const showEditDialog = ref(false)
 const editForm = ref({ id: 0, name: '', value: '', remarks: '', group: '' })
@@ -35,6 +49,9 @@ const batchGroupName = ref('')
 const tableRef = ref()
 let sortableInstance: any = null
 let sortableLoader: Promise<any> | null = null
+let dragPointerY = 0
+let dragAutoScrollFrame = 0
+const groupBadgeStyleCache = new Map<string, CSSProperties>()
 
 function loadSortable() {
   if (!sortableLoader) {
@@ -43,8 +60,100 @@ function loadSortable() {
   return sortableLoader
 }
 
+function clearTableSelection() {
+  selectedIds.value = []
+  tableRef.value?.clearSelection?.()
+}
+
+function handleDensityChange(value: 'comfortable' | 'compact') {
+  tableDensity.value = value
+  if (typeof window !== 'undefined') {
+    window.localStorage.setItem(envTableDensityStorageKey, value)
+  }
+}
+
+function buildStringHue(value: string) {
+  let hash = 0
+  for (const char of value) {
+    hash = ((hash << 5) - hash + char.charCodeAt(0)) | 0
+  }
+  return Math.abs(hash) % 360
+}
+
+function getGroupBadgeStyle(group: string): CSSProperties {
+  const cacheKey = group || 'default'
+  const cached = groupBadgeStyleCache.get(cacheKey)
+  if (cached) {
+    return cached
+  }
+
+  const style = {
+    '--group-hue': String(buildStringHue(cacheKey))
+  } as CSSProperties
+  groupBadgeStyleCache.set(cacheKey, style)
+  return style
+}
+
+function updateDragPointer(evt: any) {
+  const pointerEvent = evt?.originalEvent || evt
+  if (typeof pointerEvent?.clientY === 'number') {
+    dragPointerY = pointerEvent.clientY
+    return
+  }
+
+  const touch = pointerEvent?.touches?.[0] || pointerEvent?.changedTouches?.[0]
+  if (touch && typeof touch.clientY === 'number') {
+    dragPointerY = touch.clientY
+  }
+}
+
+function startDragAutoScroll() {
+  stopDragAutoScroll()
+
+  const tick = () => {
+    const bodyWrapper = document.querySelector('.env-table .el-table__body-wrapper') as HTMLElement | null
+    const tableThreshold = 72
+    const viewportThreshold = 88
+    const tableScrollStep = 22
+    const pageScrollStep = 18
+
+    if (bodyWrapper) {
+      const rect = bodyWrapper.getBoundingClientRect()
+      const canScrollTable = bodyWrapper.scrollHeight > bodyWrapper.clientHeight + 4
+      if (canScrollTable) {
+        if (dragPointerY < rect.top + tableThreshold && bodyWrapper.scrollTop > 0) {
+          bodyWrapper.scrollTop -= tableScrollStep
+        } else if (
+          dragPointerY > rect.bottom - tableThreshold &&
+          bodyWrapper.scrollTop + bodyWrapper.clientHeight < bodyWrapper.scrollHeight
+        ) {
+          bodyWrapper.scrollTop += tableScrollStep
+        }
+      }
+    }
+
+    if (dragPointerY < viewportThreshold) {
+      window.scrollBy({ top: -pageScrollStep, behavior: 'auto' })
+    } else if (dragPointerY > window.innerHeight - viewportThreshold) {
+      window.scrollBy({ top: pageScrollStep, behavior: 'auto' })
+    }
+
+    dragAutoScrollFrame = window.requestAnimationFrame(tick)
+  }
+
+  dragAutoScrollFrame = window.requestAnimationFrame(tick)
+}
+
+function stopDragAutoScroll() {
+  if (dragAutoScrollFrame) {
+    window.cancelAnimationFrame(dragAutoScrollFrame)
+    dragAutoScrollFrame = 0
+  }
+}
+
 async function loadData() {
   loading.value = true
+  selectedIds.value = []
   try {
     const group = groupFilter.value || currentGroup.value || undefined
     const res = await envApi.list({
@@ -55,9 +164,9 @@ async function loadData() {
     })
     envList.value = res.data || []
     total.value = res.total || 0
-    nextTick().then(() => {
-      void initSortable()
-    })
+    await nextTick()
+    clearTableSelection()
+    void initSortable()
   } catch {
     ElMessage.error('加载环境变量失败')
   } finally {
@@ -69,15 +178,18 @@ async function loadGroups() {
   try {
     const res = await envApi.groups()
     groups.value = res.data || []
-  } catch { /* ignore */ }
+  } catch {
+    // ignore
+  }
 }
 
 onMounted(() => {
-  loadData()
-  loadGroups()
+  void loadData()
+  void loadGroups()
 })
 
 onBeforeUnmount(() => {
+  stopDragAutoScroll()
   if (sortableInstance) {
     sortableInstance.destroy()
     sortableInstance = null
@@ -97,19 +209,48 @@ async function initSortable() {
       animation: 150,
       handle: '.drag-handle',
       ghostClass: 'sortable-ghost',
+      chosenClass: 'sortable-chosen',
+      dragClass: 'sortable-drag',
+      forceFallback: true,
+      fallbackOnBody: true,
+      scroll: true,
+      bubbleScroll: true,
+      scrollSensitivity: 100,
+      scrollSpeed: 18,
+      onStart: (evt: any) => {
+        updateDragPointer(evt)
+        startDragAutoScroll()
+      },
+      onMove: (evt: any) => {
+        updateDragPointer(evt)
+      },
       onEnd: async (evt: any) => {
+        stopDragAutoScroll()
+        updateDragPointer(evt)
+
         const { oldIndex, newIndex } = evt
         if (oldIndex === newIndex) return
+
         const sourceItem = envList.value[oldIndex]
-        const targetItem = envList.value[newIndex]
-        if (!sourceItem || !targetItem) return
-        const item = envList.value.splice(oldIndex, 1)[0]
-        envList.value.splice(newIndex, 0, item)
+        if (!sourceItem) return
+
+        const movedItem = envList.value.splice(oldIndex, 1)[0]
+        envList.value.splice(newIndex, 0, movedItem)
+        const nextItem = envList.value[newIndex + 1]
+        const sourceSortOrder = Number(sourceItem.sort_order || 0)
+        const targetSortOrder = nextItem ? Number(nextItem.sort_order || 0) : sourceSortOrder
+
+        if (targetSortOrder !== sourceSortOrder) {
+          ElMessage.warning('置顶区和普通区请分别排序，跨区移动请使用置顶按钮')
+          void loadData()
+          return
+        }
+
         try {
-          await envApi.sort(sourceItem.id, targetItem.id)
-        } catch {
-          ElMessage.error('排序失败')
-          loadData()
+          await envApi.sort(sourceItem.id, nextItem?.id)
+        } catch (err: any) {
+          ElMessage.error(err?.response?.data?.error || err?.message || '排序失败')
+          void loadData()
         }
       }
     })
@@ -120,19 +261,30 @@ async function initSortable() {
 
 function handleSearch() {
   page.value = 1
-  loadData()
+  void loadData()
 }
 
 function handleGroupSelect() {
   page.value = 1
-  loadData()
+  void loadData()
 }
 
 function handleGroupFilter(group: string) {
   currentGroup.value = currentGroup.value === group ? '' : group
   groupFilter.value = ''
   page.value = 1
-  loadData()
+  void loadData()
+}
+
+function handlePageChange(newPage: number) {
+  page.value = newPage
+  void loadData()
+}
+
+function handlePageSizeChange(newSize: number) {
+  pageSize.value = newSize
+  page.value = 1
+  void loadData()
 }
 
 function openCreate() {
@@ -166,15 +318,19 @@ async function handleSave() {
       ElMessage.success('更新成功')
     }
     showEditDialog.value = false
-    loadData()
-    loadGroups()
+    void loadData()
+    void loadGroups()
   } catch {
     ElMessage.error(isCreate.value ? '创建失败' : '更新失败')
   }
 }
 
 function isTopPinned(row: any) {
-  return row.position < 10000
+  return Number(row.sort_order || 0) > 0
+}
+
+function getRowClassName({ row }: { row: any }) {
+  return isTopPinned(row) ? 'env-row-pinned' : ''
 }
 
 async function handleToggleTop(row: any) {
@@ -186,7 +342,7 @@ async function handleToggleTop(row: any) {
       await envApi.moveToTop(row.id)
       ElMessage.success('已置顶')
     }
-    loadData()
+    void loadData()
   } catch {
     ElMessage.error('操作失败')
   }
@@ -216,8 +372,8 @@ async function handleBatchCreate() {
     ElMessage.success(`批量创建 ${items.length} 个变量成功`)
     showBatchDialog.value = false
     batchText.value = ''
-    loadData()
-    loadGroups()
+    void loadData()
+    void loadGroups()
   } catch {
     ElMessage.error('批量创建失败')
   }
@@ -228,8 +384,10 @@ async function handleDelete(id: number) {
     await ElMessageBox.confirm('确定要删除该环境变量吗？', '确认删除', { type: 'warning' })
     await envApi.delete(id)
     ElMessage.success('删除成功')
-    loadData()
-  } catch { /* cancelled */ }
+    void loadData()
+  } catch {
+    // cancelled
+  }
 }
 
 async function handleToggle(row: any) {
@@ -239,7 +397,7 @@ async function handleToggle(row: any) {
     } else {
       await envApi.enable(row.id)
     }
-    loadData()
+    void loadData()
   } catch {
     ElMessage.error('操作失败')
   }
@@ -251,9 +409,11 @@ async function handleBatchDelete() {
     await ElMessageBox.confirm(`确定要删除选中的 ${selectedIds.value.length} 个环境变量吗？`, '批量删除', { type: 'warning' })
     await envApi.batchDelete(selectedIds.value)
     ElMessage.success('批量删除成功')
-    selectedIds.value = []
-    loadData()
-  } catch { /* cancelled */ }
+    clearTableSelection()
+    void loadData()
+  } catch {
+    // cancelled
+  }
 }
 
 async function handleBatchGroup() {
@@ -271,11 +431,11 @@ async function confirmBatchGroup() {
     await envApi.batchSetGroup(selectedIds.value, batchGroupName.value.trim())
     ElMessage.success('批量分组成功')
     showBatchGroupDialog.value = false
-    selectedIds.value = []
-    loadData()
-    loadGroups()
-  } catch {
-    ElMessage.error('批量分组失败')
+    clearTableSelection()
+    void loadData()
+    void loadGroups()
+  } catch (err: any) {
+    ElMessage.error(err?.response?.data?.error || err?.message || '批量分组失败')
   }
 }
 
@@ -284,7 +444,7 @@ async function handleBatchEnable() {
   try {
     await envApi.batchEnable(selectedIds.value)
     ElMessage.success('批量启用成功')
-    loadData()
+    void loadData()
   } catch {
     ElMessage.error('批量启用失败')
   }
@@ -295,7 +455,7 @@ async function handleBatchDisable() {
   try {
     await envApi.batchDisable(selectedIds.value)
     ElMessage.success('批量禁用成功')
-    loadData()
+    void loadData()
   } catch {
     ElMessage.error('批量禁用失败')
   }
@@ -319,8 +479,8 @@ async function handleImport() {
     ElMessage.success(res.message)
     showImportDialog.value = false
     importText.value = ''
-    loadData()
-    loadGroups()
+    void loadData()
+    void loadGroups()
   } catch {
     ElMessage.error('导入失败')
   }
@@ -372,7 +532,9 @@ async function refreshExport() {
   try {
     const res = await envApi.exportFiles(exportFormat.value, true)
     exportContent.value = res.data[exportFormat.value] || ''
-  } catch { /* ignore */ }
+  } catch {
+    // ignore
+  }
 }
 
 function copyExport() {
@@ -411,6 +573,13 @@ function formatDateTime(t: string | null) {
         </el-select>
       </div>
       <div class="header-right">
+        <div class="table-density-switch">
+          <span class="density-label">排版</span>
+          <el-radio-group v-model="tableDensity" size="small" @change="handleDensityChange">
+            <el-radio-button value="comfortable">舒展</el-radio-button>
+            <el-radio-button value="compact">紧凑</el-radio-button>
+          </el-radio-group>
+        </div>
         <el-button type="primary" @click="openCreate">
           <el-icon><Plus /></el-icon>新建
         </el-button>
@@ -448,53 +617,124 @@ function formatDateTime(t: string | null) {
       </div>
     </div>
 
+    <div class="env-hint-bar">
+      <div class="env-hint-chip">
+        <el-icon><Rank /></el-icon>
+        拖拽只调整同一区域顺序，置顶请使用图钉按钮
+      </div>
+      <div class="env-hint-chip" v-if="pinnedCountInCurrentPage > 0">
+        <el-icon><Top /></el-icon>
+        当前页有 {{ pinnedCountInCurrentPage }} 项置顶
+      </div>
+    </div>
+
     <el-table
       ref="tableRef"
       :data="envList"
       v-loading="loading"
       @selection-change="handleSelectionChange"
+      :row-class-name="getRowClassName"
       stripe
-      class="env-table"
+      :class="['env-table', `env-table--${tableDensity}`]"
       row-key="id"
     >
-      <el-table-column type="selection" width="40" />
-      <el-table-column label="#" width="55" align="center">
+      <el-table-column type="selection" width="44" />
+      <el-table-column label="#" width="58" align="center">
         <template #default="{ $index }">
           <span class="row-index">{{ (page - 1) * pageSize + $index + 1 }}</span>
         </template>
       </el-table-column>
-      <el-table-column width="40" align="center">
+      <el-table-column width="44" align="center">
         <template #default>
           <el-icon class="drag-handle"><Rank /></el-icon>
         </template>
       </el-table-column>
-      <el-table-column prop="name" label="变量名" min-width="160">
+      <el-table-column prop="name" label="变量名" min-width="220">
+        <template #header>
+          <div class="table-header-label is-primary">
+            <span>变量名</span>
+            <small>唯一键名</small>
+          </div>
+        </template>
         <template #default="{ row }">
-          <span class="env-name">{{ row.name }}</span>
+          <div class="env-name-wrap">
+            <span class="env-name">{{ row.name }}</span>
+            <span v-if="isTopPinned(row)" class="pinned-chip">
+              <el-icon><Top /></el-icon>
+              置顶
+            </span>
+          </div>
         </template>
       </el-table-column>
-      <el-table-column prop="value" label="值" min-width="200" show-overflow-tooltip />
-      <el-table-column prop="remarks" label="备注" min-width="150" show-overflow-tooltip />
-      <el-table-column prop="group" label="分组" width="120">
+      <el-table-column prop="value" label="值" min-width="340">
+        <template #header>
+          <div class="table-header-label is-primary">
+            <span>值</span>
+            <small>主信息区域</small>
+          </div>
+        </template>
         <template #default="{ row }">
-          <el-tag v-if="row.group" size="small" effect="plain">{{ row.group }}</el-tag>
+          <span class="env-value-text" :title="row.value || ''">{{ row.value || '-' }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="状态" width="80" align="center">
+      <el-table-column prop="remarks" label="备注" min-width="220">
+        <template #header>
+          <div class="table-header-label">
+            <span>备注</span>
+            <small>用途说明</small>
+          </div>
+        </template>
         <template #default="{ row }">
-          <el-switch
-            :model-value="row.enabled"
-            size="small"
-            @change="handleToggle(row)"
-          />
+          <span class="env-remarks-text" :title="row.remarks || ''">{{ row.remarks || '-' }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="更新时间" width="170">
+      <el-table-column prop="group" label="分组" width="138" align="center">
+        <template #header>
+          <div class="table-header-label is-aux">
+            <span>分组</span>
+            <small>归类标签</small>
+          </div>
+        </template>
+        <template #default="{ row }">
+          <span v-if="row.group" class="group-pill" :style="getGroupBadgeStyle(row.group)">
+            <span class="group-dot" />
+            {{ row.group }}
+          </span>
+          <span v-else class="env-empty-text">未分组</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="状态" width="92" align="center">
+        <template #header>
+          <div class="table-header-label is-aux">
+            <span>状态</span>
+            <small>启用开关</small>
+          </div>
+        </template>
+        <template #default="{ row }">
+          <div class="env-status-cell">
+            <el-switch
+              :model-value="row.enabled"
+              size="small"
+              @change="handleToggle(row)"
+            />
+            <span class="env-status-text" :class="{ enabled: row.enabled }">
+              {{ row.enabled ? '启用' : '禁用' }}
+            </span>
+          </div>
+        </template>
+      </el-table-column>
+      <el-table-column label="更新时间" width="182" align="center">
+        <template #header>
+          <div class="table-header-label is-aux">
+            <span>更新时间</span>
+            <small>最近修改</small>
+          </div>
+        </template>
         <template #default="{ row }">
           <span class="time-text">{{ formatDateTime(row.updated_at) }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="160" fixed="right">
+      <el-table-column label="操作" width="148" fixed="right" align="center">
         <template #default="{ row }">
           <div class="action-group">
             <el-tooltip content="编辑" placement="top">
@@ -503,7 +743,14 @@ function formatDateTime(t: string | null) {
               </el-button>
             </el-tooltip>
             <el-tooltip :content="isTopPinned(row) ? '取消置顶' : '置顶'" placement="top">
-              <el-button size="small" :type="isTopPinned(row) ? 'info' : 'warning'" plain circle @click="handleToggleTop(row)">
+              <el-button
+                size="small"
+                :type="isTopPinned(row) ? 'info' : 'warning'"
+                :class="{ 'top-action-active': isTopPinned(row) }"
+                plain
+                circle
+                @click="handleToggleTop(row)"
+              >
                 <el-icon><Top /></el-icon>
               </el-button>
             </el-tooltip>
@@ -517,16 +764,30 @@ function formatDateTime(t: string | null) {
       </el-table-column>
     </el-table>
 
-    <div class="pagination-container" v-if="total > pageSize">
-      <el-pagination
-        v-model:current-page="page"
-        v-model:page-size="pageSize"
-        :total="total"
-        :page-sizes="[20, 50, 100]"
-        layout="total, sizes, prev, pager, next"
-        @current-change="loadData"
-        @size-change="() => { page = 1; loadData() }"
-      />
+    <div v-if="total > pageSize || selectedCountInCurrentPage > 0" class="table-footer-bar">
+      <div class="selection-summary" :class="{ active: selectedCountInCurrentPage > 0 }">
+        <span v-if="selectedCountInCurrentPage > 0">
+          已选择当前页 {{ selectedCountInCurrentPage }} 项，批量操作仅作用于当前页勾选的数据。
+        </span>
+        <span v-else>
+          批量操作仅作用于当前页勾选的数据。
+        </span>
+        <el-button v-if="selectedCountInCurrentPage > 0" text type="primary" @click="clearTableSelection">
+          清空选择
+        </el-button>
+      </div>
+
+      <div class="pagination-container" v-if="total > pageSize">
+        <el-pagination
+          v-model:current-page="page"
+          v-model:page-size="pageSize"
+          :total="total"
+          :page-sizes="[20, 50, 100]"
+          layout="total, sizes, prev, pager, next"
+          @current-change="handlePageChange"
+          @size-change="handlePageSizeChange"
+        />
+      </div>
     </div>
 
     <el-dialog v-model="showEditDialog" :title="isCreate ? '新建环境变量' : '编辑环境变量'" width="500px" :close-on-click-modal="false">
@@ -688,22 +949,171 @@ function formatDateTime(t: string | null) {
   }
 }
 
+.table-density-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--el-fill-color-light) 88%, white);
+}
+
+.density-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--el-text-color-secondary);
+}
+
+.env-hint-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.env-hint-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  background: color-mix(in srgb, var(--el-color-primary) 7%, var(--el-bg-color));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--el-color-primary) 14%, transparent);
+}
+
 .action-group {
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
+.table-header-label {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  line-height: 1.1;
+}
+
+.table-header-label span {
+  font-weight: 700;
+  color: var(--el-text-color-primary);
+}
+
+.table-header-label small {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--el-text-color-placeholder);
+}
+
+.table-header-label.is-primary span {
+  color: var(--el-color-primary);
+}
+
+.table-header-label.is-aux span {
+  color: var(--el-text-color-regular);
+}
+
+.env-name-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
 .env-name {
+  min-width: 0;
+  flex: 1;
   font-family: var(--dd-font-mono);
   font-size: 13px;
   color: var(--el-color-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pinned-chip {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #8a4b00;
+  background: linear-gradient(135deg, #fff1bf 0%, #ffd66b 100%);
+  box-shadow: inset 0 0 0 1px rgba(196, 118, 0, 0.18);
+}
+
+.env-value-text,
+.env-remarks-text {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.env-value-text {
+  font-family: var(--dd-font-mono);
+  color: var(--el-text-color-primary);
+}
+
+.env-remarks-text {
+  color: var(--el-text-color-regular);
+}
+
+.env-empty-text {
+  font-size: 12px;
+  color: var(--el-text-color-placeholder);
+}
+
+.group-pill {
+  --group-hue: 210;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: hsl(var(--group-hue) 55% 32%);
+  background: hsl(var(--group-hue) 85% 96%);
+  box-shadow: inset 0 0 0 1px hsl(var(--group-hue) 72% 78% / 0.7);
+}
+
+.group-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: hsl(var(--group-hue) 72% 48%);
+  flex-shrink: 0;
 }
 
 .row-index {
   font-family: var(--dd-font-mono);
   font-size: 12px;
   color: var(--el-text-color-secondary);
+}
+
+.env-status-cell {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.env-status-text {
+  font-size: 11px;
+  line-height: 1;
+  color: var(--el-text-color-placeholder);
+}
+
+.env-status-text.enabled {
+  color: var(--el-color-success);
 }
 
 .time-text {
@@ -720,19 +1130,98 @@ function formatDateTime(t: string | null) {
   &:active { cursor: grabbing; }
 }
 
+.top-action-active {
+  box-shadow: 0 0 0 1px rgba(245, 166, 35, 0.2);
+}
+
 .sortable-ghost {
   opacity: 0.4;
   background: var(--el-color-primary-light-9) !important;
+}
+
+.sortable-chosen {
+  background: color-mix(in srgb, var(--el-color-primary) 10%, var(--el-bg-color)) !important;
+}
+
+.sortable-drag {
+  opacity: 0.96 !important;
+  box-shadow: 0 18px 36px rgba(15, 23, 42, 0.16);
 }
 
 .env-table {
   width: 100%;
 }
 
-.pagination-container {
+:deep(.env-table .el-table__cell) {
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
+:deep(.env-table th.el-table__cell) {
+  white-space: nowrap;
+  background: color-mix(in srgb, var(--el-fill-color-lighter) 70%, white);
+}
+
+:deep(.env-table--compact .el-table__cell) {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+:deep(.env-table--compact .env-value-text),
+:deep(.env-table--compact .env-remarks-text),
+:deep(.env-table--compact .env-name) {
+  font-size: 12px;
+}
+
+:deep(.env-table--compact .time-text) {
+  font-size: 11px;
+}
+
+:deep(.env-table--compact .pinned-chip),
+:deep(.env-table--compact .group-pill) {
+  padding-top: 2px;
+  padding-bottom: 2px;
+  font-size: 11px;
+}
+
+.table-footer-bar {
   margin-top: 16px;
   display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  position: sticky;
+  bottom: 0;
+  z-index: 12;
+  padding: 14px 16px 8px;
+  border-radius: 14px 14px 0 0;
+  background: color-mix(in srgb, var(--el-bg-color) 90%, white);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 -8px 24px rgba(15, 23, 42, 0.08);
+  border-top: 1px solid color-mix(in srgb, var(--el-border-color) 70%, transparent);
+}
+
+.selection-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--el-fill-color-light) 85%, white);
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+}
+
+.selection-summary.active {
+  background: color-mix(in srgb, var(--el-color-primary) 10%, var(--el-bg-color));
+}
+
+.pagination-container {
+  display: flex;
   justify-content: flex-end;
+  margin-left: auto;
 }
 
 .export-format-switch {
@@ -764,5 +1253,34 @@ function formatDateTime(t: string | null) {
 
 .batch-group-tag {
   cursor: pointer;
+}
+
+:deep(.env-row-pinned > td) {
+  background:
+    linear-gradient(90deg, rgba(255, 214, 107, 0.22) 0, rgba(255, 214, 107, 0.08) 32px, transparent 220px),
+    var(--el-table-tr-bg-color);
+}
+
+:deep(.env-row-pinned > td:first-child) {
+  box-shadow: inset 4px 0 0 #f5a623;
+}
+
+@media (max-width: 768px) {
+  .page-header {
+    .header-right {
+      width: 100%;
+      justify-content: flex-start;
+      flex-wrap: wrap;
+    }
+  }
+
+  .table-footer-bar {
+    align-items: stretch;
+  }
+
+  .pagination-container {
+    width: 100%;
+    justify-content: flex-start;
+  }
 }
 </style>

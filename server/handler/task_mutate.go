@@ -82,12 +82,14 @@ func (h *TaskHandler) Create(c *gin.Context) {
 		task.AllowMultipleInstances = *req.AllowMultipleInstances
 	}
 
-	if err := database.DB.Create(&task).Error; err != nil {
+	if err := database.DB.Select("*").Create(&task).Error; err != nil {
 		response.InternalError(c, "创建任务失败")
 		return
 	}
 
-	service.GetSchedulerV2().AddJob(&task)
+	if scheduler := service.GetSchedulerV2(); scheduler != nil {
+		scheduler.AddJob(&task)
+	}
 
 	response.Created(c, gin.H{
 		"message": "创建成功",
@@ -146,7 +148,9 @@ func (h *TaskHandler) Update(c *gin.Context) {
 	}
 
 	database.DB.First(&task, taskID)
-	service.GetSchedulerV2().UpdateJob(&task)
+	if scheduler := service.GetSchedulerV2(); scheduler != nil {
+		scheduler.UpdateJob(&task)
+	}
 
 	response.Success(c, gin.H{
 		"message": "task updated",
@@ -163,7 +167,9 @@ func (h *TaskHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	service.GetSchedulerV2().RemoveJob(uint(taskID))
+	if scheduler := service.GetSchedulerV2(); scheduler != nil {
+		scheduler.RemoveJob(uint(taskID))
+	}
 	database.DB.Where("task_id = ?", taskID).Delete(&model.TaskLog{})
 	database.DB.Delete(&task)
 
@@ -207,6 +213,6 @@ func (h *TaskHandler) Copy(c *gin.Context) {
 		TaskAfter:              task.TaskAfter,
 		AllowMultipleInstances: task.AllowMultipleInstances,
 	}
-	database.DB.Create(&newTask)
+	database.DB.Select("*").Create(&newTask)
 	response.Created(c, gin.H{"message": "复制成功", "data": newTask.ToDict()})
 }

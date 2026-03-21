@@ -149,3 +149,193 @@ func TestTaskListMapsSubscriptionLabelsToSubscriptionNames(t *testing.T) {
 		}
 	}
 }
+
+func TestTaskListIncludesEditableSettingsForEditBackfill(t *testing.T) {
+	testutil.SetupTestEnv(t)
+
+	engine := newProtectedRouter()
+	user := testutil.MustCreateUser(t, "operator", "operator")
+	accessToken := testutil.MustCreateAccessToken(t, user.Username, user.Role)
+
+	parentTask := &model.Task{
+		Name:           "parent task",
+		Command:        "echo parent",
+		CronExpression: "0 0 * * *",
+		Status:         model.TaskStatusEnabled,
+	}
+	if err := database.DB.Create(parentTask).Error; err != nil {
+		t.Fatalf("create parent task: %v", err)
+	}
+
+	beforeHook := "echo before"
+	afterHook := "echo after"
+
+	task := &model.Task{
+		Name:                   "notify success task",
+		Command:                "echo done",
+		CronExpression:         "0 0 * * *",
+		Status:                 model.TaskStatusEnabled,
+		Timeout:                7200,
+		MaxRetries:             3,
+		RetryInterval:          180,
+		NotifyOnFailure:        false,
+		NotifyOnSuccess:        true,
+		DependsOn:              &parentTask.ID,
+		TaskBefore:             &beforeHook,
+		TaskAfter:              &afterHook,
+		AllowMultipleInstances: true,
+	}
+	task.SetLabelsFromSlice([]string{"manual", "release"})
+	if err := database.DB.Create(task).Error; err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+	if err := database.DB.Model(task).Updates(map[string]interface{}{
+		"notify_on_failure":        false,
+		"notify_on_success":        true,
+		"depends_on":               parentTask.ID,
+		"task_before":              beforeHook,
+		"task_after":               afterHook,
+		"allow_multiple_instances": true,
+		"timeout":                  7200,
+		"max_retries":              3,
+		"retry_interval":           180,
+	}).Error; err != nil {
+		t.Fatalf("update task fields: %v", err)
+	}
+
+	rec := performRequest(engine, http.MethodGet, "/api/v1/tasks", map[string]string{
+		"Authorization": "Bearer " + accessToken,
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	payload := decodeJSONMap(t, rec)
+	items, ok := payload["data"].([]interface{})
+	if !ok || len(items) == 0 {
+		t.Fatalf("expected non-empty data array, got %#v", payload["data"])
+	}
+
+	firstItem, ok := items[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected task object, got %#v", items[0])
+	}
+
+	gotValue, exists := firstItem["notify_on_success"]
+	if !exists {
+		t.Fatalf("expected notify_on_success in task payload, got keys=%v", firstItem)
+	}
+
+	gotBool, ok := gotValue.(bool)
+	if !ok {
+		t.Fatalf("expected notify_on_success to be bool, got %#v", gotValue)
+	}
+	if !gotBool {
+		t.Fatalf("expected notify_on_success=true, got false")
+	}
+
+	if gotValue, ok := firstItem["notify_on_failure"].(bool); !ok || gotValue {
+		t.Fatalf("expected notify_on_failure=false, got %#v", firstItem["notify_on_failure"])
+	}
+	if gotValue, ok := firstItem["allow_multiple_instances"].(bool); !ok || !gotValue {
+		t.Fatalf("expected allow_multiple_instances=true, got %#v", firstItem["allow_multiple_instances"])
+	}
+	if gotValue, ok := firstItem["timeout"].(float64); !ok || gotValue != 7200 {
+		t.Fatalf("expected timeout=7200, got %#v", firstItem["timeout"])
+	}
+	if gotValue, ok := firstItem["max_retries"].(float64); !ok || gotValue != 3 {
+		t.Fatalf("expected max_retries=3, got %#v", firstItem["max_retries"])
+	}
+	if gotValue, ok := firstItem["retry_interval"].(float64); !ok || gotValue != 180 {
+		t.Fatalf("expected retry_interval=180, got %#v", firstItem["retry_interval"])
+	}
+	if gotValue, ok := firstItem["depends_on"].(float64); !ok || uint(gotValue) != parentTask.ID {
+		t.Fatalf("expected depends_on=%d, got %#v", parentTask.ID, firstItem["depends_on"])
+	}
+	if gotValue, ok := firstItem["task_before"].(string); !ok || gotValue != beforeHook {
+		t.Fatalf("expected task_before=%q, got %#v", beforeHook, firstItem["task_before"])
+	}
+	if gotValue, ok := firstItem["task_after"].(string); !ok || gotValue != afterHook {
+		t.Fatalf("expected task_after=%q, got %#v", afterHook, firstItem["task_after"])
+	}
+	labels, ok := firstItem["labels"].([]interface{})
+	if !ok || len(labels) != 2 {
+		t.Fatalf("expected 2 labels, got %#v", firstItem["labels"])
+	}
+}
+
+func TestTaskCreatePersistsFalseNotifyOnFailure(t *testing.T) {
+	testutil.SetupTestEnv(t)
+
+	engine := newProtectedRouter()
+	user := testutil.MustCreateUser(t, "operator", "operator")
+	accessToken := testutil.MustCreateAccessToken(t, user.Username, user.Role)
+
+	rec := performJSONRequest(
+		engine,
+		http.MethodPost,
+		"/api/v1/tasks",
+		`{
+			"name":"create notify false",
+			"command":"echo hi",
+			"cron_expression":"0 0 * * *",
+			"notify_on_failure":false,
+			"notify_on_success":true
+		}`,
+		map[string]string{"Authorization": "Bearer " + accessToken},
+		"",
+	)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	payload := decodeJSONMap(t, rec)
+	item, ok := payload["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected task payload, got %#v", payload["data"])
+	}
+	if got, ok := item["notify_on_failure"].(bool); !ok || got {
+		t.Fatalf("expected notify_on_failure=false, got %#v", item["notify_on_failure"])
+	}
+	if got, ok := item["notify_on_success"].(bool); !ok || !got {
+		t.Fatalf("expected notify_on_success=true, got %#v", item["notify_on_success"])
+	}
+}
+
+func TestTaskCopyKeepsDisabledStatus(t *testing.T) {
+	testutil.SetupTestEnv(t)
+
+	engine := newProtectedRouter()
+	user := testutil.MustCreateUser(t, "operator", "operator")
+	accessToken := testutil.MustCreateAccessToken(t, user.Username, user.Role)
+
+	task := &model.Task{
+		Name:            "copy source",
+		Command:         "echo source",
+		CronExpression:  "0 0 * * *",
+		Status:          model.TaskStatusEnabled,
+		NotifyOnFailure: false,
+	}
+	if err := database.DB.Select("*").Create(task).Error; err != nil {
+		t.Fatalf("create source task: %v", err)
+	}
+
+	rec := performRequest(engine, http.MethodPost, "/api/v1/tasks/"+strconv.FormatUint(uint64(task.ID), 10)+"/copy", map[string]string{
+		"Authorization": "Bearer " + accessToken,
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	payload := decodeJSONMap(t, rec)
+	item, ok := payload["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected task payload, got %#v", payload["data"])
+	}
+	if got, ok := item["status"].(float64); !ok || got != model.TaskStatusDisabled {
+		t.Fatalf("expected copied task status disabled, got %#v", item["status"])
+	}
+	if got, ok := item["notify_on_failure"].(bool); !ok || got {
+		t.Fatalf("expected copied task notify_on_failure=false, got %#v", item["notify_on_failure"])
+	}
+}

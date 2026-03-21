@@ -1,0 +1,16 @@
+name: daidai-panel
+
+services:
+  daidai-panel:
+    image: linzixuanzz/daidai-panel:debian
+    container_name: daidai-panel
+    restart: unless-stopped
+    ports:
+      - "5700:5700" # 宿主机端口:容器内 Nginx 端口
+    volumes:
+      - ./Dumb-Panel:/app/Dumb-Panel
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - TZ=Asia/Shanghai
+      - CONTAINER_NAME=daidai-panel
+      - IMAGE_NAME=linzixuanzz/daidai-panel:debian

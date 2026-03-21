@@ -175,8 +175,8 @@ export function useSettingsSecurity() {
           void doRestart()
         }
       }, 1000)
-    } catch {
-      ElMessage.error('恢复失败')
+    } catch (e: any) {
+      ElMessage.error(e?.response?.data?.error || '恢复失败')
     }
   }
 

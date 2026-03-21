@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -33,7 +34,7 @@ func buildQingLongManifest(extractedDir string) (BackupManifest, error) {
 
 	configPath := filepath.Join(dataDir, "config", "config.sh")
 	if _, err := os.Stat(configPath); err == nil {
-		configs, envs, channels, err := parseQingLongConfig(configPath)
+		configs, channels, err := parseQingLongConfig(configPath)
 		if err != nil {
 			return BackupManifest{}, err
 		}
@@ -44,10 +45,6 @@ func buildQingLongManifest(extractedDir string) (BackupManifest, error) {
 		if len(channels) > 0 {
 			manifest.Selection.Configs = true
 			manifest.Data.Configs.NotifyChannels = append(manifest.Data.Configs.NotifyChannels, channels...)
-		}
-		if len(envs) > 0 {
-			manifest.Selection.EnvVars = true
-			manifest.Data.EnvVars = append(manifest.Data.EnvVars, envs...)
 		}
 	}
 
@@ -83,18 +80,39 @@ func resolveQingLongDataDir(extractedDir string) (string, error) {
 			}
 		}
 	}
+
+	var nested []string
+	_ = filepath.Walk(extractedDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info == nil || !info.IsDir() {
+			return nil
+		}
+		if path == extractedDir {
+			return nil
+		}
+		if _, err := os.Stat(filepath.Join(path, "config")); err == nil {
+			if _, err := os.Stat(filepath.Join(path, "db")); err == nil {
+				nested = append(nested, path)
+			}
+		}
+		return nil
+	})
+	if len(nested) > 0 {
+		sort.Slice(nested, func(i, j int) bool {
+			return len(nested[i]) < len(nested[j])
+		})
+		return nested[0], nil
+	}
 	return "", fmt.Errorf("未检测到青龙备份目录结构")
 }
 
-func parseQingLongConfig(configPath string) ([]model.SystemConfig, []model.EnvVar, []BackupNotifyChannel, error) {
+func parseQingLongConfig(configPath string) ([]model.SystemConfig, []BackupNotifyChannel, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("读取青龙配置失败: %w", err)
+		return nil, nil, fmt.Errorf("读取青龙配置失败: %w", err)
 	}
 
 	lines := strings.Split(string(data), "\n")
 	configs := make([]model.SystemConfig, 0)
-	envs := make([]model.EnvVar, 0)
 	exportedVars := make(map[string]string)
 	seenConfigKeys := map[string]struct{}{}
 
@@ -121,35 +139,28 @@ func parseQingLongConfig(configPath string) ([]model.SystemConfig, []model.EnvVa
 			continue
 		}
 
-		if isExport {
-			if strings.TrimSpace(value) == "" {
+		mappedKey, mappedValue, ok := mapQingLongConfigToSystemConfig(key, value)
+		if ok {
+			if _, exists := seenConfigKeys[mappedKey]; exists {
 				continue
 			}
-			exportedVars[key] = value
-			envs = append(envs, model.EnvVar{
-				Name:      key,
-				Value:     value,
-				Enabled:   true,
-				Position:  float64(len(envs) + 1),
-				SortOrder: len(envs),
-			})
+			seenConfigKeys[mappedKey] = struct{}{}
+			configs = append(configs, model.SystemConfig{Key: mappedKey, Value: mappedValue})
 			continue
 		}
 
-		mappedKey, mappedValue, ok := mapQingLongConfigToSystemConfig(key, value)
-		if !ok {
+		if !isExport {
 			continue
 		}
-		if _, exists := seenConfigKeys[mappedKey]; exists {
+		if strings.TrimSpace(value) == "" {
 			continue
 		}
-		seenConfigKeys[mappedKey] = struct{}{}
-		configs = append(configs, model.SystemConfig{Key: mappedKey, Value: mappedValue})
+		exportedVars[key] = value
 	}
 
 	channels := buildQingLongNotificationChannels(exportedVars)
 
-	return configs, envs, channels, nil
+	return configs, channels, nil
 }
 
 func normalizeQingLongShellValue(value string) string {
@@ -277,6 +288,10 @@ func buildQingLongNotificationChannels(env map[string]string) []BackupNotifyChan
 		appendChannel("青龙导入 - 企业微信机器人", "wecom", map[string]string{
 			"webhook": fmt.Sprintf("https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=%s", key),
 		})
+	}
+
+	if appCfg := buildQingLongWecomAppConfig(env); len(appCfg) > 0 {
+		appendChannel("青龙导入 - 企业微信应用", "wecom_app", appCfg)
 	}
 
 	if token := strings.TrimSpace(env["PUSH_PLUS_TOKEN"]); token != "" {
@@ -472,6 +487,43 @@ func buildQingLongEmailConfig(env map[string]string) map[string]string {
 	}
 }
 
+func buildQingLongWecomAppConfig(env map[string]string) map[string]string {
+	raw := strings.TrimSpace(env["QYWX_AM"])
+	if raw == "" {
+		return nil
+	}
+
+	parts := splitQingLongNotifyParts(raw)
+	if len(parts) < 4 {
+		return nil
+	}
+
+	cfg := map[string]string{
+		"corp_id":  parts[0],
+		"secret":   parts[1],
+		"to_user":  parts[2],
+		"agent_id": parts[3],
+	}
+	if len(parts) >= 5 && strings.TrimSpace(parts[4]) != "" {
+		cfg["msg_type"] = strings.TrimSpace(parts[4])
+	}
+	return cfg
+}
+
+func splitQingLongNotifyParts(raw string) []string {
+	parts := strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ',' || r == ';' || r == '\n' || r == '\r'
+	})
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			result = append(result, part)
+		}
+	}
+	return result
+}
+
 func normalizeQingLongWebhookHeaders(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -568,33 +620,56 @@ func enrichManifestFromQingLongDB(dbPath string, manifest *BackupManifest) error
 }
 
 func loadQingLongEnvVars(db *sql.DB) ([]model.EnvVar, error) {
-	rows, err := db.Query("SELECT id, name, value, remarks, status, position FROM Envs ORDER BY position ASC, id ASC")
+	rows, err := loadSQLiteTableRows(db, "Envs")
 	if err != nil {
 		return nil, fmt.Errorf("读取青龙环境变量失败: %w", err)
 	}
-	defer rows.Close()
 
-	var result []model.EnvVar
-	for rows.Next() {
-		var (
-			id       int
-			name     string
-			value    string
-			remarks  sql.NullString
-			status   int
-			position float64
-		)
-		if err := rows.Scan(&id, &name, &value, &remarks, &status, &position); err != nil {
-			return nil, fmt.Errorf("解析青龙环境变量失败: %w", err)
+	type qlEnv struct {
+		id       int64
+		name     string
+		value    string
+		remarks  string
+		status   int64
+		position float64
+	}
+	envs := make([]qlEnv, 0, len(rows))
+	for _, row := range rows {
+		name := strings.TrimSpace(sqliteRowString(row, "name"))
+		value := sqliteRowString(row, "value")
+		if name == "" {
+			continue
 		}
+		envs = append(envs, qlEnv{
+			id:       sqliteRowInt(row, "id"),
+			name:     name,
+			value:    value,
+			remarks:  sqliteRowString(row, "remarks"),
+			status:   sqliteRowInt(row, "status"),
+			position: sqliteRowFloat(row, "position"),
+		})
+	}
 
+	sort.SliceStable(envs, func(i, j int) bool {
+		if envs[i].position == envs[j].position {
+			return envs[i].id < envs[j].id
+		}
+		return envs[i].position < envs[j].position
+	})
+
+	result := make([]model.EnvVar, 0, len(envs))
+	for i, item := range envs {
+		position := item.position
+		if position <= 0 {
+			position = float64(i + 1)
+		}
 		result = append(result, model.EnvVar{
-			Name:      name,
-			Value:     value,
-			Remarks:   remarks.String,
-			Enabled:   status == 0,
+			Name:      item.name,
+			Value:     item.value,
+			Remarks:   item.remarks,
+			Enabled:   item.status == 0,
 			Position:  position,
-			SortOrder: len(result),
+			SortOrder: 0,
 		})
 	}
 
@@ -602,41 +677,28 @@ func loadQingLongEnvVars(db *sql.DB) ([]model.EnvVar, error) {
 }
 
 func loadQingLongTasks(db *sql.DB) ([]model.Task, error) {
-	rows, err := db.Query(`
-		SELECT id, name, command, schedule, isDisabled, labels, task_before, task_after, allow_multiple_instances
-		FROM Crontabs
-		ORDER BY id ASC`)
+	rows, err := loadSQLiteTableRows(db, "Crontabs")
 	if err != nil {
 		return nil, fmt.Errorf("读取青龙定时任务失败: %w", err)
 	}
-	defer rows.Close()
+
+	sort.SliceStable(rows, func(i, j int) bool {
+		return sqliteRowInt(rows[i], "id") < sqliteRowInt(rows[j], "id")
+	})
 
 	var result []model.Task
-	for rows.Next() {
-		var (
-			id                     int
-			name                   string
-			command                string
-			schedule               string
-			isDisabled             bool
-			labelsJSON             sql.NullString
-			taskBefore             sql.NullString
-			taskAfter              sql.NullString
-			allowMultipleInstances bool
-		)
-		if err := rows.Scan(&id, &name, &command, &schedule, &isDisabled, &labelsJSON, &taskBefore, &taskAfter, &allowMultipleInstances); err != nil {
-			return nil, fmt.Errorf("解析青龙定时任务失败: %w", err)
-		}
-
-		schedule = strings.TrimSpace(schedule)
+	for _, row := range rows {
+		schedule := strings.TrimSpace(firstNonEmptySQLiteString(row, "schedule", "cron"))
 		if !panelcron.Parse(schedule).Valid {
 			continue
 		}
 
+		command := strings.TrimSpace(firstNonEmptySQLiteString(row, "command"))
+		name := strings.TrimSpace(firstNonEmptySQLiteString(row, "name"))
 		task := model.Task{
-			ID:                     uint(id),
-			Name:                   strings.TrimSpace(name),
-			Command:                strings.TrimSpace(command),
+			ID:                     uint(sqliteRowInt(row, "id")),
+			Name:                   name,
+			Command:                command,
 			CronExpression:         schedule,
 			Status:                 model.TaskStatusEnabled,
 			Timeout:                300,
@@ -644,25 +706,24 @@ func loadQingLongTasks(db *sql.DB) ([]model.Task, error) {
 			RetryInterval:          60,
 			NotifyOnFailure:        true,
 			NotifyOnSuccess:        false,
-			AllowMultipleInstances: allowMultipleInstances,
+			AllowMultipleInstances: sqliteRowBool(row, "allow_multiple_instances"),
 		}
 		if task.Name == "" {
 			task.Name = deriveTaskNameFromCommand(task.Command)
 		}
-		if isDisabled {
+		if sqliteRowBool(row, "isDisabled") || sqliteRowBool(row, "is_disabled") {
 			task.Status = model.TaskStatusDisabled
 		}
-		if taskBefore.Valid && strings.TrimSpace(taskBefore.String) != "" {
-			value := taskBefore.String
+		if value := strings.TrimSpace(firstNonEmptySQLiteString(row, "task_before")); value != "" {
 			task.TaskBefore = &value
 		}
-		if taskAfter.Valid && strings.TrimSpace(taskAfter.String) != "" {
-			value := taskAfter.String
+		if value := strings.TrimSpace(firstNonEmptySQLiteString(row, "task_after")); value != "" {
 			task.TaskAfter = &value
 		}
-		if labelsJSON.Valid {
+		labelsJSON := strings.TrimSpace(firstNonEmptySQLiteString(row, "labels"))
+		if labelsJSON != "" {
 			var labels []string
-			if err := json.Unmarshal([]byte(labelsJSON.String), &labels); err == nil {
+			if err := json.Unmarshal([]byte(labelsJSON), &labels); err == nil {
 				task.SetLabelsFromSlice(labels)
 			}
 		}
@@ -688,56 +749,42 @@ func deriveTaskNameFromCommand(command string) string {
 }
 
 func loadQingLongSubscriptions(db *sql.DB) ([]model.Subscription, error) {
-	rows, err := db.Query(`
-		SELECT id, name, url, schedule, type, whitelist, blacklist, dependences, branch, alias, autoAddCron, autoDelCron, is_disabled
-		FROM Subscriptions
-		ORDER BY id ASC`)
+	rows, err := loadSQLiteTableRows(db, "Subscriptions")
 	if err != nil {
 		return nil, fmt.Errorf("读取青龙订阅失败: %w", err)
 	}
-	defer rows.Close()
+
+	sort.SliceStable(rows, func(i, j int) bool {
+		return sqliteRowInt(rows[i], "id") < sqliteRowInt(rows[j], "id")
+	})
 
 	var result []model.Subscription
-	for rows.Next() {
-		var (
-			id          int
-			name        string
-			url         string
-			schedule    string
-			subType     sql.NullString
-			whitelist   sql.NullString
-			blacklist   sql.NullString
-			dependences sql.NullString
-			branch      sql.NullString
-			alias       sql.NullString
-			autoAdd     int
-			autoDel     int
-			isDisabled  bool
-		)
-		if err := rows.Scan(&id, &name, &url, &schedule, &subType, &whitelist, &blacklist, &dependences, &branch, &alias, &autoAdd, &autoDel, &isDisabled); err != nil {
-			return nil, fmt.Errorf("解析青龙订阅失败: %w", err)
+	for _, row := range rows {
+		urlValue := strings.TrimSpace(firstNonEmptySQLiteString(row, "url"))
+		if urlValue == "" {
+			continue
 		}
 
-		schedule = strings.TrimSpace(schedule)
+		schedule := strings.TrimSpace(firstNonEmptySQLiteString(row, "schedule"))
 		if !ValidateSubscriptionSchedule(schedule) {
 			schedule = ""
 		}
 
 		result = append(result, model.Subscription{
-			ID:          uint(id),
-			Name:        strings.TrimSpace(name),
-			Type:        inferQingLongSubscriptionType(strings.TrimSpace(url), subType.String),
-			URL:         strings.TrimSpace(url),
-			Branch:      strings.TrimSpace(branch.String),
+			ID:          uint(sqliteRowInt(row, "id")),
+			Name:        strings.TrimSpace(firstNonEmptySQLiteString(row, "name")),
+			Type:        inferQingLongSubscriptionType(urlValue, firstNonEmptySQLiteString(row, "type")),
+			URL:         urlValue,
+			Branch:      strings.TrimSpace(firstNonEmptySQLiteString(row, "branch")),
 			Schedule:    schedule,
-			Whitelist:   strings.TrimSpace(whitelist.String),
-			Blacklist:   strings.TrimSpace(blacklist.String),
-			DependOn:    strings.TrimSpace(dependences.String),
-			AutoAddTask: autoAdd != 0,
-			AutoDelTask: autoDel != 0,
-			Enabled:     !isDisabled,
+			Whitelist:   strings.TrimSpace(firstNonEmptySQLiteString(row, "whitelist")),
+			Blacklist:   strings.TrimSpace(firstNonEmptySQLiteString(row, "blacklist")),
+			DependOn:    strings.TrimSpace(firstNonEmptySQLiteString(row, "dependences", "depend_on")),
+			AutoAddTask: sqliteRowInt(row, "autoAddCron") != 0 || sqliteRowBool(row, "auto_add_cron"),
+			AutoDelTask: sqliteRowInt(row, "autoDelCron") != 0 || sqliteRowBool(row, "auto_del_cron"),
+			Enabled:     !(sqliteRowBool(row, "is_disabled") || sqliteRowBool(row, "isDisabled")),
 			Status:      0,
-			Alias:       strings.TrimSpace(alias.String),
+			Alias:       strings.TrimSpace(firstNonEmptySQLiteString(row, "alias")),
 		})
 	}
 
@@ -756,38 +803,35 @@ func inferQingLongSubscriptionType(url, rawType string) string {
 }
 
 func loadQingLongDependencies(db *sql.DB) ([]BackupDependency, error) {
-	rows, err := db.Query("SELECT name, type, status FROM Dependences ORDER BY id ASC")
+	rows, err := loadSQLiteTableRows(db, "Dependences", "Dependencies")
 	if err != nil {
 		return nil, fmt.Errorf("读取青龙依赖失败: %w", err)
 	}
-	defer rows.Close()
+
+	sort.SliceStable(rows, func(i, j int) bool {
+		return sqliteRowInt(rows[i], "id") < sqliteRowInt(rows[j], "id")
+	})
 
 	var result []BackupDependency
 	seen := map[string]struct{}{}
-	for rows.Next() {
-		var (
-			name    string
-			depType int
-			status  int
-		)
-		if err := rows.Scan(&name, &depType, &status); err != nil {
-			return nil, fmt.Errorf("解析青龙依赖失败: %w", err)
-		}
-		if strings.TrimSpace(name) == "" || status != 1 {
+	for _, row := range rows {
+		name := strings.TrimSpace(firstNonEmptySQLiteString(row, "name"))
+		status := sqliteRowInt(row, "status")
+		if name == "" || status != 1 {
 			continue
 		}
-		mappedType := mapQingLongDependencyType(depType)
+		mappedType := mapQingLongDependencyType(int(sqliteRowInt(row, "type")))
 		if mappedType == "" {
 			continue
 		}
-		key := mappedType + "::" + strings.ToLower(strings.TrimSpace(name))
+		key := mappedType + "::" + strings.ToLower(name)
 		if _, exists := seen[key]; exists {
 			continue
 		}
 		seen[key] = struct{}{}
 		result = append(result, BackupDependency{
 			Type: mappedType,
-			Name: strings.TrimSpace(name),
+			Name: name,
 		})
 	}
 
@@ -806,38 +850,37 @@ func mapQingLongDependencyType(depType int) string {
 }
 
 func loadQingLongApps(db *sql.DB) ([]BackupOpenApp, error) {
-	rows, err := db.Query("SELECT id, name, client_id, client_secret, scopes FROM Apps ORDER BY id ASC")
+	rows, err := loadSQLiteTableRows(db, "Apps")
 	if err != nil {
 		return nil, fmt.Errorf("读取青龙应用失败: %w", err)
 	}
-	defer rows.Close()
+
+	sort.SliceStable(rows, func(i, j int) bool {
+		return sqliteRowInt(rows[i], "id") < sqliteRowInt(rows[j], "id")
+	})
 
 	var result []BackupOpenApp
-	for rows.Next() {
-		var (
-			id           int
-			name         string
-			clientID     string
-			clientSecret string
-			scopesJSON   sql.NullString
-		)
-		if err := rows.Scan(&id, &name, &clientID, &clientSecret, &scopesJSON); err != nil {
-			return nil, fmt.Errorf("解析青龙应用失败: %w", err)
+	for _, row := range rows {
+		clientID := strings.TrimSpace(firstNonEmptySQLiteString(row, "client_id", "clientId", "app_key"))
+		clientSecret := strings.TrimSpace(firstNonEmptySQLiteString(row, "client_secret", "clientSecret", "app_secret"))
+		if clientID == "" || clientSecret == "" {
+			continue
 		}
 
 		scopeList := ""
-		if scopesJSON.Valid && strings.TrimSpace(scopesJSON.String) != "" {
+		scopesJSON := strings.TrimSpace(firstNonEmptySQLiteString(row, "scopes"))
+		if scopesJSON != "" {
 			var scopes []string
-			if err := json.Unmarshal([]byte(scopesJSON.String), &scopes); err == nil {
+			if err := json.Unmarshal([]byte(scopesJSON), &scopes); err == nil {
 				scopeList = strings.Join(scopes, ",")
 			}
 		}
 
 		result = append(result, BackupOpenApp{
-			ID:        uint(id),
-			Name:      strings.TrimSpace(name),
-			AppKey:    strings.TrimSpace(clientID),
-			AppSecret: strings.TrimSpace(clientSecret),
+			ID:        uint(sqliteRowInt(row, "id")),
+			Name:      strings.TrimSpace(firstNonEmptySQLiteString(row, "name")),
+			AppKey:    clientID,
+			AppSecret: clientSecret,
 			Scopes:    scopeList,
 			Enabled:   true,
 			RateLimit: 100,
@@ -940,4 +983,180 @@ func restoreQingLongLogs(extractedDir string) error {
 		return err
 	}
 	return nil
+}
+
+func loadSQLiteTableRows(db *sql.DB, tableNames ...string) ([]map[string]interface{}, error) {
+	for _, tableName := range tableNames {
+		query := fmt.Sprintf("SELECT * FROM %s", tableName)
+		rows, err := db.Query(query)
+		if err != nil {
+			if isSQLiteMissingTableError(err) {
+				continue
+			}
+			return nil, err
+		}
+		defer rows.Close()
+
+		columns, err := rows.Columns()
+		if err != nil {
+			return nil, err
+		}
+
+		var result []map[string]interface{}
+		for rows.Next() {
+			values := make([]interface{}, len(columns))
+			valuePointers := make([]interface{}, len(columns))
+			for i := range values {
+				valuePointers[i] = &values[i]
+			}
+			if err := rows.Scan(valuePointers...); err != nil {
+				return nil, err
+			}
+
+			row := make(map[string]interface{}, len(columns))
+			for i, column := range columns {
+				row[column] = normalizeSQLiteValue(values[i])
+			}
+			result = append(result, row)
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		return result, nil
+	}
+
+	return nil, nil
+}
+
+func normalizeSQLiteValue(value interface{}) interface{} {
+	switch v := value.(type) {
+	case []byte:
+		return string(v)
+	default:
+		return v
+	}
+}
+
+func isSQLiteMissingTableError(err error) bool {
+	return err != nil && strings.Contains(strings.ToLower(err.Error()), "no such table")
+}
+
+func firstNonEmptySQLiteString(row map[string]interface{}, keys ...string) string {
+	for _, key := range keys {
+		value := strings.TrimSpace(sqliteRowString(row, key))
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func sqliteRowString(row map[string]interface{}, key string) string {
+	value, exists := row[key]
+	if !exists || value == nil {
+		return ""
+	}
+
+	switch v := value.(type) {
+	case string:
+		return v
+	case []byte:
+		return string(v)
+	case fmt.Stringer:
+		return v.String()
+	default:
+		return fmt.Sprint(v)
+	}
+}
+
+func sqliteRowInt(row map[string]interface{}, key string) int64 {
+	value, exists := row[key]
+	if !exists || value == nil {
+		return 0
+	}
+
+	switch v := value.(type) {
+	case int:
+		return int64(v)
+	case int8:
+		return int64(v)
+	case int16:
+		return int64(v)
+	case int32:
+		return int64(v)
+	case int64:
+		return v
+	case uint:
+		return int64(v)
+	case uint8:
+		return int64(v)
+	case uint16:
+		return int64(v)
+	case uint32:
+		return int64(v)
+	case uint64:
+		return int64(v)
+	case float32:
+		return int64(v)
+	case float64:
+		return int64(v)
+	case bool:
+		if v {
+			return 1
+		}
+		return 0
+	case string:
+		parsed, _ := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+		return parsed
+	default:
+		parsed, _ := strconv.ParseInt(strings.TrimSpace(fmt.Sprint(v)), 10, 64)
+		return parsed
+	}
+}
+
+func sqliteRowFloat(row map[string]interface{}, key string) float64 {
+	value, exists := row[key]
+	if !exists || value == nil {
+		return 0
+	}
+
+	switch v := value.(type) {
+	case float32:
+		return float64(v)
+	case float64:
+		return v
+	case int:
+		return float64(v)
+	case int64:
+		return float64(v)
+	case string:
+		parsed, _ := strconv.ParseFloat(strings.TrimSpace(v), 64)
+		return parsed
+	default:
+		parsed, _ := strconv.ParseFloat(strings.TrimSpace(fmt.Sprint(v)), 64)
+		return parsed
+	}
+}
+
+func sqliteRowBool(row map[string]interface{}, key string) bool {
+	value, exists := row[key]
+	if !exists || value == nil {
+		return false
+	}
+
+	switch v := value.(type) {
+	case bool:
+		return v
+	case int:
+		return v != 0
+	case int64:
+		return v != 0
+	case float64:
+		return v != 0
+	case string:
+		normalized := strings.TrimSpace(strings.ToLower(v))
+		return normalized == "1" || normalized == "true" || normalized == "yes"
+	default:
+		return sqliteRowInt(row, key) != 0
+	}
 }
