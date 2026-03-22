@@ -39,6 +39,7 @@ func shouldSuppressStartupLog(text string) bool {
 		"column check completed",
 		"scheduler v2 started:",
 		"scheduler v2 initialized with",
+		"scheduler v2 enqueued",
 		"subscription scheduler initialized with",
 		"resource watcher started",
 		"server starting on",
@@ -195,6 +196,9 @@ func main() {
 	}
 
 	verifyInstalledDeps()
+	if err := service.EnsureBuiltinNotifyHelpers(cfg.Data.ScriptsDir); err != nil {
+		log.Printf("prepare builtin notify helpers failed: %v", err)
+	}
 
 	service.InitSchedulerV2()
 	defer service.ShutdownSchedulerV2()

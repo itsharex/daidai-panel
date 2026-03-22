@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { Monitor, Refresh } from '@element-plus/icons-vue'
+import { useResponsive } from '@/composables/useResponsive'
+
+const { isMobile } = useResponsive()
 
 defineProps<{
   sessions: any[]
@@ -21,7 +24,34 @@ defineProps<{
         </div>
       </div>
     </template>
-    <el-table :data="sessions" v-loading="sessionsLoading" stripe empty-text="暂无数据">
+    <div v-if="isMobile" class="dd-mobile-list">
+      <div
+        v-for="row in sessions"
+        :key="row.id"
+        class="dd-mobile-card"
+      >
+        <div class="dd-mobile-card__header">
+          <div class="dd-mobile-card__title-wrap">
+            <span class="dd-mobile-card__title">{{ row.ip }}</span>
+            <span class="dd-mobile-card__subtitle">{{ new Date(row.last_active || row.created_at).toLocaleString() }}</span>
+          </div>
+        </div>
+        <div class="dd-mobile-card__body">
+          <div class="dd-mobile-card__grid">
+            <div class="dd-mobile-card__field dd-mobile-card__field--full">
+              <span class="dd-mobile-card__label">用户代理</span>
+              <span class="dd-mobile-card__value">{{ row.user_agent }}</span>
+            </div>
+          </div>
+          <div class="dd-mobile-card__actions session-card__actions">
+            <el-button size="small" type="danger" plain @click="onRevokeSession(row.id)">撤销</el-button>
+          </div>
+        </div>
+      </div>
+      <el-empty v-if="!sessionsLoading && sessions.length === 0" description="暂无数据" />
+    </div>
+
+    <el-table v-else :data="sessions" v-loading="sessionsLoading" stripe empty-text="暂无数据">
       <el-table-column prop="ip" label="IP地址" width="140" />
       <el-table-column prop="user_agent" label="用户代理" show-overflow-tooltip />
       <el-table-column label="最后活动" width="170">
@@ -42,5 +72,16 @@ defineProps<{
 .card-header-buttons {
   display: flex;
   gap: 8px;
+}
+
+.session-card__actions > * {
+  flex: 1 1 auto;
+}
+
+@media (max-width: 768px) {
+  .card-header-buttons {
+    width: 100%;
+    flex-wrap: wrap;
+  }
 }
 </style>

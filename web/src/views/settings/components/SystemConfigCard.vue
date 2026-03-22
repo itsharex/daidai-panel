@@ -32,7 +32,7 @@ defineProps<{
       </div>
       <div class="form-field">
         <label>面板图标 (SVG)</label>
-        <div style="display: flex; align-items: center; gap: 12px">
+        <div class="icon-upload-row">
           <el-upload
             :show-file-list="false"
             :before-upload="onIconUpload"
@@ -41,7 +41,7 @@ defineProps<{
             <el-button size="small"><el-icon><Upload /></el-icon>上传 SVG 图标</el-button>
           </el-upload>
           <div v-if="form.panel_icon" class="icon-preview">
-            <img :src="form.panel_icon" alt="icon" style="width: 32px; height: 32px" />
+            <img :src="form.panel_icon" alt="icon" class="icon-preview__image" />
             <el-button size="small" text type="danger" @click="form.panel_icon = ''">移除</el-button>
           </div>
         </div>
@@ -110,19 +110,19 @@ defineProps<{
     <div class="config-section">
       <h4 class="section-title">资源告警</h4>
       <el-row :gutter="16">
-        <el-col :span="8">
+        <el-col :xs="24" :md="8">
           <div class="form-field">
             <label>CPU 阈值 (%)</label>
             <el-input v-model.number="form.cpu_warn" />
           </div>
         </el-col>
-        <el-col :span="8">
+        <el-col :xs="24" :md="8">
           <div class="form-field">
             <label>内存阈值 (%)</label>
             <el-input v-model.number="form.memory_warn" />
           </div>
         </el-col>
-        <el-col :span="8">
+        <el-col :xs="24" :md="8">
           <div class="form-field">
             <label>磁盘阈值 (%)</label>
             <el-input v-model.number="form.disk_warn" />
@@ -155,6 +155,24 @@ defineProps<{
   gap: 12px;
 }
 
+.icon-upload-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.icon-preview {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.icon-preview__image {
+  width: 32px;
+  height: 32px;
+}
+
 .log-bg-upload {
   display: flex;
   align-items: center;
@@ -173,5 +191,16 @@ defineProps<{
   font-size: 13px;
   line-height: 1.7;
   white-space: pre-wrap;
+}
+
+@media (max-width: 768px) {
+  .log-bg-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .log-bg-upload {
+    flex-wrap: wrap;
+  }
 }
 </style>

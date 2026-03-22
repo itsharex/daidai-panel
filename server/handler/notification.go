@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"fmt"
 	"strconv"
+	"strings"
 
 	"daidai-panel/database"
 	"daidai-panel/middleware"
@@ -139,6 +141,63 @@ func (h *NotificationHandler) Test(c *gin.Context) {
 	response.Success(c, gin.H{"message": "测试通知发送成功"})
 }
 
+func (h *NotificationHandler) Send(c *gin.Context) {
+	var req struct {
+		Title      string                 `json:"title" binding:"required"`
+		Content    string                 `json:"content" binding:"required"`
+		ChannelID  *uint                  `json:"channel_id"`
+		ChannelIDs []uint                 `json:"channel_ids"`
+		Context    map[string]interface{} `json:"context"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "请求参数错误")
+		return
+	}
+
+	channelIDs := make([]uint, 0, len(req.ChannelIDs)+1)
+	if req.ChannelID != nil && *req.ChannelID > 0 {
+		channelIDs = append(channelIDs, *req.ChannelID)
+	}
+	channelIDs = append(channelIDs, req.ChannelIDs...)
+
+	context := make(map[string]string, len(req.Context))
+	for key, value := range req.Context {
+		context[key] = fmt.Sprint(value)
+	}
+
+	result, err := service.SendNotificationSyncWithOptions(req.Title, req.Content, service.NotificationDispatchOptions{
+		ChannelIDs: channelIDs,
+		Context:    context,
+	})
+	if err != nil {
+		response.BadRequest(c, "发送失败: "+err.Error())
+		return
+	}
+
+	if result.SentCount == 0 && result.FailedCount > 0 {
+		response.BadRequest(c, "发送失败: "+strings.Join(result.Errors, "; "))
+		return
+	}
+
+	message := fmt.Sprintf("通知发送完成，成功 %d 个渠道", result.SentCount)
+	if result.FailedCount > 0 {
+		message = fmt.Sprintf("%s，失败 %d 个渠道", message, result.FailedCount)
+	}
+
+	response.Success(c, gin.H{
+		"message": message,
+		"data": gin.H{
+			"sent_count":     result.SentCount,
+			"failed_count":   result.FailedCount,
+			"channel_names":  result.ChannelNames,
+			"errors":         result.Errors,
+			"requested_ids":  channelIDs,
+			"used_all":       len(channelIDs) == 0,
+			"content_length": len([]rune(req.Content)),
+		},
+	})
+}
+
 func (h *NotificationHandler) Types(c *gin.Context) {
 	types := []map[string]string{
 		{"type": "webhook", "name": "Webhook"},
@@ -168,6 +227,11 @@ func (h *NotificationHandler) Types(c *gin.Context) {
 }
 
 func (h *NotificationHandler) RegisterRoutes(r *gin.RouterGroup) {
+	notifySend := r.Group("/notifications", middleware.JWTAuth(), middleware.OpenAPIAccess("notifications"))
+	{
+		notifySend.POST("/send", middleware.RequireRole("operator"), h.Send)
+	}
+
 	notify := r.Group("/notifications", middleware.JWTAuth(), middleware.RequireUserToken(), middleware.RequireAdmin())
 	{
 		notify.GET("", h.List)

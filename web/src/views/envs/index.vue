@@ -1,9 +1,23 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, nextTick, computed, type CSSProperties } from 'vue'
+import { ref, onMounted, onBeforeUnmount, nextTick, computed, watch, type CSSProperties } from 'vue'
 import { envApi } from '@/api/env'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import EnvBatchCreateDialog from './components/EnvBatchCreateDialog.vue'
+import EnvBatchGroupDialog from './components/EnvBatchGroupDialog.vue'
+import EnvEditDialog from './components/EnvEditDialog.vue'
+import EnvImportDialog from './components/EnvImportDialog.vue'
+import { useResponsive } from '@/composables/useResponsive'
 
 const envTableDensityStorageKey = 'daidai-env-table-density'
+const { isMobile } = useResponsive()
+
+type EnvFormModel = {
+  id: number
+  name: string
+  value: string
+  remarks: string
+  group: string
+}
 
 const envList = ref<any[]>([])
 const loading = ref(false)
@@ -29,22 +43,21 @@ const tableDensity = ref<'comfortable' | 'compact'>(
 )
 
 const showEditDialog = ref(false)
-const editForm = ref({ id: 0, name: '', value: '', remarks: '', group: '' })
-const isCreate = ref(true)
+const editDialogMode = ref<'create' | 'edit'>('create')
+const currentEditEnv = ref<EnvFormModel | null>(null)
 
 const showBatchDialog = ref(false)
-const batchText = ref('')
 
 const showImportDialog = ref(false)
-const importText = ref('')
-const importMode = ref('merge')
 
 const showExportDialog = ref(false)
 const exportFormat = ref('shell')
 const exportContent = ref('')
+const exportScopeText = computed(() =>
+  selectedIds.value.length > 0 ? `已选中的 ${selectedIds.value.length} 项环境变量` : '当前列表中的全部已启用环境变量'
+)
 
 const showBatchGroupDialog = ref(false)
-const batchGroupName = ref('')
 
 const tableRef = ref()
 let sortableInstance: any = null
@@ -63,6 +76,20 @@ function loadSortable() {
 function clearTableSelection() {
   selectedIds.value = []
   tableRef.value?.clearSelection?.()
+}
+
+function isSelected(id: number) {
+  return selectedIdSet.value.has(id)
+}
+
+function toggleSelected(id: number, checked: boolean | string | number) {
+  const next = new Set(selectedIds.value)
+  if (checked) {
+    next.add(id)
+  } else {
+    next.delete(id)
+  }
+  selectedIds.value = [...next]
 }
 
 function handleDensityChange(value: 'comfortable' | 'compact') {
@@ -111,7 +138,11 @@ function startDragAutoScroll() {
   stopDragAutoScroll()
 
   const tick = () => {
-    const bodyWrapper = document.querySelector('.env-table .el-table__body-wrapper') as HTMLElement | null
+    const bodyWrapper = (
+      isMobile.value
+        ? document.querySelector('.env-mobile-scroll')
+        : document.querySelector('.env-table .el-table__body-wrapper')
+    ) as HTMLElement | null
     const tableThreshold = 72
     const viewportThreshold = 88
     const tableScrollStep = 22
@@ -188,6 +219,12 @@ onMounted(() => {
   void loadGroups()
 })
 
+watch(isMobile, () => {
+  nextTick(() => {
+    void initSortable()
+  })
+})
+
 onBeforeUnmount(() => {
   stopDragAutoScroll()
   if (sortableInstance) {
@@ -201,7 +238,11 @@ async function initSortable() {
     sortableInstance.destroy()
     sortableInstance = null
   }
-  const el = document.querySelector('.env-table .el-table__body-wrapper tbody')
+  const el = document.querySelector(
+    isMobile.value
+      ? '.env-mobile-list'
+      : '.env-table .el-table__body-wrapper tbody'
+  )
   if (!el) return
   try {
     const Sortable = await loadSortable()
@@ -288,32 +329,34 @@ function handlePageSizeChange(newSize: number) {
 }
 
 function openCreate() {
-  isCreate.value = true
-  editForm.value = { id: 0, name: '', value: '', remarks: '', group: '' }
+  editDialogMode.value = 'create'
+  currentEditEnv.value = { id: 0, name: '', value: '', remarks: '', group: '' }
   showEditDialog.value = true
 }
 
 function openEdit(row: any) {
-  isCreate.value = false
-  editForm.value = { id: row.id, name: row.name, value: row.value, remarks: row.remarks, group: row.group }
+  editDialogMode.value = 'edit'
+  currentEditEnv.value = {
+    id: row.id,
+    name: row.name || '',
+    value: row.value || '',
+    remarks: row.remarks || '',
+    group: row.group || ''
+  }
   showEditDialog.value = true
 }
 
-async function handleSave() {
-  if (!editForm.value.name.trim()) {
-    ElMessage.warning('变量名不能为空')
-    return
-  }
+async function handleSave(form: EnvFormModel) {
   try {
-    if (isCreate.value) {
-      await envApi.create(editForm.value)
+    if (editDialogMode.value === 'create') {
+      await envApi.create(form)
       ElMessage.success('创建成功')
     } else {
-      await envApi.update(editForm.value.id, {
-        name: editForm.value.name,
-        value: editForm.value.value,
-        remarks: editForm.value.remarks,
-        group: editForm.value.group
+      await envApi.update(form.id, {
+        name: form.name,
+        value: form.value,
+        remarks: form.remarks,
+        group: form.group
       })
       ElMessage.success('更新成功')
     }
@@ -321,7 +364,7 @@ async function handleSave() {
     void loadData()
     void loadGroups()
   } catch {
-    ElMessage.error(isCreate.value ? '创建失败' : '更新失败')
+    ElMessage.error(editDialogMode.value === 'create' ? '创建失败' : '更新失败')
   }
 }
 
@@ -348,30 +391,11 @@ async function handleToggleTop(row: any) {
   }
 }
 
-async function handleBatchCreate() {
-  const text = batchText.value.trim()
-  if (!text) {
-    ElMessage.warning('请输入环境变量')
-    return
-  }
-  const lines = text.split('\n').filter(l => l.trim())
-  const items: { name: string; value: string }[] = []
-  for (const line of lines) {
-    const eqIndex = line.indexOf('=')
-    if (eqIndex <= 0) {
-      ElMessage.warning(`格式错误: ${line}，应为 NAME=VALUE`)
-      return
-    }
-    items.push({
-      name: line.substring(0, eqIndex).trim(),
-      value: line.substring(eqIndex + 1).trim()
-    })
-  }
+async function handleBatchCreate(items: { name: string; value: string }[]) {
   try {
     await envApi.create(items as any)
     ElMessage.success(`批量创建 ${items.length} 个变量成功`)
     showBatchDialog.value = false
-    batchText.value = ''
     void loadData()
     void loadGroups()
   } catch {
@@ -418,17 +442,12 @@ async function handleBatchDelete() {
 
 async function handleBatchGroup() {
   if (selectedIds.value.length === 0) return
-  batchGroupName.value = ''
   showBatchGroupDialog.value = true
 }
 
-function applyBatchGroupName(group: string) {
-  batchGroupName.value = group
-}
-
-async function confirmBatchGroup() {
+async function confirmBatchGroup(group: string) {
   try {
-    await envApi.batchSetGroup(selectedIds.value, batchGroupName.value.trim())
+    await envApi.batchSetGroup(selectedIds.value, group)
     ElMessage.success('批量分组成功')
     showBatchGroupDialog.value = false
     clearTableSelection()
@@ -465,20 +484,11 @@ function handleSelectionChange(rows: any[]) {
   selectedIds.value = rows.map(r => r.id)
 }
 
-async function handleImport() {
-  let envs: any[]
+async function handleImport(payload: { envs: any[]; mode: string }) {
   try {
-    envs = JSON.parse(importText.value)
-    if (!Array.isArray(envs)) throw new Error()
-  } catch {
-    ElMessage.error('JSON 格式不正确，需要数组格式')
-    return
-  }
-  try {
-    const res = await envApi.import(envs, importMode.value)
+    const res = await envApi.import(payload.envs, payload.mode)
     ElMessage.success(res.message)
     showImportDialog.value = false
-    importText.value = ''
     void loadData()
     void loadGroups()
   } catch {
@@ -486,31 +496,16 @@ async function handleImport() {
   }
 }
 
-function handleImportFile(file: File) {
-  const reader = new FileReader()
-  reader.onload = (e) => {
-    const text = e.target?.result as string
-    try {
-      const parsed = JSON.parse(text)
-      importText.value = JSON.stringify(parsed, null, 2)
-    } catch {
-      importText.value = text
-      ElMessage.warning('文件内容不是有效的 JSON，已填入原始内容')
-    }
-  }
-  reader.readAsText(file)
-  return false
-}
-
 async function handleExportAll() {
   try {
-    const res = await envApi.exportAll()
+    const exportIds = selectedIds.value.length > 0 ? [...selectedIds.value] : undefined
+    const res = await envApi.exportAll(exportIds)
     const json = JSON.stringify(res.data, null, 2)
     const blob = new Blob([json], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = 'env_vars.json'
+    a.download = exportIds?.length ? `env_vars_selected_${exportIds.length}.json` : 'env_vars.json'
     a.click()
     URL.revokeObjectURL(url)
   } catch {
@@ -521,7 +516,9 @@ async function handleExportAll() {
 async function handleExportFiles() {
   showExportDialog.value = true
   try {
-    const res = await envApi.exportFiles(exportFormat.value, true)
+    const exportIds = selectedIds.value.length > 0 ? [...selectedIds.value] : undefined
+    const enabledOnly = exportIds == null
+    const res = await envApi.exportFiles(exportFormat.value, enabledOnly, exportIds)
     exportContent.value = res.data[exportFormat.value] || ''
   } catch {
     ElMessage.error('导出失败')
@@ -530,7 +527,9 @@ async function handleExportFiles() {
 
 async function refreshExport() {
   try {
-    const res = await envApi.exportFiles(exportFormat.value, true)
+    const exportIds = selectedIds.value.length > 0 ? [...selectedIds.value] : undefined
+    const enabledOnly = exportIds == null
+    const res = await envApi.exportFiles(exportFormat.value, enabledOnly, exportIds)
     exportContent.value = res.data[exportFormat.value] || ''
   } catch {
     // ignore
@@ -628,7 +627,84 @@ function formatDateTime(t: string | null) {
       </div>
     </div>
 
+    <div v-if="isMobile" class="env-mobile-scroll">
+      <div class="dd-mobile-list env-mobile-list">
+        <div
+          v-for="row in envList"
+          :key="row.id"
+          class="dd-mobile-card env-card"
+          :class="{ 'env-card--pinned': isTopPinned(row) }"
+        >
+          <div class="dd-mobile-card__header">
+            <div class="dd-mobile-card__title-wrap">
+              <div class="env-card__title-row">
+                <div class="dd-mobile-card__selection">
+                  <el-checkbox :model-value="isSelected(row.id)" @change="toggleSelected(row.id, $event)" />
+                  <div class="env-name-wrap">
+                    <span class="env-name">{{ row.name }}</span>
+                    <span v-if="isTopPinned(row)" class="pinned-chip">
+                      <el-icon><Top /></el-icon>
+                      置顶
+                    </span>
+                  </div>
+                </div>
+                <div class="env-card__tools">
+                  <el-icon class="drag-handle"><Rank /></el-icon>
+                  <span v-if="row.group" class="group-pill" :style="getGroupBadgeStyle(row.group)">
+                    <span class="group-dot" />
+                    {{ row.group }}
+                  </span>
+                  <span v-else class="env-empty-text">未分组</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="dd-mobile-card__body">
+            <div class="dd-mobile-card__grid">
+              <div class="dd-mobile-card__field dd-mobile-card__field--full">
+                <span class="dd-mobile-card__label">值</span>
+                <span class="dd-mobile-card__value env-value-text">{{ row.value || '-' }}</span>
+              </div>
+              <div class="dd-mobile-card__field dd-mobile-card__field--full">
+                <span class="dd-mobile-card__label">备注</span>
+                <span class="dd-mobile-card__value env-remarks-text">{{ row.remarks || '-' }}</span>
+              </div>
+              <div class="dd-mobile-card__field">
+                <span class="dd-mobile-card__label">状态</span>
+                <div class="dd-mobile-card__value env-status-inline">
+                  <el-switch :model-value="row.enabled" size="small" @change="handleToggle(row)" />
+                  <span class="env-status-text" :class="{ enabled: row.enabled }">
+                    {{ row.enabled ? '启用' : '禁用' }}
+                  </span>
+                </div>
+              </div>
+              <div class="dd-mobile-card__field">
+                <span class="dd-mobile-card__label">更新时间</span>
+                <span class="dd-mobile-card__value time-text">{{ formatDateTime(row.updated_at) }}</span>
+              </div>
+            </div>
+
+            <div class="dd-mobile-card__actions env-card__actions">
+              <el-button size="small" type="primary" @click="openEdit(row)">编辑</el-button>
+              <el-button
+                size="small"
+                :type="isTopPinned(row) ? 'info' : 'warning'"
+                @click="handleToggleTop(row)"
+              >
+                {{ isTopPinned(row) ? '取消置顶' : '置顶' }}
+              </el-button>
+              <el-button size="small" type="danger" plain @click="handleDelete(row.id)">删除</el-button>
+            </div>
+          </div>
+        </div>
+
+        <el-empty v-if="!loading && envList.length === 0" description="暂无环境变量" />
+      </div>
+    </div>
+
     <el-table
+      v-else
       ref="tableRef"
       :data="envList"
       v-loading="loading"
@@ -790,77 +866,7 @@ function formatDateTime(t: string | null) {
       </div>
     </div>
 
-    <el-dialog v-model="showEditDialog" :title="isCreate ? '新建环境变量' : '编辑环境变量'" width="500px" :close-on-click-modal="false">
-      <el-form :model="editForm" label-width="80px">
-        <el-form-item label="变量名">
-          <el-input v-model="editForm.name" placeholder="变量名 (如: API_KEY)" />
-        </el-form-item>
-        <el-form-item label="值">
-          <el-input v-model="editForm.value" type="textarea" :rows="3" placeholder="变量值" />
-        </el-form-item>
-        <el-form-item label="备注">
-          <el-input v-model="editForm.remarks" placeholder="备注说明" />
-        </el-form-item>
-        <el-form-item label="分组">
-          <el-input v-model="editForm.group" placeholder="分组 (可选)" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="showEditDialog = false">取消</el-button>
-        <el-button type="primary" @click="handleSave">{{ isCreate ? '创建' : '保存' }}</el-button>
-      </template>
-    </el-dialog>
-
-    <el-dialog v-model="showImportDialog" title="导入环境变量" width="600px">
-      <el-form label-width="80px">
-        <el-form-item label="导入模式">
-          <el-radio-group v-model="importMode">
-            <el-radio value="merge">合并 (同名同值更新)</el-radio>
-            <el-radio value="replace">替换 (清空后导入)</el-radio>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item label="JSON 数据">
-          <div style="width: 100%">
-            <el-upload
-              :show-file-list="false"
-              :before-upload="handleImportFile"
-              accept=".json"
-              style="margin-bottom: 8px"
-            >
-              <el-button size="small"><el-icon><Upload /></el-icon>选择 JSON 文件</el-button>
-            </el-upload>
-            <el-input
-              v-model="importText"
-              type="textarea"
-              :rows="10"
-              placeholder='[{"name": "KEY", "value": "VALUE", "remarks": "", "group": ""}]'
-            />
-          </div>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="showImportDialog = false">取消</el-button>
-        <el-button type="primary" @click="handleImport">导入</el-button>
-      </template>
-    </el-dialog>
-
-    <el-dialog v-model="showBatchDialog" title="批量添加环境变量" width="550px">
-      <el-alert type="info" :closable="false" style="margin-bottom: 12px">
-        每行一个变量，格式: NAME=VALUE
-      </el-alert>
-      <el-input
-        v-model="batchText"
-        type="textarea"
-        :rows="10"
-        placeholder="API_KEY=your_key&#10;SECRET=your_secret&#10;TOKEN=your_token"
-      />
-      <template #footer>
-        <el-button @click="showBatchDialog = false">取消</el-button>
-        <el-button type="primary" @click="handleBatchCreate">批量创建</el-button>
-      </template>
-    </el-dialog>
-
-    <el-dialog v-model="showExportDialog" title="导出环境变量" width="600px">
+    <el-dialog v-model="showExportDialog" title="导出环境变量" width="600px" :fullscreen="isMobile">
       <div class="export-format-switch">
         <el-radio-group v-model="exportFormat" @change="refreshExport">
           <el-radio-button value="shell">Shell</el-radio-button>
@@ -871,41 +877,38 @@ function formatDateTime(t: string | null) {
           <el-icon><CopyDocument /></el-icon>复制
         </el-button>
       </div>
+      <el-alert
+        type="info"
+        :closable="false"
+        show-icon
+        style="margin-bottom: 12px"
+        :title="`导出范围：${exportScopeText}`"
+      />
       <pre class="export-preview">{{ exportContent }}</pre>
     </el-dialog>
 
-    <el-dialog v-model="showBatchGroupDialog" title="批量设置分组" width="400px">
-      <el-form label-width="80px">
-        <el-form-item label="分组名称">
-          <el-input
-            v-model="batchGroupName"
-            clearable
-            placeholder="输入新分组名，或点击下方已有分组"
-            @keyup.enter="confirmBatchGroup"
-          />
-        </el-form-item>
-        <el-form-item v-if="groups.length > 0" label="已有分组">
-          <div class="batch-group-options">
-            <el-tag
-              v-for="g in groups"
-              :key="g"
-              class="batch-group-tag"
-              effect="plain"
-              @click="applyBatchGroupName(g)"
-            >
-              {{ g }}
-            </el-tag>
-          </div>
-        </el-form-item>
-        <el-alert type="info" :closable="false" show-icon>
-          留空将清除选中变量的分组
-        </el-alert>
-      </el-form>
-      <template #footer>
-        <el-button @click="showBatchGroupDialog = false">取消</el-button>
-        <el-button type="primary" @click="confirmBatchGroup">确定</el-button>
-      </template>
-    </el-dialog>
+    <EnvEditDialog
+      v-model="showEditDialog"
+      :mode="editDialogMode"
+      :initial-data="currentEditEnv"
+      @save="handleSave"
+    />
+
+    <EnvImportDialog
+      v-model="showImportDialog"
+      @import="handleImport"
+    />
+
+    <EnvBatchCreateDialog
+      v-model="showBatchDialog"
+      @create="handleBatchCreate"
+    />
+
+    <EnvBatchGroupDialog
+      v-model="showBatchGroupDialog"
+      :groups="groups"
+      @confirm="confirmBatchGroup"
+    />
   </div>
 </template>
 
@@ -981,6 +984,37 @@ function formatDateTime(t: string | null) {
   color: var(--el-text-color-secondary);
   background: color-mix(in srgb, var(--el-color-primary) 7%, var(--el-bg-color));
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--el-color-primary) 14%, transparent);
+}
+
+.env-mobile-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.env-card__title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.env-card__tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.env-card__actions > * {
+  flex: 1 1 calc(33.33% - 6px);
+}
+
+.env-card--pinned {
+  border-color: rgba(245, 166, 35, 0.28);
+  box-shadow:
+    inset 4px 0 0 #f5a623,
+    0 10px 28px rgba(15, 23, 42, 0.07);
 }
 
 .action-group {
@@ -1106,6 +1140,13 @@ function formatDateTime(t: string | null) {
   gap: 4px;
 }
 
+.env-status-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .env-status-text {
   font-size: 11px;
   line-height: 1;
@@ -1196,8 +1237,7 @@ function formatDateTime(t: string | null) {
   z-index: 12;
   padding: 14px 16px 8px;
   border-radius: 14px 14px 0 0;
-  background: color-mix(in srgb, var(--el-bg-color) 90%, white);
-  backdrop-filter: blur(10px);
+  background: color-mix(in srgb, var(--el-bg-color) 96%, white);
   box-shadow: 0 -8px 24px rgba(15, 23, 42, 0.08);
   border-top: 1px solid color-mix(in srgb, var(--el-border-color) 70%, transparent);
 }
@@ -1245,16 +1285,6 @@ function formatDateTime(t: string | null) {
   word-break: break-all;
 }
 
-.batch-group-options {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.batch-group-tag {
-  cursor: pointer;
-}
-
 :deep(.env-row-pinned > td) {
   background:
     linear-gradient(90deg, rgba(255, 214, 107, 0.22) 0, rgba(255, 214, 107, 0.08) 32px, transparent 220px),
@@ -1267,11 +1297,40 @@ function formatDateTime(t: string | null) {
 
 @media (max-width: 768px) {
   .page-header {
+    .header-left {
+      width: 100%;
+    }
+
     .header-right {
       width: 100%;
       justify-content: flex-start;
       flex-wrap: wrap;
     }
+  }
+
+  .header-left {
+    :deep(.el-input),
+    :deep(.el-select) {
+      width: 100% !important;
+    }
+  }
+
+  .table-density-switch {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .env-card__title-row {
+    flex-direction: column;
+  }
+
+  .env-card__tools {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .env-card__actions > * {
+    flex: 1 1 calc(50% - 4px);
   }
 
   .table-footer-bar {

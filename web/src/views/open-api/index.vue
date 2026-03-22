@@ -8,7 +8,85 @@
       <el-button type="primary" @click="showCreateDialog">创建应用</el-button>
     </div>
 
-    <el-table :data="apps" v-loading="loading" border>
+    <div v-if="isMobile" class="dd-mobile-list">
+      <div
+        v-for="row in apps"
+        :key="row.id"
+        class="dd-mobile-card"
+      >
+        <div class="dd-mobile-card__header">
+          <div class="dd-mobile-card__title-wrap">
+            <span class="dd-mobile-card__title">{{ row.name }}</span>
+            <div class="dd-mobile-card__subtitle">{{ row.app_key }}</div>
+          </div>
+          <el-switch
+            :model-value="row.enabled"
+            @change="(val: boolean) => toggleEnabled(row, val)"
+            size="small"
+          />
+        </div>
+
+        <div class="dd-mobile-card__body">
+          <div class="dd-mobile-card__grid">
+            <div class="dd-mobile-card__field dd-mobile-card__field--full">
+              <span class="dd-mobile-card__label">App Secret</span>
+              <div class="dd-mobile-card__value">
+                <template v-if="revealedSecrets[row.id]">
+                  <div class="key-display">
+                    <code class="key-code secret-code">{{ revealedSecrets[row.id] }}</code>
+                    <el-button class="copy-btn" size="small" @click="copyText(revealedSecrets[row.id] || '')">
+                      <el-icon><DocumentCopy /></el-icon>
+                    </el-button>
+                    <el-button class="copy-btn" size="small" @click="delete revealedSecrets[row.id]">
+                      <el-icon><Hide /></el-icon>
+                    </el-button>
+                  </div>
+                </template>
+                <template v-else>
+                  <div class="key-display">
+                    <span class="secret-mask">••••••••••••••••</span>
+                    <el-button type="primary" link size="small" @click="viewSecret(row)">
+                      <el-icon><View /></el-icon>查看
+                    </el-button>
+                  </div>
+                </template>
+              </div>
+            </div>
+            <div class="dd-mobile-card__field dd-mobile-card__field--full">
+              <span class="dd-mobile-card__label">权限范围</span>
+              <div class="dd-mobile-card__value">
+                <el-tag
+                  v-for="s in parseScopesTags(row.scopes)"
+                  :key="s"
+                  size="small"
+                  style="margin: 2px 4px 2px 0"
+                >{{ s }}</el-tag>
+                <span v-if="!row.scopes" style="color: var(--el-text-color-secondary)">未授权任何范围</span>
+              </div>
+            </div>
+            <div class="dd-mobile-card__field">
+              <span class="dd-mobile-card__label">速率限制</span>
+              <span class="dd-mobile-card__value">{{ row.rate_limit }}</span>
+            </div>
+            <div class="dd-mobile-card__field">
+              <span class="dd-mobile-card__label">调用次数</span>
+              <span class="dd-mobile-card__value">{{ row.call_count }}</span>
+            </div>
+          </div>
+
+          <div class="dd-mobile-card__actions open-api-card__actions">
+            <el-button size="small" type="primary" plain @click="editApp(row)">编辑</el-button>
+            <el-button size="small" type="warning" plain @click="resetSecret(row)">重置密钥</el-button>
+            <el-button size="small" @click="showLogs(row)">日志</el-button>
+            <el-button size="small" type="danger" plain @click="deleteApp(row)">删除</el-button>
+          </div>
+        </div>
+      </div>
+
+      <el-empty v-if="!loading && apps.length === 0" description="暂无应用" />
+    </div>
+
+    <el-table v-else :data="apps" v-loading="loading" border>
       <el-table-column prop="name" label="应用名称" min-width="120" />
       <el-table-column label="App Key" min-width="280">
         <template #default="{ row }">
@@ -73,7 +151,7 @@
       </el-table-column>
     </el-table>
 
-    <el-dialog v-model="dialogVisible" :title="editingApp ? '编辑应用' : '新建应用'" width="500px">
+    <el-dialog v-model="dialogVisible" :title="editingApp ? '编辑应用' : '新建应用'" width="500px" :fullscreen="dialogFullscreen">
       <el-form :model="form" label-position="top">
         <el-form-item label="应用名称" required>
           <el-input v-model="form.name" placeholder="例如：外部调度系统" />
@@ -103,7 +181,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="secretDialogVisible" title="应用密钥" width="560px" :close-on-click-modal="false">
+    <el-dialog v-model="secretDialogVisible" title="应用密钥" width="560px" :fullscreen="dialogFullscreen" :close-on-click-modal="false">
       <el-alert type="warning" :closable="false" style="margin-bottom: 16px">
         请妥善保管密钥，关闭后需要验证密码才能再次查看 App Secret。
       </el-alert>
@@ -129,7 +207,7 @@
       </div>
     </el-dialog>
 
-    <el-dialog v-model="logsDialogVisible" title="调用日志" width="700px">
+    <el-dialog v-model="logsDialogVisible" title="调用日志" width="700px" :fullscreen="dialogFullscreen">
       <el-table :data="callLogs" size="small" max-height="400">
         <el-table-column prop="endpoint" label="接口" min-width="200" show-overflow-tooltip />
         <el-table-column prop="method" label="方法" width="80" />
@@ -159,6 +237,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { openApiApi } from '@/api/open-api'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useResponsive } from '@/composables/useResponsive'
 
 const apps = ref<any[]>([])
 const loading = ref(false)
@@ -172,6 +251,7 @@ const logTotal = ref(0)
 const logPage = ref(1)
 const currentLogAppId = ref(0)
 const revealedSecrets = reactive<Record<number, string>>({})
+const { isMobile, dialogFullscreen } = useResponsive()
 
 const form = ref({ name: '', scopesList: [] as string[], rate_limit: 100 })
 
@@ -429,5 +509,17 @@ onMounted(loadApps)
   font-family: var(--dd-font-mono);
   word-break: break-all;
   line-height: 1.5;
+}
+
+.open-api-card__actions > * {
+  flex: 1 1 calc(50% - 4px);
+}
+
+@media (max-width: 768px) {
+  .page-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
 }
 </style>

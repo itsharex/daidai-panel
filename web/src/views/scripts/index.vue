@@ -197,14 +197,14 @@ function handleDeleteSelectedFile() {
 <style scoped lang="scss">
 .scripts-page {
   display: flex;
-  height: calc(100vh - 120px);
+  height: calc(100dvh - 120px);
   gap: 0;
   font-size: 14px;
 }
 
 .scripts-page.mobile {
   flex-direction: column;
-  height: calc(100vh - 100px);
+  height: calc(100dvh - 100px);
 
   :deep(.scripts-sidebar) {
     width: 100%;

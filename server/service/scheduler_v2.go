@@ -206,11 +206,17 @@ func (s *SchedulerV2) AddJob(task *model.Task) error {
 	defer s.entryLock.Unlock()
 
 	if oldID, exists := s.entryMap[task.ID]; exists {
-		s.cron.Remove(oldID)
+		if oldID != 0 {
+			s.cron.Remove(oldID)
+		}
 		delete(s.entryMap, task.ID)
 	}
 
 	if task.Status != model.TaskStatusEnabled {
+		return nil
+	}
+	if !task.UsesCronSchedule() {
+		s.entryMap[task.ID] = 0
 		return nil
 	}
 
@@ -253,7 +259,9 @@ func (s *SchedulerV2) RemoveJob(taskID uint) {
 	defer s.entryLock.Unlock()
 
 	if entryID, exists := s.entryMap[taskID]; exists {
-		s.cron.Remove(entryID)
+		if entryID != 0 {
+			s.cron.Remove(entryID)
+		}
 		delete(s.entryMap, taskID)
 	}
 }
@@ -308,6 +316,37 @@ func (s *SchedulerV2) GetRunningCount() int {
 
 func (s *SchedulerV2) GetHandler() SchedulerEventHandler {
 	return s.handler
+}
+
+func (s *SchedulerV2) EnqueueStartupTasks() int {
+	if s == nil {
+		return 0
+	}
+
+	var tasks []model.Task
+	database.DB.
+		Where("status = ? AND task_type = ?", model.TaskStatusEnabled, model.TaskTypeStartup).
+		Order("sort_order ASC, created_at ASC, id ASC").
+		Find(&tasks)
+
+	count := 0
+	for i := range tasks {
+		task := tasks[i]
+		req := &ExecutionRequest{
+			TaskID:      task.ID,
+			Task:        &task,
+			TriggerType: "startup",
+			RetryIndex:  0,
+		}
+		if err := s.Enqueue(req); err != nil {
+			log.Printf("startup task %d enqueue failed: %v", task.ID, err)
+			continue
+		}
+		database.DB.Model(&model.Task{}).Where("id = ? AND status != ?", task.ID, model.TaskStatusRunning).Update("status", model.TaskStatusQueued)
+		count++
+	}
+
+	return count
 }
 
 func (s *SchedulerV2) ReloadAllJobs() {

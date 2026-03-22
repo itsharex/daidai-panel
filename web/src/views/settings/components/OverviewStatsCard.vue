@@ -80,7 +80,13 @@ defineProps<{
 
 @media (max-width: 768px) {
   .overview-stats-row {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 420px) {
+  .overview-stats-row {
+    grid-template-columns: 1fr;
   }
 }
 </style>

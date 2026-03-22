@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { CircleCheck, Key, Lock } from '@element-plus/icons-vue'
+import { useResponsive } from '@/composables/useResponsive'
 
 const oldPassword = defineModel<string>('oldPassword', { required: true })
 const newPassword = defineModel<string>('newPassword', { required: true })
@@ -16,6 +17,8 @@ defineProps<{
   onDisable2FA: () => void | Promise<void>
   onVerify2FA: () => void | Promise<void>
 }>()
+
+const { dialogFullscreen } = useResponsive()
 </script>
 
 <template>
@@ -66,7 +69,7 @@ defineProps<{
     </el-col>
   </el-row>
 
-  <el-dialog v-model="showSetup2FA" title="设置双因素认证" width="480px" :close-on-click-modal="false">
+  <el-dialog v-model="showSetup2FA" title="设置双因素认证" width="480px" :fullscreen="dialogFullscreen" :close-on-click-modal="false">
     <div class="setup-2fa">
       <div class="setup-2fa-step">
         <div class="step-title">步骤 1：扫描二维码</div>

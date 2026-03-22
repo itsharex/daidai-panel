@@ -35,8 +35,8 @@ func (h *ScriptHandler) DebugRun(c *gin.Context) {
 		return
 	}
 
-	env, envMap := buildScriptExecEnv()
 	workDir := filepath.Dir(full)
+	env, envMap := buildScriptExecEnv(workDir)
 	cmd := newScriptCommand(cmdParts, workDir, env)
 
 	run := newDebugRun()

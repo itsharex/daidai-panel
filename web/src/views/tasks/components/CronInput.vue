@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
 import { taskApi } from '@/api/task'
+import { useResponsive } from '@/composables/useResponsive'
 
 const props = defineProps<{
   modelValue: string
@@ -14,6 +15,7 @@ const expression = ref(props.modelValue || '* * * * *')
 const parseResult = ref<any>(null)
 const templates = ref<any[]>([])
 const showAllTemplates = ref(false)
+const { dialogFullscreen } = useResponsive()
 
 watch(() => props.modelValue, (val) => {
   expression.value = val
@@ -127,6 +129,7 @@ const groupedTemplates = computed(() => {
       v-model="showAllTemplates"
       title="选择定时规则"
       width="700px"
+      :fullscreen="dialogFullscreen"
       :close-on-click-modal="false"
     >
       <div class="cron-templates-dialog">

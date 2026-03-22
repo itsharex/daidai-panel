@@ -1,6 +1,7 @@
 package handler_test
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"testing"
@@ -157,6 +158,16 @@ func TestTaskListIncludesEditableSettingsForEditBackfill(t *testing.T) {
 	user := testutil.MustCreateUser(t, "operator", "operator")
 	accessToken := testutil.MustCreateAccessToken(t, user.Username, user.Role)
 
+	channel := &model.NotifyChannel{
+		Name:    "任务成功推送",
+		Type:    "telegram",
+		Config:  `{"token":"demo","chat_id":"123"}`,
+		Enabled: true,
+	}
+	if err := database.DB.Create(channel).Error; err != nil {
+		t.Fatalf("create notification channel: %v", err)
+	}
+
 	parentTask := &model.Task{
 		Name:           "parent task",
 		Command:        "echo parent",
@@ -180,6 +191,7 @@ func TestTaskListIncludesEditableSettingsForEditBackfill(t *testing.T) {
 		RetryInterval:          180,
 		NotifyOnFailure:        false,
 		NotifyOnSuccess:        true,
+		NotificationChannelID:  &channel.ID,
 		DependsOn:              &parentTask.ID,
 		TaskBefore:             &beforeHook,
 		TaskAfter:              &afterHook,
@@ -192,6 +204,7 @@ func TestTaskListIncludesEditableSettingsForEditBackfill(t *testing.T) {
 	if err := database.DB.Model(task).Updates(map[string]interface{}{
 		"notify_on_failure":        false,
 		"notify_on_success":        true,
+		"notification_channel_id":  channel.ID,
 		"depends_on":               parentTask.ID,
 		"task_before":              beforeHook,
 		"task_after":               afterHook,
@@ -237,6 +250,12 @@ func TestTaskListIncludesEditableSettingsForEditBackfill(t *testing.T) {
 	if gotValue, ok := firstItem["notify_on_failure"].(bool); !ok || gotValue {
 		t.Fatalf("expected notify_on_failure=false, got %#v", firstItem["notify_on_failure"])
 	}
+	if gotValue, ok := firstItem["notification_channel_id"].(float64); !ok || uint(gotValue) != channel.ID {
+		t.Fatalf("expected notification_channel_id=%d, got %#v", channel.ID, firstItem["notification_channel_id"])
+	}
+	if gotValue, ok := firstItem["notification_channel_name"].(string); !ok || gotValue != channel.Name {
+		t.Fatalf("expected notification_channel_name=%q, got %#v", channel.Name, firstItem["notification_channel_name"])
+	}
 	if gotValue, ok := firstItem["allow_multiple_instances"].(bool); !ok || !gotValue {
 		t.Fatalf("expected allow_multiple_instances=true, got %#v", firstItem["allow_multiple_instances"])
 	}
@@ -271,17 +290,28 @@ func TestTaskCreatePersistsFalseNotifyOnFailure(t *testing.T) {
 	user := testutil.MustCreateUser(t, "operator", "operator")
 	accessToken := testutil.MustCreateAccessToken(t, user.Username, user.Role)
 
+	channel := &model.NotifyChannel{
+		Name:    "专属渠道",
+		Type:    "telegram",
+		Config:  `{"token":"demo","chat_id":"123"}`,
+		Enabled: true,
+	}
+	if err := database.DB.Create(channel).Error; err != nil {
+		t.Fatalf("create notification channel: %v", err)
+	}
+
 	rec := performJSONRequest(
 		engine,
 		http.MethodPost,
 		"/api/v1/tasks",
-		`{
+		fmt.Sprintf(`{
 			"name":"create notify false",
 			"command":"echo hi",
 			"cron_expression":"0 0 * * *",
 			"notify_on_failure":false,
-			"notify_on_success":true
-		}`,
+			"notify_on_success":true,
+			"notification_channel_id":%d
+		}`, channel.ID),
 		map[string]string{"Authorization": "Bearer " + accessToken},
 		"",
 	)
@@ -300,6 +330,65 @@ func TestTaskCreatePersistsFalseNotifyOnFailure(t *testing.T) {
 	if got, ok := item["notify_on_success"].(bool); !ok || !got {
 		t.Fatalf("expected notify_on_success=true, got %#v", item["notify_on_success"])
 	}
+	if got, ok := item["notification_channel_id"].(float64); !ok || uint(got) != channel.ID {
+		t.Fatalf("expected notification_channel_id=%d, got %#v", channel.ID, item["notification_channel_id"])
+	}
+}
+
+func TestTaskCreateManualTypeAllowsEmptyCron(t *testing.T) {
+	testutil.SetupTestEnv(t)
+
+	engine := newProtectedRouter()
+	user := testutil.MustCreateUser(t, "operator", "operator")
+	accessToken := testutil.MustCreateAccessToken(t, user.Username, user.Role)
+
+	rec := performJSONRequest(
+		engine,
+		http.MethodPost,
+		"/api/v1/tasks",
+		`{
+			"name":"manual task",
+			"command":"echo hi",
+			"task_type":"manual"
+		}`,
+		map[string]string{"Authorization": "Bearer " + accessToken},
+		"",
+	)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	payload := decodeJSONMap(t, rec)
+	item, ok := payload["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected task payload, got %#v", payload["data"])
+	}
+	if got, ok := item["task_type"].(string); !ok || got != model.TaskTypeManual {
+		t.Fatalf("expected task_type=%q, got %#v", model.TaskTypeManual, item["task_type"])
+	}
+	if got, ok := item["cron_expression"].(string); !ok || got != "" {
+		t.Fatalf("expected empty cron_expression for manual task, got %#v", item["cron_expression"])
+	}
+
+	listRec := performRequest(engine, http.MethodGet, "/api/v1/tasks", map[string]string{
+		"Authorization": "Bearer " + accessToken,
+	})
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("expected list 200, got %d: %s", listRec.Code, listRec.Body.String())
+	}
+
+	listPayload := decodeJSONMap(t, listRec)
+	items, ok := listPayload["data"].([]interface{})
+	if !ok || len(items) == 0 {
+		t.Fatalf("expected non-empty task list, got %#v", listPayload["data"])
+	}
+	firstItem, ok := items[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected task object, got %#v", items[0])
+	}
+	if _, exists := firstItem["next_run_at"]; exists {
+		t.Fatalf("did not expect next_run_at for manual task, got %#v", firstItem["next_run_at"])
+	}
 }
 
 func TestTaskCopyKeepsDisabledStatus(t *testing.T) {
@@ -316,6 +405,16 @@ func TestTaskCopyKeepsDisabledStatus(t *testing.T) {
 		Status:          model.TaskStatusEnabled,
 		NotifyOnFailure: false,
 	}
+	channel := &model.NotifyChannel{
+		Name:    "复制渠道",
+		Type:    "telegram",
+		Config:  `{"token":"demo","chat_id":"123"}`,
+		Enabled: true,
+	}
+	if err := database.DB.Create(channel).Error; err != nil {
+		t.Fatalf("create notification channel: %v", err)
+	}
+	task.NotificationChannelID = &channel.ID
 	if err := database.DB.Select("*").Create(task).Error; err != nil {
 		t.Fatalf("create source task: %v", err)
 	}
@@ -337,5 +436,50 @@ func TestTaskCopyKeepsDisabledStatus(t *testing.T) {
 	}
 	if got, ok := item["notify_on_failure"].(bool); !ok || got {
 		t.Fatalf("expected copied task notify_on_failure=false, got %#v", item["notify_on_failure"])
+	}
+	if got, ok := item["notification_channel_id"].(float64); !ok || uint(got) != channel.ID {
+		t.Fatalf("expected copied task notification_channel_id=%d, got %#v", channel.ID, item["notification_channel_id"])
+	}
+}
+
+func TestTaskNotificationChannelsExposeSafeFieldsOnly(t *testing.T) {
+	testutil.SetupTestEnv(t)
+
+	engine := newProtectedRouter()
+	user := testutil.MustCreateUser(t, "viewer", "viewer")
+	accessToken := testutil.MustCreateAccessToken(t, user.Username, user.Role)
+
+	channel := &model.NotifyChannel{
+		Name:    "任务通知",
+		Type:    "telegram",
+		Config:  `{"token":"secret","chat_id":"123"}`,
+		Enabled: true,
+	}
+	if err := database.DB.Create(channel).Error; err != nil {
+		t.Fatalf("create notification channel: %v", err)
+	}
+
+	rec := performRequest(engine, http.MethodGet, "/api/v1/tasks/notification-channels", map[string]string{
+		"Authorization": "Bearer " + accessToken,
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	payload := decodeJSONMap(t, rec)
+	items, ok := payload["data"].([]interface{})
+	if !ok || len(items) == 0 {
+		t.Fatalf("expected non-empty channel list, got %#v", payload["data"])
+	}
+
+	firstItem, ok := items[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected channel object, got %#v", items[0])
+	}
+	if got := firstItem["name"]; got != channel.Name {
+		t.Fatalf("expected channel name %q, got %#v", channel.Name, got)
+	}
+	if _, exists := firstItem["config"]; exists {
+		t.Fatalf("did not expect config field in safe task channel payload: %#v", firstItem)
 	}
 }

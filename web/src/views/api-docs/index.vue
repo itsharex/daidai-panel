@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import type { ApiCategory, ApiEndpoint } from './apiData'
 
 type ApiDocsModule = typeof import('./apiData')
@@ -10,6 +10,7 @@ const apiLoading = ref(true)
 const selectedId = ref('')
 const searchText = ref('')
 const codeTab = ref('Shell')
+const helperTab = ref('JavaScript')
 const copiedKey = ref('')
 const mobileMenuOpen = ref(false)
 
@@ -68,6 +69,11 @@ onMounted(async () => {
   selectedId.value = module.apiCategories[0]?.endpoints[0]?.id || ''
   apiLoading.value = false
 })
+
+watch(currentEndpoint, endpoint => {
+  const names = Object.keys(endpoint?.helperExamples || {})
+  helperTab.value = names[0] || 'JavaScript'
+}, { immediate: true })
 
 function handleSelect(id: string) {
   selectedId.value = id
@@ -281,6 +287,39 @@ function methodClass(method: string) {
                   </el-button>
                 </el-tooltip>
                 <pre class="code-block">{{ codeExamples[lang] }}</pre>
+              </div>
+            </el-tab-pane>
+          </el-tabs>
+        </el-card>
+
+        <el-card
+          v-if="currentEndpoint.helperExamples && Object.keys(currentEndpoint.helperExamples).length"
+          shadow="never"
+          class="api-card"
+        >
+          <template #header>
+            <div class="section-title">脚本示例</div>
+          </template>
+          <el-tabs v-model="helperTab" class="code-tabs">
+            <el-tab-pane
+              v-for="lang in Object.keys(currentEndpoint.helperExamples)"
+              :key="lang"
+              :label="lang"
+              :name="lang"
+            >
+              <div class="code-block-wrapper">
+                <el-tooltip :content="copiedKey === `helper-${lang}` ? '已复制' : '复制代码'" placement="top">
+                  <el-button
+                    class="code-copy-btn"
+                    size="small"
+                    type="primary"
+                    plain
+                    @click="handleCopy(currentEndpoint.helperExamples?.[lang] || '', `helper-${lang}`)"
+                  >
+                    <el-icon><DocumentCopy /></el-icon>
+                  </el-button>
+                </el-tooltip>
+                <pre class="code-block">{{ currentEndpoint.helperExamples?.[lang] }}</pre>
               </div>
             </el-tab-pane>
           </el-tabs>
@@ -729,6 +768,15 @@ function methodClass(method: string) {
 
   .api-content {
     padding: 16px;
+  }
+
+  .api-content :deep(.el-table) {
+    display: block;
+    overflow-x: auto;
+  }
+
+  .code-copy-btn {
+    opacity: 1;
   }
 
   .response-section {

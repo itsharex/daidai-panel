@@ -193,12 +193,15 @@ function startEdit() {
   .editor-header {
     padding: 8px 12px;
     gap: 6px;
+    align-items: flex-start;
+    flex-wrap: wrap;
 
     .editor-file-info {
       gap: 6px;
       font-size: 14px;
       min-width: 0;
       overflow: hidden;
+      width: 100%;
 
       span {
         overflow: hidden;
@@ -209,7 +212,9 @@ function startEdit() {
 
     .editor-actions {
       gap: 4px;
-      flex-shrink: 0;
+      width: 100%;
+      flex-wrap: wrap;
+      justify-content: flex-end;
     }
   }
 

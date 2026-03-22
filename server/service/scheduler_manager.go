@@ -37,7 +37,11 @@ func InitSchedulerV2() {
 		}
 	}
 
+	startupCount := globalScheduler.EnqueueStartupTasks()
 	log.Printf("scheduler v2 initialized with %d tasks", len(tasks))
+	if startupCount > 0 {
+		log.Printf("scheduler v2 enqueued %d startup task(s)", startupCount)
+	}
 }
 
 func ShutdownSchedulerV2() {

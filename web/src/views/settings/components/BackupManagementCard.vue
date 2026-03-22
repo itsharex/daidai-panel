@@ -2,6 +2,7 @@
 import { Clock, Delete, Download, Upload } from '@element-plus/icons-vue'
 import { ref } from 'vue'
 import type { BackupSelection } from '@/api/system'
+import { useResponsive } from '@/composables/useResponsive'
 
 const showBackupDialog = defineModel<boolean>('showBackupDialog', { required: true })
 const backupPassword = defineModel<string>('backupPassword', { required: true })
@@ -23,6 +24,7 @@ defineProps<{
 }>()
 
 const backupFileInput = ref<HTMLInputElement | null>(null)
+const { isMobile, dialogFullscreen } = useResponsive()
 
 function triggerUploadBackup() {
   backupFileInput.value?.click()
@@ -46,7 +48,36 @@ function triggerUploadBackup() {
       </div>
     </template>
 
-    <el-table :data="backups" v-loading="backupsLoading" empty-text="暂无备份">
+    <div v-if="isMobile" class="dd-mobile-list">
+      <div
+        v-for="row in backups"
+        :key="row.name"
+        class="dd-mobile-card"
+      >
+        <div class="dd-mobile-card__header">
+          <div class="dd-mobile-card__title-wrap">
+            <span class="dd-mobile-card__title">{{ row.name }}</span>
+            <span class="dd-mobile-card__subtitle">{{ new Date(row.created_at).toLocaleString() }}</span>
+          </div>
+        </div>
+        <div class="dd-mobile-card__body">
+          <div class="dd-mobile-card__grid">
+            <div class="dd-mobile-card__field">
+              <span class="dd-mobile-card__label">大小</span>
+              <span class="dd-mobile-card__value">{{ (row.size / 1024).toFixed(2) }} KB</span>
+            </div>
+          </div>
+          <div class="dd-mobile-card__actions backup-actions">
+            <el-button size="small" type="primary" plain @click="onDownloadBackup(row.name)">下载</el-button>
+            <el-button size="small" type="success" plain @click="onRestoreBackup(row.name)">恢复</el-button>
+            <el-button size="small" type="danger" plain @click="onDeleteBackup(row.name)">删除</el-button>
+          </div>
+        </div>
+      </div>
+      <el-empty v-if="!backupsLoading && backups.length === 0" description="暂无备份" />
+    </div>
+
+    <el-table v-else :data="backups" v-loading="backupsLoading" empty-text="暂无备份">
       <el-table-column prop="name" label="文件名" min-width="200" />
       <el-table-column label="大小" width="120">
         <template #default="{ row }">{{ (row.size / 1024).toFixed(2) }} KB</template>
@@ -76,8 +107,8 @@ function triggerUploadBackup() {
     </el-alert>
   </el-card>
 
-  <el-dialog v-model="showBackupDialog" title="创建备份" width="520px">
-    <el-form label-width="100px">
+  <el-dialog v-model="showBackupDialog" title="创建备份" width="520px" :fullscreen="dialogFullscreen">
+    <el-form :label-width="dialogFullscreen ? 'auto' : '100px'" :label-position="dialogFullscreen ? 'top' : 'right'">
       <el-form-item label="备份内容">
         <div class="backup-selection-grid">
           <el-checkbox v-model="backupSelection.configs">配置项
@@ -116,8 +147,8 @@ function triggerUploadBackup() {
     </template>
   </el-dialog>
 
-  <el-dialog v-model="showRestoreDialog" title="恢复备份" width="400px">
-    <el-form label-width="100px">
+  <el-dialog v-model="showRestoreDialog" title="恢复备份" width="400px" :fullscreen="dialogFullscreen">
+    <el-form :label-width="dialogFullscreen ? 'auto' : '100px'" :label-position="dialogFullscreen ? 'top' : 'right'">
       <el-form-item label="备份文件">
         <el-input :model-value="restoreFilename" disabled />
       </el-form-item>
@@ -160,5 +191,11 @@ function triggerUploadBackup() {
   color: var(--el-text-color-secondary);
   margin-top: 2px;
   margin-left: 24px;
+}
+
+@media (max-width: 768px) {
+  .card-header-buttons {
+    width: 100%;
+  }
 }
 </style>

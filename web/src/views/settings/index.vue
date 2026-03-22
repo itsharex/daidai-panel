@@ -307,7 +307,7 @@ onMounted(() => {
 
 <style scoped lang="scss">
 .settings-page {
-  padding: 20px;
+  padding: 0;
 }
 
 .page-header {
@@ -335,5 +335,25 @@ onMounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+}
+
+@media (max-width: 768px) {
+  .page-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  :deep(.el-tabs__nav-wrap) {
+    overflow-x: auto;
+  }
+
+  :deep(.el-tabs__nav-scroll) {
+    min-width: max-content;
+  }
+
+  :deep(.el-tabs__item) {
+    white-space: nowrap;
+  }
 }
 </style>

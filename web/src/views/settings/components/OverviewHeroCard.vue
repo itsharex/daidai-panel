@@ -182,7 +182,18 @@ defineProps<{
 
 @media (max-width: 768px) {
   .version-stats {
-    gap: 40px;
+    width: 100%;
+    gap: 20px;
+    justify-content: space-between;
+  }
+
+  .overview-buttons {
+    width: 100%;
+    flex-direction: column;
+  }
+
+  .update-actions {
+    flex-wrap: wrap;
   }
 }
 </style>

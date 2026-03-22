@@ -28,6 +28,7 @@ func newProtectedRouter() *gin.Engine {
 	handler.NewScriptHandler().RegisterRoutes(api)
 	handler.NewEnvHandler().RegisterRoutes(api)
 	handler.NewLogHandler().RegisterRoutes(api)
+	handler.NewNotificationHandler().RegisterRoutes(api)
 	handler.NewSystemHandler().RegisterRoutes(api)
 	handler.NewConfigHandler().RegisterRoutes(api)
 

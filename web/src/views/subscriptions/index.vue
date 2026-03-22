@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { subscriptionApi } from '@/api/subscription'
 import { sshKeyApi } from '@/api/notification'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { openAuthorizedEventStream, type EventStreamConnection } from '@/utils/sse'
+import { useResponsive } from '@/composables/useResponsive'
 
 const subList = ref<any[]>([])
 const loading = ref(false)
@@ -12,6 +13,8 @@ const page = ref(1)
 const pageSize = ref(20)
 const keyword = ref('')
 const selectedIds = ref<number[]>([])
+const selectedIdSet = computed(() => new Set(selectedIds.value))
+const { isMobile, dialogFullscreen } = useResponsive()
 
 const showEditDialog = ref(false)
 const showLogDialog = ref(false)
@@ -320,6 +323,20 @@ function handleSelectionChange(rows: any[]) {
   selectedIds.value = rows.map(r => r.id)
 }
 
+function isSelected(id: number) {
+  return selectedIdSet.value.has(id)
+}
+
+function toggleSelected(id: number, checked: boolean | string | number) {
+  const next = new Set(selectedIds.value)
+  if (checked) {
+    next.add(id)
+  } else {
+    next.delete(id)
+  }
+  selectedIds.value = [...next]
+}
+
 async function openLogs(subId: number) {
   logSubId.value = subId
   logPage.value = 1
@@ -383,7 +400,65 @@ function viewLogDetail(log: any) {
       </div>
     </div>
 
+    <div v-if="isMobile" class="dd-mobile-list">
+      <div
+        v-for="row in subList"
+        :key="row.id"
+        class="dd-mobile-card"
+      >
+        <div class="dd-mobile-card__header">
+          <div class="dd-mobile-card__title-wrap">
+            <div class="subscription-card__title-row">
+              <div class="dd-mobile-card__selection">
+                <el-checkbox :model-value="isSelected(row.id)" @change="toggleSelected(row.id, $event)" />
+                <span class="dd-mobile-card__title">{{ row.name }}</span>
+              </div>
+              <el-tag size="small" :type="row.type === 'git-repo' ? '' : 'warning'">
+                {{ row.type === 'git-repo' ? 'Git 仓库' : '单文件' }}
+              </el-tag>
+            </div>
+            <div class="dd-mobile-card__subtitle">{{ row.url }}</div>
+          </div>
+        </div>
+
+        <div class="dd-mobile-card__body">
+          <div class="dd-mobile-card__grid">
+            <div class="dd-mobile-card__field">
+              <span class="dd-mobile-card__label">分支</span>
+              <span class="dd-mobile-card__value">{{ row.branch || '-' }}</span>
+            </div>
+            <div class="dd-mobile-card__field">
+              <span class="dd-mobile-card__label">状态</span>
+              <div class="dd-mobile-card__value">
+                <el-tag size="small" :type="getStatusTag(row.status)">{{ getStatusText(row.status) }}</el-tag>
+              </div>
+            </div>
+            <div class="dd-mobile-card__field">
+              <span class="dd-mobile-card__label">启用</span>
+              <div class="dd-mobile-card__value">
+                <el-switch :model-value="row.enabled" size="small" @change="handleToggle(row)" />
+              </div>
+            </div>
+            <div class="dd-mobile-card__field">
+              <span class="dd-mobile-card__label">最后拉取</span>
+              <span class="dd-mobile-card__value">{{ row.last_pull_at ? new Date(row.last_pull_at).toLocaleString() : '-' }}</span>
+            </div>
+          </div>
+
+          <div class="dd-mobile-card__actions subscription-card__actions">
+            <el-button size="small" type="success" @click="handlePull(row)">拉取</el-button>
+            <el-button size="small" @click="openLogs(row.id)">日志</el-button>
+            <el-button size="small" type="primary" plain @click="openEdit(row)">编辑</el-button>
+            <el-button size="small" type="danger" plain @click="handleDelete(row.id)">删除</el-button>
+          </div>
+        </div>
+      </div>
+
+      <el-empty v-if="!loading && subList.length === 0" description="暂无订阅" />
+    </div>
+
     <el-table
+      v-else
       :data="subList"
       v-loading="loading"
       @selection-change="handleSelectionChange"
@@ -455,8 +530,8 @@ function viewLogDetail(log: any) {
       />
     </div>
 
-    <el-dialog v-model="showEditDialog" :title="isCreate ? '新建订阅' : '编辑订阅'" width="600px">
-      <el-form :model="editForm" label-width="100px">
+    <el-dialog v-model="showEditDialog" :title="isCreate ? '新建订阅' : '编辑订阅'" width="600px" :fullscreen="dialogFullscreen">
+      <el-form :model="editForm" :label-width="dialogFullscreen ? 'auto' : '100px'" :label-position="dialogFullscreen ? 'top' : 'right'">
         <el-form-item v-if="isCreate" label="一键识别">
           <div style="display: flex; gap: 8px; width: 100%">
             <el-input v-model="qlCommand" placeholder="粘贴 ql repo/raw 命令或仓库链接" clearable @keyup.enter="parseQLCommand" />
@@ -505,7 +580,7 @@ function viewLogDetail(log: any) {
       </template>
     </el-dialog>
 
-    <el-dialog v-model="showLogDialog" title="拉取日志" width="700px">
+    <el-dialog v-model="showLogDialog" title="拉取日志" width="700px" :fullscreen="dialogFullscreen">
       <el-table :data="logList" v-loading="logLoading" max-height="400px">
         <el-table-column label="状态" width="80">
           <template #default="{ row }">
@@ -538,11 +613,11 @@ function viewLogDetail(log: any) {
       </div>
     </el-dialog>
 
-    <el-dialog v-model="showLogDetail" title="日志详情" width="700px">
+    <el-dialog v-model="showLogDetail" title="日志详情" width="700px" :fullscreen="dialogFullscreen">
       <pre class="pull-log-content" style="min-height: 100px">{{ logDetailContent || '(无日志内容)' }}</pre>
     </el-dialog>
 
-    <el-dialog v-model="showPullLog" title="拉取日志" width="700px" :close-on-click-modal="false" @close="closePullStream">
+    <el-dialog v-model="showPullLog" title="拉取日志" width="700px" :fullscreen="dialogFullscreen" :close-on-click-modal="false" @close="closePullStream">
       <div ref="pullLogRef" class="pull-log-content">
         <div v-for="(line, i) in pullLogLines" :key="i" class="pull-log-line">{{ line }}</div>
         <div v-if="pullRunning" class="pull-log-line pull-running">
@@ -606,6 +681,17 @@ function viewLogDetail(log: any) {
   gap: 6px;
 }
 
+.subscription-card__title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.subscription-card__actions > * {
+  flex: 1 1 calc(50% - 4px);
+}
+
 .pull-log-content {
   background: #1e1e1e;
   color: #d4d4d4;
@@ -639,5 +725,27 @@ function viewLogDetail(log: any) {
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
   flex-shrink: 0;
+}
+
+@media (max-width: 768px) {
+  .page-header {
+    align-items: flex-start;
+
+    .header-left,
+    .header-right {
+      width: 100%;
+      flex-wrap: wrap;
+    }
+
+    .header-left {
+      :deep(.el-input) {
+        width: 100% !important;
+      }
+    }
+  }
+
+  .subscription-card__title-row {
+    flex-direction: column;
+  }
 }
 </style>

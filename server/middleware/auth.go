@@ -36,8 +36,24 @@ func GenerateAccessToken(username, role string) (string, error) {
 }
 
 func GenerateAccessTokenInfo(username, role string) (*TokenInfo, error) {
+	return generateAccessTokenInfoWithTTL(username, role, config.C.JWT.AccessTokenExpire)
+}
+
+func GenerateTemporaryAccessToken(username, role string, ttl time.Duration) (string, error) {
+	info, err := generateAccessTokenInfoWithTTL(username, role, ttl)
+	if err != nil {
+		return "", err
+	}
+	return info.Token, nil
+}
+
+func generateAccessTokenInfoWithTTL(username, role string, ttl time.Duration) (*TokenInfo, error) {
+	if ttl <= 0 {
+		ttl = config.C.JWT.AccessTokenExpire
+	}
+
 	jti := generateJTI()
-	expiresAt := time.Now().Add(config.C.JWT.AccessTokenExpire)
+	expiresAt := time.Now().Add(ttl)
 	claims := Claims{
 		Username:  username,
 		Role:      role,

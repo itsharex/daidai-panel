@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -137,6 +138,7 @@ func (e *TaskExecutor) runTask(req *ExecutionRequest, taskLog *model.TaskLog, ti
 	startTime := time.Now()
 	exitCode := 0
 	success := false
+	lastFailureOutput := ""
 
 	var envVarRecords []model.EnvVar
 	database.DB.Where("enabled = ?", true).Find(&envVarRecords)
@@ -170,6 +172,7 @@ func (e *TaskExecutor) runTask(req *ExecutionRequest, taskLog *model.TaskLog, ti
 			}
 		}
 	}
+	AppendScriptHelperPaths(envVars, e.scriptsDir)
 
 	commandTimeout := model.GetRegisteredConfigInt("command_timeout")
 	maxLogSize := model.GetRegisteredConfigInt("max_log_content_size")
@@ -177,6 +180,13 @@ func (e *TaskExecutor) runTask(req *ExecutionRequest, taskLog *model.TaskLog, ti
 	timeout := task.Timeout
 	if timeout <= 0 {
 		timeout = commandTimeout
+	}
+	if helperEnv, err := BuildNotifyHelperEnv(e.scriptsDir, e.scriptsDir, config.C.Server.Port, task.NotificationChannelID, time.Duration(timeout)*time.Second+time.Hour); err == nil {
+		for key, value := range helperEnv {
+			envVars[key] = value
+		}
+	} else {
+		log.Printf("prepare notify helper env failed: %v", err)
 	}
 
 	defer func() {
@@ -229,18 +239,18 @@ func (e *TaskExecutor) runTask(req *ExecutionRequest, taskLog *model.TaskLog, ti
 		e.OnTaskCompleted(req, result)
 
 		if success && task.NotifyOnSuccess {
-			go SendNotification(
-				"任务执行成功",
-				fmt.Sprintf("定时任务「%s」已于 %s 运行完毕，耗时 %.1f 秒。",
-					task.Name, endedAt.Format("2006-01-02 15:04:05"), duration),
-			)
+			title, content, context := buildTaskExecutionNotification(task, req.TaskLogID, true, exitCode, duration, endedAt, "")
+			SendNotificationWithOptions(title, content, NotificationDispatchOptions{
+				ChannelIDs: buildTaskNotificationChannelIDs(task.NotificationChannelID),
+				Context:    context,
+			})
 		}
 		if !success && task.NotifyOnFailure {
-			go SendNotification(
-				"任务执行失败",
-				fmt.Sprintf("定时任务「%s」执行失败，退出码 %d，耗时 %.1f 秒。",
-					task.Name, exitCode, duration),
-			)
+			title, content, context := buildTaskExecutionNotification(task, req.TaskLogID, false, exitCode, duration, endedAt, lastFailureOutput)
+			SendNotificationWithOptions(title, content, NotificationDispatchOptions{
+				ChannelIDs: buildTaskNotificationChannelIDs(task.NotificationChannelID),
+				Context:    context,
+			})
 		}
 	}()
 
@@ -302,14 +312,17 @@ func (e *TaskExecutor) runTask(req *ExecutionRequest, taskLog *model.TaskLog, ti
 			onOutput(fmt.Sprintf("[执行错误: %s]", err.Error()))
 			retries++
 			lastExitCode = 1
+			lastFailureOutput = buildTaskFailureOutput(outputCollector.String(), err.Error())
 			continue
 		}
 
 		lastExitCode = result.ReturnCode
 		if result.ReturnCode == 0 {
 			success = true
+			lastFailureOutput = ""
 			break
 		}
+		lastFailureOutput = outputCollector.String()
 
 		if depInstallCount < maxDepInstalls && model.GetRegisteredConfigBool("auto_install_deps") {
 			collected := outputCollector.String()
@@ -338,6 +351,110 @@ func (e *TaskExecutor) runTask(req *ExecutionRequest, taskLog *model.TaskLog, ti
 
 	onOutput(fmt.Sprintf("=== 执行结束 [%s] 耗时 %.2f 秒 退出码 %d ===",
 		endTime.Format("2006-01-02 15:04:05"), duration, lastExitCode))
+}
+
+func buildTaskNotificationChannelIDs(channelID *uint) []uint {
+	if channelID == nil || *channelID == 0 {
+		return nil
+	}
+	return []uint{*channelID}
+}
+
+func buildTaskFailureOutput(output, errMessage string) string {
+	output = strings.TrimSpace(output)
+	errMessage = strings.TrimSpace(errMessage)
+	if output == "" {
+		return errMessage
+	}
+	if errMessage == "" {
+		return output
+	}
+	return output + "\n[执行错误] " + errMessage
+}
+
+func buildTaskExecutionNotification(task *model.Task, taskLogID uint, success bool, exitCode int, duration float64, endedAt time.Time, failureOutput string) (string, string, map[string]string) {
+	endedAtText := endedAt.Format("2006-01-02 15:04:05.000")
+	durationText := fmt.Sprintf("%.1f", duration)
+	statusText := "失败"
+	statusValue := "failure"
+	title := "任务执行失败"
+	content := fmt.Sprintf(
+		"定时任务「%s」执行失败。\n运行时间: %s\n日志ID: %d\n退出码: %d\n耗时: %s 秒。",
+		task.Name,
+		endedAtText,
+		taskLogID,
+		exitCode,
+		durationText,
+	)
+
+	failureExcerpt := summarizeTaskFailureOutput(failureOutput)
+	if success {
+		statusText = "成功"
+		statusValue = "success"
+		title = "任务执行成功"
+		content = fmt.Sprintf(
+			"定时任务「%s」已于 %s 运行完毕。\n日志ID: %d\n耗时: %s 秒。",
+			task.Name,
+			endedAtText,
+			taskLogID,
+			durationText,
+		)
+	}
+	if !success && failureExcerpt != "" {
+		content += "\n\n失败原因:\n" + failureExcerpt
+	}
+
+	context := map[string]string{
+		"task_name":   task.Name,
+		"task_id":     strconv.FormatUint(uint64(task.ID), 10),
+		"task_log_id": strconv.FormatUint(uint64(taskLogID), 10),
+		"exit_code":   strconv.Itoa(exitCode),
+		"duration":    durationText,
+		"ended_at":    endedAtText,
+		"status":      statusValue,
+		"status_text": statusText,
+		"error_log":   failureExcerpt,
+		"failure_log": failureExcerpt,
+	}
+	return title, content, context
+}
+
+func summarizeTaskFailureOutput(output string) string {
+	output = strings.TrimSpace(output)
+	if output == "" {
+		return ""
+	}
+
+	lines := strings.Split(output, "\n")
+	kept := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "=== 开始执行") || strings.HasPrefix(line, "=== 执行结束") {
+			continue
+		}
+		kept = append(kept, line)
+	}
+
+	if len(kept) == 0 {
+		return ""
+	}
+
+	const maxLines = 15
+	if len(kept) > maxLines {
+		kept = kept[len(kept)-maxLines:]
+	}
+
+	summary := strings.Join(kept, "\n")
+	runes := []rune(summary)
+	const maxRunes = 1200
+	if len(runes) > maxRunes {
+		summary = "...\n" + string(runes[len(runes)-maxRunes:])
+	}
+
+	return summary
 }
 
 var (

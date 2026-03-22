@@ -191,6 +191,7 @@ func validateCommand(command, scriptsDir string) (string, string, error) {
 
 func buildCmd(interpreter, fullPath, scriptsDir string, envVars map[string]string) *exec.Cmd {
 	var cmd *exec.Cmd
+	_ = EnsureBuiltinNotifyHelpers(scriptsDir, filepath.Dir(fullPath))
 
 	switch interpreter {
 	case "python", "python3":

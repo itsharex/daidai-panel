@@ -2,6 +2,7 @@
 import { ref, watch } from 'vue'
 import { taskApi } from '@/api/task'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useResponsive } from '@/composables/useResponsive'
 
 const props = defineProps<{
   visible: boolean
@@ -18,6 +19,7 @@ const loading = ref(false)
 const selectedFile = ref<string | null>(null)
 const fileContent = ref('')
 const contentLoading = ref(false)
+const { dialogFullscreen } = useResponsive()
 
 watch(() => props.visible, (visible) => {
   if (visible && props.taskId) {
@@ -87,6 +89,7 @@ function handleClose() {
     :model-value="visible"
     :title="`日志文件 - ${taskName}`"
     width="1000px"
+    :fullscreen="dialogFullscreen"
     @close="handleClose"
   >
     <div class="log-files-browser">
@@ -229,5 +232,18 @@ function handleClose() {
   padding: 40px 20px;
   text-align: center;
   color: var(--el-text-color-placeholder);
+}
+
+@media (max-width: 768px) {
+  .log-files-browser {
+    flex-direction: column;
+    height: calc(100dvh - 140px);
+    gap: 12px;
+  }
+
+  .file-list {
+    width: 100%;
+    max-height: 220px;
+  }
 }
 </style>

@@ -2,11 +2,13 @@
 import { ref, watch } from 'vue'
 import CronInput from './CronInput.vue'
 import { mergeTaskLabels, splitTaskLabels } from '../taskLabels'
+import { useResponsive } from '@/composables/useResponsive'
 
 const props = defineProps<{
   visible: boolean
   task?: any
   prefill?: any
+  notificationChannels?: { id: number; name: string; type: string; enabled: boolean }[]
 }>()
 
 const emit = defineEmits<{
@@ -18,11 +20,13 @@ const form = ref({
   name: '',
   command: '',
   cron_expression: '* * * * *',
+  task_type: 'cron',
   timeout: 86400,
   max_retries: 0,
   retry_interval: 60,
   notify_on_failure: true,
   notify_on_success: false,
+  notification_channel_id: null as number | null,
   labels: [] as string[],
   depends_on: null as number | null,
   task_before: '',
@@ -33,6 +37,7 @@ const form = ref({
 const labelInput = ref('')
 const activeTab = ref('basic')
 const internalLabels = ref<string[]>([])
+const { dialogFullscreen } = useResponsive()
 
 watch(() => props.visible, (val) => {
   if (val && props.task) {
@@ -42,11 +47,13 @@ watch(() => props.visible, (val) => {
       name: props.task.name || '',
       command: props.task.command || '',
       cron_expression: props.task.cron_expression || '* * * * *',
+      task_type: props.task.task_type || 'cron',
       timeout: props.task.timeout ?? 86400,
       max_retries: props.task.max_retries ?? 0,
       retry_interval: props.task.retry_interval ?? 60,
       notify_on_failure: props.task.notify_on_failure ?? true,
       notify_on_success: props.task.notify_on_success ?? false,
+      notification_channel_id: props.task.notification_channel_id ?? null,
       labels: editableLabels,
       depends_on: props.task.depends_on || null,
       task_before: props.task.task_before || '',
@@ -59,12 +66,19 @@ watch(() => props.visible, (val) => {
     form.value = {
       name: p?.name || '', command: p?.command || '',
       cron_expression: p?.cron_expression || '* * * * *',
+      task_type: p?.task_type || 'cron',
       timeout: 86400, max_retries: 0, retry_interval: 60,
-      notify_on_failure: true, notify_on_success: false, labels: [], depends_on: null,
+      notify_on_failure: true, notify_on_success: false, notification_channel_id: null, labels: [], depends_on: null,
       task_before: '', task_after: '', allow_multiple_instances: false,
     }
   }
   activeTab.value = 'basic'
+})
+
+watch(() => form.value.task_type, (value) => {
+  if (value === 'cron' && !form.value.cron_expression) {
+    form.value.cron_expression = '* * * * *'
+  }
 })
 
 function addLabel() {
@@ -80,8 +94,13 @@ function removeLabel(label: string) {
 }
 
 function handleSubmit() {
-  if (!form.value.name || !form.value.command || !form.value.cron_expression) return
+  if (!form.value.name || !form.value.command) return
   const data = { ...form.value }
+  if (data.task_type === 'cron') {
+    if (!data.cron_expression) return
+  } else {
+    data.cron_expression = ''
+  }
   data.labels = mergeTaskLabels(form.value.labels, internalLabels.value)
   if (!data.task_before) data.task_before = ''
   if (!data.task_after) data.task_after = ''
@@ -94,12 +113,13 @@ function handleSubmit() {
     :model-value="visible"
     :title="task ? '编辑任务' : '新建任务'"
     width="640px"
+    :fullscreen="dialogFullscreen"
     destroy-on-close
     @update:model-value="emit('update:visible', $event)"
   >
     <el-tabs v-model="activeTab">
       <el-tab-pane label="基本信息" name="basic">
-        <el-form :model="form" label-width="100px">
+        <el-form :model="form" :label-width="dialogFullscreen ? 'auto' : '100px'" :label-position="dialogFullscreen ? 'top' : 'right'">
           <el-form-item label="任务名称" required>
             <el-input v-model="form.name" placeholder="任务名称" />
           </el-form-item>
@@ -109,8 +129,25 @@ function handleSubmit() {
               支持 task 脚本名 格式,自动根据扩展名选择解释器 (.py/.js/.ts/.sh)
             </div>
           </el-form-item>
-          <el-form-item label="定时规则" required>
+          <el-form-item label="定时类型" required>
+            <el-select v-model="form.task_type" style="width: 100%">
+              <el-option label="常规定时" value="cron" />
+              <el-option label="手动运行" value="manual" />
+              <el-option label="开机运行" value="startup" />
+            </el-select>
+          </el-form-item>
+          <el-form-item v-if="form.task_type === 'cron'" label="定时规则" required>
             <CronInput v-model="form.cron_expression" />
+          </el-form-item>
+          <el-form-item v-else label="执行说明">
+            <div style="font-size: 12px; color: var(--el-text-color-secondary); line-height: 1.7">
+              <template v-if="form.task_type === 'manual'">
+                不自动调度，仅在你手动点击“运行”或批量运行时执行。
+              </template>
+              <template v-else>
+                面板服务启动后会自动执行一次；平时也可以手动点击“运行”触发。
+              </template>
+            </div>
           </el-form-item>
           <el-form-item label="标签">
             <div class="label-area">
@@ -133,7 +170,7 @@ function handleSubmit() {
       </el-tab-pane>
 
       <el-tab-pane label="高级设置" name="advanced">
-        <el-form :model="form" label-width="120px">
+        <el-form :model="form" :label-width="dialogFullscreen ? 'auto' : '120px'" :label-position="dialogFullscreen ? 'top' : 'right'">
           <el-form-item label="超时(秒)">
             <el-input-number v-model="form.timeout" :min="0" :max="86400" />
           </el-form-item>
@@ -153,6 +190,27 @@ function handleSubmit() {
             <el-switch v-model="form.notify_on_success" />
             <span style="font-size: 12px; color: var(--el-text-color-secondary); margin-left: 8px">任务执行成功后发送通知</span>
           </el-form-item>
+          <el-form-item label="通知渠道">
+            <div style="width: 100%">
+              <el-select
+                v-model="form.notification_channel_id"
+                clearable
+                filterable
+                placeholder="留空则发送到全部启用渠道"
+                style="width: 100%"
+              >
+                <el-option
+                  v-for="channel in (props.notificationChannels || [])"
+                  :key="channel.id"
+                  :label="channel.enabled ? `${channel.name} (${channel.type})` : `${channel.name} (${channel.type}，已禁用)`"
+                  :value="channel.id"
+                />
+              </el-select>
+              <div style="font-size: 12px; color: var(--el-text-color-secondary); margin-top: 4px">
+                可绑定单个通知渠道；留空时仍按全部已启用渠道发送。
+              </div>
+            </div>
+          </el-form-item>
           <el-form-item label="允许多实例">
             <el-switch v-model="form.allow_multiple_instances" />
           </el-form-item>
@@ -160,7 +218,7 @@ function handleSubmit() {
       </el-tab-pane>
 
       <el-tab-pane label="钩子脚本" name="hooks">
-        <el-form :model="form" label-width="100px">
+        <el-form :model="form" :label-width="dialogFullscreen ? 'auto' : '100px'" :label-position="dialogFullscreen ? 'top' : 'right'">
           <el-form-item label="前置脚本">
             <el-input v-model="form.task_before" type="textarea" :rows="4" placeholder="任务执行前运行的 shell 脚本" />
           </el-form-item>
@@ -184,5 +242,11 @@ function handleSubmit() {
   flex-wrap: wrap;
   gap: 6px;
   align-items: center;
+}
+
+@media (max-width: 768px) {
+  .label-area {
+    align-items: stretch;
+  }
 }
 </style>

@@ -16,6 +16,7 @@ export interface ApiEndpoint {
   pathParams?: ApiParam[]
   queryParams?: ApiParam[]
   bodyParams?: ApiParam[]
+  helperExamples?: Record<string, string>
   responseExample?: string
   responseFields?: ApiParam[]
 }
@@ -380,7 +381,17 @@ panel.add_or_update_env(
           { name: 'page_size', type: 'integer', description: '每页数量，默认 20', example: '20' },
         ],
         responseExample: JSON.stringify({
-          data: [{ id: 1, name: '签到任务', command: 'task sign.py', cron_expression: '0 9 * * *', status: 1, last_run_status: 0, last_run_at: '2026-03-10T09:00:00' }],
+          data: [{
+            id: 1,
+            name: '签到任务',
+            command: 'task sign.py',
+            cron_expression: '0 9 * * *',
+            status: 1,
+            last_run_status: 0,
+            last_run_at: '2026-03-10T09:00:00',
+            notification_channel_id: 3,
+            notification_channel_name: 'Telegram 主通道',
+          }],
           total: 1, page: 1, page_size: 20,
         }, null, 2),
       },
@@ -394,11 +405,14 @@ panel.add_or_update_env(
         bodyParams: [
           { name: 'name', type: 'string', required: true, description: '任务名称', example: '签到任务' },
           { name: 'command', type: 'string', required: true, description: '执行命令', example: 'task sign.py' },
-          { name: 'cron_expression', type: 'string', required: true, description: 'Cron 表达式', example: '0 9 * * *' },
+          { name: 'task_type', type: 'string', description: '任务类型：cron / manual / startup', example: 'cron' },
+          { name: 'cron_expression', type: 'string', description: 'Cron 表达式；task_type=cron 时必填', example: '0 9 * * *' },
           { name: 'timeout', type: 'integer', description: '超时时间（秒）', example: '300' },
           { name: 'max_retries', type: 'integer', description: '最大重试次数', example: '0' },
           { name: 'retry_interval', type: 'integer', description: '重试间隔（秒）', example: '5' },
           { name: 'notify_on_failure', type: 'boolean', description: '失败时通知', example: 'true' },
+          { name: 'notify_on_success', type: 'boolean', description: '成功时通知', example: 'false' },
+          { name: 'notification_channel_id', type: 'integer', description: '指定通知渠道 ID，留空则发送到全部启用渠道', example: '3' },
         ],
         responseExample: JSON.stringify({ message: '创建成功', data: { id: 1, name: '签到任务' } }, null, 2),
       },
@@ -413,10 +427,14 @@ panel.add_or_update_env(
         bodyParams: [
           { name: 'name', type: 'string', description: '任务名称' },
           { name: 'command', type: 'string', description: '执行命令' },
+          { name: 'task_type', type: 'string', description: '任务类型：cron / manual / startup' },
           { name: 'cron_expression', type: 'string', description: 'Cron 表达式' },
           { name: 'timeout', type: 'integer', description: '超时时间（秒）' },
           { name: 'max_retries', type: 'integer', description: '最大重试次数' },
           { name: 'retry_interval', type: 'integer', description: '重试间隔（秒）' },
+          { name: 'notify_on_failure', type: 'boolean', description: '失败时通知' },
+          { name: 'notify_on_success', type: 'boolean', description: '成功时通知' },
+          { name: 'notification_channel_id', type: 'integer', description: '指定通知渠道 ID，设为 null 则恢复全部启用渠道' },
         ],
         responseExample: JSON.stringify({ message: '更新成功' }, null, 2),
       },
@@ -743,6 +761,65 @@ panel.add_or_update_env(
         pathParams: [{ name: 'id', type: 'integer', required: true, description: '渠道 ID' }],
         responseExample: JSON.stringify({ message: '测试通知发送成功' }, null, 2),
       },
+      {
+        id: 'notify-send',
+        method: 'POST',
+        path: '/api/notifications/send',
+        title: '脚本发送通知',
+        description: '供脚本或外部程序主动调用系统通知配置进行推送。支持普通用户 JWT，也支持带 notifications scope 的 Open API Bearer Token。未指定 channel_id / channel_ids 时，会发送到全部已启用通知渠道；任务自带默认通知渠道时，helper 会优先落到该渠道，传 ignore_default_config=true 可跳过默认渠道。面板运行脚本时会自动在脚本目录注入 notify.py 和 sendNotify.js，可直接按青龙风格先收集 notifyStr 再发送。',
+        auth: 'jwt',
+        bodyParams: [
+          { name: 'title', type: 'string', required: true, description: '通知标题', example: '签到脚本通知' },
+          { name: 'content', type: 'string', required: true, description: '通知正文，通常传 notifyStr.join(\'\\n\') 或 "\\n".join(notify_lines)', example: '签到成功\\n账号: user01\\n积分: +20' },
+          { name: 'channel_id', type: 'integer', description: '单个通知渠道 ID，可选', example: '3' },
+          { name: 'channel_ids', type: 'array', description: '多个通知渠道 ID，可选', example: '[3,5]' },
+          { name: 'context', type: 'object', description: '额外模板变量，可选；供 content_template 使用', example: '{"task_name":"签到脚本","status":"success"}' },
+        ],
+        helperExamples: {
+          JavaScript: `const { sendNotify } = require('./sendNotify')
+
+async function main() {
+  const name = '京东签到'
+  const notifyStr = []
+  notifyStr.push('签到成功')
+  notifyStr.push('账号: user01')
+  notifyStr.push('积分: +20')
+  await sendNotify(name, notifyStr.join('\\n'))
+
+  // 如需忽略任务默认通知渠道：
+  // await sendNotify(name, notifyStr.join('\\n'), { channel_ids: [1, 2], ignore_default_config: true })
+}
+
+main().catch(console.error)`,
+          Python: `from notify import send
+
+def main():
+    name = '京东签到'
+    notify_lines = []
+    notify_lines.append('签到成功')
+    notify_lines.append('账号: user01')
+    notify_lines.append('积分: +20')
+    send(name, '\\n'.join(notify_lines))
+
+    # 如需忽略任务默认通知渠道：
+    # send(name, '\\n'.join(notify_lines), ignore_default_config=True, channel_ids=[1, 2])
+
+if __name__ == '__main__':
+    main()`,
+        },
+        responseExample: JSON.stringify({
+          message: '通知发送完成，成功 1 个渠道',
+          data: {
+            sent_count: 1,
+            failed_count: 0,
+            channel_names: ['Telegram 主通道'],
+            errors: [],
+            requested_ids: [3],
+            used_all: false,
+            content_length: 18,
+          },
+        }, null, 2),
+      },
     ],
   },
   {
@@ -872,7 +949,7 @@ panel.add_or_update_env(
         title: '获取应用列表',
         description: '获取所有开放 API 应用',
         auth: 'jwt',
-        responseExample: JSON.stringify({ data: [{ id: 1, name: '自动化工具', client_id: 'cid_xxx', client_secret: 'cs_xxx', enabled: true, scopes: 'tasks,envs' }] }, null, 2),
+        responseExample: JSON.stringify({ data: [{ id: 1, name: '自动化工具', client_id: 'cid_xxx', client_secret: 'cs_xxx', enabled: true, scopes: 'tasks,envs,notifications' }] }, null, 2),
       },
       {
         id: 'open-token',

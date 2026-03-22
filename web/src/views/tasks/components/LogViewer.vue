@@ -2,6 +2,7 @@
 import { ref, watch, onUnmounted } from 'vue'
 import { taskApi } from '@/api/task'
 import { openAuthorizedEventStream, type EventStreamConnection } from '@/utils/sse'
+import { useResponsive } from '@/composables/useResponsive'
 
 const props = defineProps<{
   visible: boolean
@@ -19,6 +20,7 @@ const error = ref<string | null>(null)
 const loading = ref(false)
 const logContainerRef = ref<HTMLElement>()
 const autoScroll = ref(true)
+const { dialogFullscreen } = useResponsive()
 let eventSource: EventStreamConnection | null = null
 let logBuffer: string[] = []
 let logFlushRaf = 0
@@ -137,6 +139,7 @@ function handleClose() {
     :model-value="visible"
     :title="`任务日志 - ${taskName}`"
     width="85%"
+    :fullscreen="dialogFullscreen"
     top="5vh"
     @close="handleClose"
   >
@@ -368,6 +371,11 @@ function handleClose() {
 }
 
 @media (max-width: 768px) {
+  .log-viewer {
+    height: calc(100dvh - 120px);
+    min-height: 0;
+  }
+
   .toolbar-actions {
     width: 100%;
     justify-content: space-between;

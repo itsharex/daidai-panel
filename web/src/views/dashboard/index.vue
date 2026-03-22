@@ -72,7 +72,7 @@
               </div>
             </el-col>
           </el-row>
-          <el-descriptions :column="2" border size="small" style="margin-top: 16px">
+          <el-descriptions :column="isMobile ? 1 : 2" border size="small" style="margin-top: 16px">
             <el-descriptions-item label="操作系统">{{ sysInfo.os }} {{ sysInfo.arch }}</el-descriptions-item>
             <el-descriptions-item label="Go版本">{{ sysInfo.go_version }}</el-descriptions-item>
             <el-descriptions-item label="CPU核心">{{ sysInfo.num_cpu }}</el-descriptions-item>
@@ -93,7 +93,34 @@
               </el-button>
             </div>
           </template>
-          <el-table :data="recentLogs" size="small" :show-header="true" style="width: 100%" max-height="320">
+          <div v-if="isMobile" class="dd-mobile-list dashboard-log-list">
+            <div
+              v-for="row in recentLogs"
+              :key="row.id"
+              class="dd-mobile-card"
+            >
+              <div class="dd-mobile-card__header">
+                <div class="dd-mobile-card__title-wrap">
+                  <span class="dd-mobile-card__title">{{ row.task_name }}</span>
+                  <span class="dd-mobile-card__subtitle">{{ formatTime(row.created_at) }}</span>
+                </div>
+                <el-tag :type="row.status === 0 ? 'success' : 'danger'" size="small" effect="light">
+                  {{ row.status === 0 ? '成功' : '失败' }}
+                </el-tag>
+              </div>
+              <div class="dd-mobile-card__body">
+                <div class="dd-mobile-card__grid">
+                  <div class="dd-mobile-card__field">
+                    <span class="dd-mobile-card__label">耗时</span>
+                    <span class="dd-mobile-card__value">{{ row.duration != null ? row.duration.toFixed(1) + 's' : '-' }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <el-empty v-if="recentLogs.length === 0" description="暂无执行记录" />
+          </div>
+
+          <el-table v-else :data="recentLogs" size="small" :show-header="true" style="width: 100%" max-height="320">
             <el-table-column prop="task_name" label="任务名称" min-width="140" show-overflow-tooltip />
             <el-table-column label="状态" width="90" align="center">
               <template #default="{ row }">
@@ -125,8 +152,10 @@ import { systemApi } from '@/api/system'
 import {
   Timer, Check, ArrowRight, VideoPlay,
 } from '@element-plus/icons-vue'
+import { useResponsive } from '@/composables/useResponsive'
 
 const ExecutionTrendChart = defineAsyncComponent(() => import('./components/ExecutionTrendChart.vue'))
+const { isMobile } = useResponsive()
 
 const CountUp = defineComponent({
   props: {
@@ -354,6 +383,20 @@ onMounted(() => {
 .chart-card {
   :deep(.el-card__header) {
     padding: 14px 20px;
+  }
+}
+
+@media (max-width: 768px) {
+  .page-header {
+    margin-bottom: 14px;
+  }
+
+  .card-title-bar {
+    flex-wrap: wrap;
+  }
+
+  .resource-item {
+    margin-bottom: 14px;
   }
 }
 </style>

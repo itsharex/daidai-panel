@@ -57,16 +57,16 @@ export const envApi = {
     return request.get('/envs/groups') as Promise<{ data: string[] }>
   },
 
-  export() {
-    return request.get('/envs/export') as Promise<{ data: Record<string, string> }>
+  export(ids?: number[]) {
+    return request.get('/envs/export', { params: ids?.length ? { ids: ids.join(',') } : undefined }) as Promise<{ data: Record<string, string> }>
   },
 
-  exportAll() {
-    return request.get('/envs/export-all') as Promise<{ data: any[] }>
+  exportAll(ids?: number[]) {
+    return request.get('/envs/export-all', { params: ids?.length ? { ids: ids.join(',') } : undefined }) as Promise<{ data: any[] }>
   },
 
-  exportFiles(format?: string, enabledOnly?: boolean) {
-    return request.post('/envs/export-files', { format, enabled_only: enabledOnly }) as Promise<{ data: Record<string, string> }>
+  exportFiles(format?: string, enabledOnly?: boolean, ids?: number[]) {
+    return request.post('/envs/export-files', { format, enabled_only: enabledOnly, ids }) as Promise<{ data: Record<string, string> }>
   },
 
   import(envs: any[], mode?: string) {

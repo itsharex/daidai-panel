@@ -39,7 +39,81 @@
         </div>
       </div>
     </div>
-    <el-table :data="depsList" v-loading="loading" border size="small" @selection-change="handleSelectionChange">
+    <div v-if="isMobile" class="dd-mobile-list">
+      <div
+        v-for="(row, index) in depsList"
+        :key="row.id"
+        class="dd-mobile-card"
+      >
+        <div class="dd-mobile-card__header">
+          <div class="dd-mobile-card__title-wrap">
+            <div class="deps-card__title-row">
+              <div class="dd-mobile-card__selection">
+                <el-checkbox :model-value="isSelected(row.id)" @change="toggleSelected(row.id, $event)" />
+                <span class="dd-mobile-card__title">{{ row.name }}</span>
+              </div>
+              <span class="dd-mobile-card__subtitle">#{{ index + 1 }}</span>
+            </div>
+          </div>
+        </div>
+        <div class="dd-mobile-card__body">
+          <div class="dd-mobile-card__grid">
+            <div class="dd-mobile-card__field">
+              <span class="dd-mobile-card__label">状态</span>
+              <div class="dd-mobile-card__value">
+                <el-tag :type="statusType(row.status)" size="small" effect="light">{{ statusLabel(row.status) }}</el-tag>
+              </div>
+            </div>
+            <div class="dd-mobile-card__field">
+              <span class="dd-mobile-card__label">创建时间</span>
+              <span class="dd-mobile-card__value">{{ new Date(row.created_at).toLocaleString('zh-CN') }}</span>
+            </div>
+          </div>
+          <div class="dd-mobile-card__actions deps-card__actions">
+            <el-button size="small" type="primary" plain @click="viewLog(row)">日志</el-button>
+            <el-button
+              v-if="row.status === 'installing' || row.status === 'removing'"
+              size="small"
+              type="warning"
+              plain
+              @click="handleCancel(row)"
+            >
+              取消
+            </el-button>
+            <el-button
+              size="small"
+              type="warning"
+              plain
+              @click="handleReinstall(row)"
+              :disabled="row.status === 'installing' || row.status === 'removing'"
+            >
+              重装
+            </el-button>
+            <el-button
+              size="small"
+              type="danger"
+              plain
+              @click="handleDelete(row)"
+              :disabled="row.status === 'installing' || row.status === 'removing'"
+            >
+              卸载
+            </el-button>
+            <el-button
+              size="small"
+              type="danger"
+              @click="handleForceDelete(row)"
+              :disabled="row.status === 'installing' || row.status === 'removing'"
+            >
+              强制卸载
+            </el-button>
+          </div>
+        </div>
+      </div>
+
+      <el-empty v-if="!loading && depsList.length === 0" description="暂无依赖" />
+    </div>
+
+    <el-table v-else :data="depsList" v-loading="loading" border size="small" @selection-change="handleSelectionChange">
       <el-table-column type="selection" width="40" />
       <el-table-column label="#" width="55" align="center">
         <template #default="{ $index }">{{ $index + 1 }}</template>
@@ -63,7 +137,7 @@
         </template>
       </el-table-column>
     </el-table>
-    <el-dialog v-model="showCreateDialog" title="新建依赖" width="500px">
+    <el-dialog v-model="showCreateDialog" title="新建依赖" width="500px" :fullscreen="dialogFullscreen">
       <el-form label-width="80px">
         <el-form-item label="类型">
           <el-radio-group v-model="createType">
@@ -85,7 +159,7 @@
         <el-button type="primary" @click="handleCreate" :loading="creating">安装</el-button>
       </template>
     </el-dialog>
-    <el-dialog v-model="showLogDialog" title="安装日志" width="70%">
+    <el-dialog v-model="showLogDialog" title="安装日志" width="70%" :fullscreen="dialogFullscreen">
       <div class="log-dialog-toolbar">
         <div>
           <el-tag v-if="!logDone" type="warning" size="small" class="running-tag">
@@ -106,7 +180,7 @@
       </div>
       <pre ref="logContainerRef" class="log-content">{{ logContent || '暂无日志' }}</pre>
     </el-dialog>
-    <el-dialog v-model="showMirrorDialog" title="软件包镜像源设置" width="560px">
+    <el-dialog v-model="showMirrorDialog" title="软件包镜像源设置" width="560px" :fullscreen="dialogFullscreen">
       <el-form label-width="110px" v-loading="mirrorLoading">
         <el-form-item label="Python (pip)">
           <el-input v-model="mirrorForm.pip_mirror" placeholder="留空恢复默认加速源" clearable>
@@ -192,6 +266,7 @@ import { ref, onMounted, onBeforeUnmount, watch, computed } from 'vue'
 import { depsApi, type MirrorsResponse } from '@/api/deps'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { openAuthorizedEventStream, type EventStreamConnection } from '@/utils/sse'
+import { useResponsive } from '@/composables/useResponsive'
 
 const activeTab = ref('nodejs')
 const depsList = ref<any[]>([])
@@ -210,7 +285,9 @@ const createNames = ref('')
 const autoSplit = ref(true)
 const creating = ref(false)
 const selectedIds = ref<number[]>([])
+const selectedIdSet = computed(() => new Set(selectedIds.value))
 let refreshTimer: ReturnType<typeof setInterval> | null = null
+const { isMobile, dialogFullscreen } = useResponsive()
 
 const showMirrorDialog = ref(false)
 const mirrorLoading = ref(false)
@@ -342,6 +419,20 @@ async function handleCreate() {
 
 function handleSelectionChange(rows: any[]) {
   selectedIds.value = rows.map(r => r.id)
+}
+
+function isSelected(id: number) {
+  return selectedIdSet.value.has(id)
+}
+
+function toggleSelected(id: number, checked: boolean | string | number) {
+  const next = new Set(selectedIds.value)
+  if (checked) {
+    next.add(id)
+  } else {
+    next.delete(id)
+  }
+  selectedIds.value = [...next]
 }
 
 async function handleBatchDelete() {
@@ -559,6 +650,17 @@ onBeforeUnmount(() => {
     color: var(--el-text-color-primary);
   }
 }
+
+.deps-card__title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.deps-card__actions > * {
+  flex: 1 1 calc(50% - 4px);
+}
 .log-content {
   background: #1e1e1e;
   color: #d4d4d4;
@@ -604,6 +706,26 @@ onBeforeUnmount(() => {
   border-top-color: #e6a23c;
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
+}
+
+@media (max-width: 768px) {
+  .deps-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .deps-stats {
+    margin-left: 0;
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .deps-stats .stat-item {
+    flex: 1 1 0;
+  }
+
+  .deps-card__title-row {
+    flex-direction: column;
+  }
 }
 
 @keyframes spin {

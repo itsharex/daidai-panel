@@ -15,7 +15,7 @@ defineProps<{
     <template #header>
       <div class="card-header">
         <span class="card-title"><el-icon><Key /></el-icon> 验证码设置</span>
-        <div style="display: flex; align-items: center; gap: 8px">
+        <div class="captcha-header-actions">
           <el-tag type="success" effect="plain">已接入</el-tag>
           <el-button type="primary" :loading="configsSaving" :disabled="!captchaFeatureImplemented" @click="onSave">
             <el-icon><Document /></el-icon>保存配置
@@ -65,4 +65,11 @@ defineProps<{
 
 <style scoped lang="scss">
 @use './config-card-shared.scss' as *;
+
+.captcha-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
 </style>

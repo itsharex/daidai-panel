@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { getDisplayTaskLabels } from '../taskLabels'
+import { useResponsive } from '@/composables/useResponsive'
 
 const props = defineProps<{
   visible: boolean
@@ -10,6 +11,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   'update:visible': [value: boolean]
 }>()
+const { dialogFullscreen } = useResponsive()
 
 const statusText = computed(() => {
   if (props.task?.status === 0) return '已禁用'
@@ -36,6 +38,12 @@ const formatTime = (t: string) => {
   return new Date(t).toLocaleString('zh-CN')
 }
 
+const taskTypeText = computed(() => {
+  if (props.task?.task_type === 'manual') return '手动运行'
+  if (props.task?.task_type === 'startup') return '开机运行'
+  return '常规定时'
+})
+
 function handleClose() {
   emit('update:visible', false)
 }
@@ -46,9 +54,10 @@ function handleClose() {
     :model-value="visible"
     title="任务详情"
     width="700px"
+    :fullscreen="dialogFullscreen"
     @close="handleClose"
   >
-    <el-descriptions v-if="task" :column="2" border>
+    <el-descriptions v-if="task" :column="dialogFullscreen ? 1 : 2" border>
       <el-descriptions-item label="任务名称" :span="2">
         <div style="display: flex; align-items: center; gap: 8px">
           <el-icon v-if="task.is_pinned" color="var(--el-color-warning)"><Star /></el-icon>
@@ -59,8 +68,12 @@ function handleClose() {
       <el-descriptions-item label="状态">
         <el-tag :type="statusType" size="small">{{ statusText }}</el-tag>
       </el-descriptions-item>
-      <el-descriptions-item label="定时规则" :span="2">
-        <code>{{ task.cron_expression }}</code>
+      <el-descriptions-item label="定时类型">
+        {{ taskTypeText }}
+      </el-descriptions-item>
+      <el-descriptions-item label="定时规则">
+        <code v-if="task.task_type === 'cron'">{{ task.cron_expression }}</code>
+        <span v-else style="color: var(--el-text-color-placeholder)">不使用 Cron</span>
       </el-descriptions-item>
       <el-descriptions-item label="执行命令" :span="2">
         <code style="word-break: break-all">{{ task.command }}</code>
@@ -82,6 +95,13 @@ function handleClose() {
       </el-descriptions-item>
       <el-descriptions-item label="上次运行时间" :span="2">
         {{ formatTime(task.last_run_at) }}
+      </el-descriptions-item>
+      <el-descriptions-item label="通知渠道" :span="2">
+        <span v-if="task.notification_channel_name">
+          {{ task.notification_channel_name }}
+          <span v-if="task.notification_channel_enabled === false" style="color: var(--el-color-danger)">（已禁用）</span>
+        </span>
+        <span v-else style="color: var(--el-text-color-placeholder)">全部已启用渠道</span>
       </el-descriptions-item>
       <el-descriptions-item label="下次运行时间" :span="2">
         {{ formatTime(task.next_run_at) }}

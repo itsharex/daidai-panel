@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Connection, Plus, Refresh } from '@element-plus/icons-vue'
+import { useResponsive } from '@/composables/useResponsive'
 
 const showAddIPDialog = defineModel<boolean>('showAddIPDialog', { required: true })
 const newIP = defineModel<string>('newIP', { required: true })
@@ -12,6 +13,8 @@ defineProps<{
   onAddIP: () => void | Promise<void>
   onRemoveIP: (id: number) => void | Promise<void>
 }>()
+
+const { isMobile, dialogFullscreen } = useResponsive()
 </script>
 
 <template>
@@ -30,7 +33,35 @@ defineProps<{
     <p class="card-tip">
       支持单个 IP、CIDR 网段，以及更易输入的 IPv4 通配格式，例如 `203.0.113.7`、`203.0.113.0/24`、`203.0.113.*`。
     </p>
-    <el-table :data="ipWhitelist" v-loading="ipWhitelistLoading" stripe empty-text="暂无数据">
+    <div v-if="isMobile" class="dd-mobile-list">
+      <div
+        v-for="row in ipWhitelist"
+        :key="row.id"
+        class="dd-mobile-card"
+      >
+        <div class="dd-mobile-card__header">
+          <div class="dd-mobile-card__title-wrap">
+            <span class="dd-mobile-card__title">{{ row.ip }}</span>
+            <span class="dd-mobile-card__subtitle">{{ row.remarks || '未填写描述' }}</span>
+          </div>
+          <el-tag type="success" size="small">启用</el-tag>
+        </div>
+        <div class="dd-mobile-card__body">
+          <div class="dd-mobile-card__grid">
+            <div class="dd-mobile-card__field">
+              <span class="dd-mobile-card__label">创建时间</span>
+              <span class="dd-mobile-card__value">{{ new Date(row.created_at).toLocaleString() }}</span>
+            </div>
+          </div>
+          <div class="dd-mobile-card__actions ip-card__actions">
+            <el-button size="small" type="danger" plain @click="onRemoveIP(row.id)">移除</el-button>
+          </div>
+        </div>
+      </div>
+      <el-empty v-if="!ipWhitelistLoading && ipWhitelist.length === 0" description="暂无数据" />
+    </div>
+
+    <el-table v-else :data="ipWhitelist" v-loading="ipWhitelistLoading" stripe empty-text="暂无数据">
       <el-table-column prop="ip" label="IP / 网段" min-width="220" />
       <el-table-column prop="remarks" label="描述" min-width="200" />
       <el-table-column label="状态" width="80">
@@ -49,8 +80,8 @@ defineProps<{
     </el-table>
   </el-card>
 
-  <el-dialog v-model="showAddIPDialog" title="添加 IP 白名单" width="460px">
-    <el-form label-width="80px">
+  <el-dialog v-model="showAddIPDialog" title="添加 IP 白名单" width="460px" :fullscreen="dialogFullscreen">
+    <el-form :label-width="dialogFullscreen ? 'auto' : '80px'" :label-position="dialogFullscreen ? 'top' : 'right'">
       <el-form-item label="IP / 网段">
         <el-input v-model="newIP" placeholder="如: 203.0.113.7 / 203.0.113.0/24 / 203.0.113.*" />
         <div class="field-hint">
@@ -88,5 +119,16 @@ defineProps<{
   font-size: 12px;
   line-height: 1.5;
   color: var(--el-text-color-secondary);
+}
+
+.ip-card__actions > * {
+  flex: 1 1 auto;
+}
+
+@media (max-width: 768px) {
+  .card-header-buttons {
+    width: 100%;
+    flex-wrap: wrap;
+  }
 }
 </style>

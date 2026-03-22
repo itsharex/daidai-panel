@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { logApi } from '@/api/log'
 import { taskApi } from '@/api/task'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { openAuthorizedEventStream, type EventStreamConnection } from '@/utils/sse'
+import { useResponsive } from '@/composables/useResponsive'
 
 const logs = ref<any[]>([])
 const total = ref(0)
@@ -17,7 +18,9 @@ const detailVisible = ref(false)
 const detailContent = ref('')
 const detailLog = ref<any>(null)
 const selectedIds = ref<number[]>([])
+const selectedIdSet = computed(() => new Set(selectedIds.value))
 const autoRefresh = ref(true)
+const { isMobile, dialogFullscreen } = useResponsive()
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 let logEventSource: EventStreamConnection | null = null
 const logContentRef = ref<HTMLElement>()
@@ -184,6 +187,20 @@ function handleSelectionChange(rows: any[]) {
   selectedIds.value = rows.map(r => r.id)
 }
 
+function isSelected(id: number) {
+  return selectedIdSet.value.has(id)
+}
+
+function toggleSelected(id: number, checked: boolean | string | number) {
+  const next = new Set(selectedIds.value)
+  if (checked) {
+    next.add(id)
+  } else {
+    next.delete(id)
+  }
+  selectedIds.value = [...next]
+}
+
 async function handleBatchDelete() {
   if (selectedIds.value.length === 0) return
   try {
@@ -294,7 +311,56 @@ onBeforeUnmount(() => {
       </el-select>
     </div>
 
-    <el-table v-loading="loading" :data="logs" stripe @selection-change="handleSelectionChange">
+    <div v-if="isMobile" class="dd-mobile-list">
+      <div
+        v-for="row in logs"
+        :key="row.id"
+        class="dd-mobile-card"
+      >
+        <div class="dd-mobile-card__header">
+          <div class="dd-mobile-card__title-wrap">
+            <div class="log-card__title-row">
+              <div class="dd-mobile-card__selection">
+                <el-checkbox :model-value="isSelected(row.id)" @change="toggleSelected(row.id, $event)" />
+                <span class="dd-mobile-card__title">{{ row.task_name || `任务#${row.task_id}` }}</span>
+              </div>
+              <el-tag :type="getStatusType(row.status)" size="small" :class="row.status === 2 ? 'tag-with-dot' : ''">
+                <span v-if="row.status === 2" class="pulse-dot"></span>
+                {{ getStatusText(row.status) }}
+              </el-tag>
+            </div>
+            <div class="dd-mobile-card__subtitle">日志 ID #{{ row.id }}</div>
+          </div>
+        </div>
+
+        <div class="dd-mobile-card__body">
+          <div class="dd-mobile-card__grid">
+            <div class="dd-mobile-card__field">
+              <span class="dd-mobile-card__label">耗时</span>
+              <span class="dd-mobile-card__value">{{ formatDuration(row.duration) }}</span>
+            </div>
+            <div class="dd-mobile-card__field">
+              <span class="dd-mobile-card__label">开始时间</span>
+              <span class="dd-mobile-card__value">{{ formatTime(row.started_at) }}</span>
+            </div>
+            <div class="dd-mobile-card__field">
+              <span class="dd-mobile-card__label">结束时间</span>
+              <span class="dd-mobile-card__value">{{ formatTime(row.ended_at) }}</span>
+            </div>
+          </div>
+
+          <div class="dd-mobile-card__actions log-card__actions">
+            <el-button size="small" type="primary" @click="viewDetail(row)">查看日志</el-button>
+            <el-button size="small" @click="browseLogFiles(row)">日志文件</el-button>
+            <el-button size="small" type="danger" plain @click="handleDelete(row)">删除</el-button>
+          </div>
+        </div>
+      </div>
+
+      <el-empty v-if="!loading && logs.length === 0" description="暂无执行日志" />
+    </div>
+
+    <el-table v-else v-loading="loading" :data="logs" stripe @selection-change="handleSelectionChange">
       <el-table-column type="selection" width="40" />
       <el-table-column label="ID" prop="id" width="70" />
       <el-table-column label="任务" min-width="150">
@@ -352,9 +418,9 @@ onBeforeUnmount(() => {
       />
     </div>
 
-    <el-dialog v-model="detailVisible" title="日志详情" width="800px" destroy-on-close @close="closeLogSSE">
+    <el-dialog v-model="detailVisible" title="日志详情" width="800px" :fullscreen="dialogFullscreen" destroy-on-close @close="closeLogSSE">
       <div v-if="detailLog" class="log-meta">
-        <el-descriptions :column="3" size="small" border>
+        <el-descriptions :column="dialogFullscreen ? 1 : 3" size="small" border>
           <el-descriptions-item label="任务">{{ detailLog.task_name }}</el-descriptions-item>
           <el-descriptions-item label="状态">
             <el-tag :type="getStatusType(detailLog.status)" size="small">{{ getStatusText(detailLog.status) }}</el-tag>
@@ -367,7 +433,7 @@ onBeforeUnmount(() => {
       <pre ref="logContentRef" class="log-content dd-log-surface">{{ detailContent }}</pre>
     </el-dialog>
 
-    <el-dialog v-model="showFileBrowser" title="日志文件" width="650px">
+    <el-dialog v-model="showFileBrowser" title="日志文件" width="650px" :fullscreen="dialogFullscreen">
       <el-table :data="logFiles" v-loading="logFilesLoading" max-height="400px" size="small">
         <el-table-column prop="filename" label="文件名" min-width="200" />
         <el-table-column label="大小" width="100">
@@ -386,7 +452,7 @@ onBeforeUnmount(() => {
       <el-empty v-if="!logFilesLoading && logFiles.length === 0" description="暂无日志文件" />
     </el-dialog>
 
-    <el-dialog v-model="showFileContent" :title="fileContentName" width="800px">
+    <el-dialog v-model="showFileContent" :title="fileContentName" width="800px" :fullscreen="dialogFullscreen">
       <pre class="log-content dd-log-surface">{{ fileContentData }}</pre>
     </el-dialog>
   </div>
@@ -441,6 +507,17 @@ onBeforeUnmount(() => {
   gap: 6px;
 }
 
+.log-card__title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.log-card__actions > * {
+  flex: 1 1 calc(33.33% - 6px);
+}
+
 .log-content {
   padding: 16px;
   border-radius: 16px;
@@ -452,5 +529,30 @@ onBeforeUnmount(() => {
   white-space: pre-wrap;
   word-break: break-all;
   margin: 0;
+}
+
+@media (max-width: 768px) {
+  .page-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .filter-bar {
+    flex-wrap: wrap;
+
+    :deep(.el-input),
+    :deep(.el-select) {
+      width: 100% !important;
+    }
+  }
+
+  .log-card__title-row {
+    flex-direction: column;
+  }
+
+  .log-card__actions > * {
+    flex: 1 1 calc(50% - 4px);
+  }
 }
 </style>

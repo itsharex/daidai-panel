@@ -619,11 +619,15 @@ func restoreBackupManifest(manifest BackupManifest, extractedDir string) error {
 		}
 	}
 
+	notifyChannelIDMap := map[uint]uint{}
+
 	if selection.Configs {
 		if err := restoreSystemConfigs(tx, manifest.Data.Configs.SystemConfigs); err != nil {
 			return rollback(err)
 		}
-		if err := restoreNotifyChannels(tx, manifest.Data.Configs.NotifyChannels); err != nil {
+		var err error
+		notifyChannelIDMap, err = restoreNotifyChannels(tx, manifest.Data.Configs.NotifyChannels)
+		if err != nil {
 			return rollback(err)
 		}
 		if err := restoreOpenApps(tx, manifest.Data.Configs.OpenApps); err != nil {
@@ -642,7 +646,7 @@ func restoreBackupManifest(manifest BackupManifest, extractedDir string) error {
 
 	if selection.Tasks {
 		var err error
-		taskIDMap, err = restoreTasks(tx, manifest.Data.Tasks)
+		taskIDMap, err = restoreTasks(tx, manifest.Data.Tasks, notifyChannelIDMap)
 		if err != nil {
 			return rollback(err)
 		}
@@ -738,7 +742,8 @@ func restoreUsers(tx *gorm.DB, users []BackupUser) (map[uint]uint, error) {
 	return idMap, nil
 }
 
-func restoreNotifyChannels(tx *gorm.DB, channels []BackupNotifyChannel) error {
+func restoreNotifyChannels(tx *gorm.DB, channels []BackupNotifyChannel) (map[uint]uint, error) {
+	idMap := make(map[uint]uint, len(channels))
 	for _, item := range channels {
 		channel := model.NotifyChannel{
 			Name:      item.Name,
@@ -749,10 +754,11 @@ func restoreNotifyChannels(tx *gorm.DB, channels []BackupNotifyChannel) error {
 			UpdatedAt: item.UpdatedAt,
 		}
 		if err := tx.Create(&channel).Error; err != nil {
-			return err
+			return nil, err
 		}
+		idMap[item.ID] = channel.ID
 	}
-	return nil
+	return idMap, nil
 }
 
 func restoreOpenApps(tx *gorm.DB, apps []BackupOpenApp) error {
@@ -815,17 +821,25 @@ func restoreEnvVars(tx *gorm.DB, envVars []model.EnvVar) error {
 	return nil
 }
 
-func restoreTasks(tx *gorm.DB, tasks []model.Task) (map[uint]uint, error) {
+func restoreTasks(tx *gorm.DB, tasks []model.Task, notifyChannelIDMap map[uint]uint) (map[uint]uint, error) {
 	idMap := make(map[uint]uint, len(tasks))
 	pendingDepends := make(map[uint]uint)
 
 	for _, item := range tasks {
 		oldID := item.ID
 		oldDepends := item.DependsOn
+		oldNotificationChannelID := item.NotificationChannelID
 		item.ID = 0
 		item.PID = nil
+		item.TaskType = item.GetTaskType()
 		item.Status = normalizeRestoredTaskStatus(item.Status)
 		item.DependsOn = nil
+		item.NotificationChannelID = nil
+		if oldNotificationChannelID != nil {
+			if mapped := notifyChannelIDMap[*oldNotificationChannelID]; mapped != 0 {
+				item.NotificationChannelID = &mapped
+			}
+		}
 
 		if err := tx.Select("*").Create(&item).Error; err != nil {
 			return nil, err

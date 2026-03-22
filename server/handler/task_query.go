@@ -78,12 +78,19 @@ func (h *TaskHandler) List(c *gin.Context) {
 	}
 	tasks = tasks[start:end]
 	subscriptionNames := loadSubscriptionNameMap(tasks)
+	notificationChannels := loadTaskNotificationChannelMap(tasks)
 
 	data := make([]map[string]interface{}, len(tasks))
 	for i, task := range tasks {
 		item := task.ToDict()
 		item["display_labels"] = buildTaskDisplayLabels(task.GetLabels(), subscriptionNames)
-		if task.Status != model.TaskStatusDisabled && task.CronExpression != "" {
+		if task.NotificationChannelID != nil {
+			if channel, exists := notificationChannels[*task.NotificationChannelID]; exists {
+				item["notification_channel_name"] = channel.Name
+				item["notification_channel_enabled"] = channel.Enabled
+			}
+		}
+		if task.Status != model.TaskStatusDisabled && task.UsesCronSchedule() && task.CronExpression != "" {
 			nextTimes := panelcron.NextRunTimes(task.CronExpression, 1)
 			if len(nextTimes) > 0 {
 				item["next_run_at"] = nextTimes[0]

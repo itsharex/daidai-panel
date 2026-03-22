@@ -168,9 +168,14 @@ defineProps<{
 .scripts-sidebar.mobile {
   .sidebar-header {
     padding: 8px 10px;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 8px;
 
     .sidebar-actions {
       gap: 1px;
+      width: 100%;
+      justify-content: space-between;
     }
   }
 

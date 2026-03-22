@@ -6,8 +6,10 @@ import { authApi } from '@/api/auth'
 import { securityApi } from '@/api/security'
 import { useAuthStore } from '@/stores/auth'
 import { createQrCodeDataUrl } from '@/utils/qrcode'
+import { useResponsive } from '@/composables/useResponsive'
 
 const authStore = useAuthStore()
+const { dialogFullscreen } = useResponsive()
 
 const passwordForm = ref({
   oldPassword: '',
@@ -246,7 +248,7 @@ onMounted(async () => {
       </el-col>
     </el-row>
 
-    <el-dialog v-model="showSetup2FA" title="设置双因素认证" width="500px" :close-on-click-modal="false">
+    <el-dialog v-model="showSetup2FA" title="设置双因素认证" width="500px" :fullscreen="dialogFullscreen" :close-on-click-modal="false">
       <div class="setup-2fa">
         <div class="setup-step">
           <div class="step-title">步骤 1：扫描二维码</div>

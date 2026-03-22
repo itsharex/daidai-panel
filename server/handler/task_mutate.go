@@ -18,12 +18,14 @@ func (h *TaskHandler) Create(c *gin.Context) {
 	var req struct {
 		Name                   string   `json:"name" binding:"required"`
 		Command                string   `json:"command" binding:"required"`
-		CronExpression         string   `json:"cron_expression" binding:"required"`
+		CronExpression         string   `json:"cron_expression"`
+		TaskType               string   `json:"task_type"`
 		Timeout                *int     `json:"timeout"`
 		MaxRetries             *int     `json:"max_retries"`
 		RetryInterval          *int     `json:"retry_interval"`
 		NotifyOnFailure        *bool    `json:"notify_on_failure"`
 		NotifyOnSuccess        *bool    `json:"notify_on_success"`
+		NotificationChannelID  *uint    `json:"notification_channel_id"`
 		Labels                 []string `json:"labels"`
 		DependsOn              *uint    `json:"depends_on"`
 		TaskBefore             *string  `json:"task_before"`
@@ -35,16 +37,26 @@ func (h *TaskHandler) Create(c *gin.Context) {
 		return
 	}
 
-	result := panelcron.Parse(req.CronExpression)
-	if !result.Valid {
-		response.BadRequest(c, "无效的 cron 表达式")
+	taskType := model.NormalizeTaskType(req.TaskType)
+	if taskType == "" {
+		response.BadRequest(c, "无效的任务类型")
 		return
+	}
+	if taskType == model.TaskTypeCron {
+		result := panelcron.Parse(req.CronExpression)
+		if !result.Valid {
+			response.BadRequest(c, "无效的 cron 表达式")
+			return
+		}
+	} else {
+		req.CronExpression = ""
 	}
 
 	task := model.Task{
 		Name:            req.Name,
 		Command:         req.Command,
 		CronExpression:  req.CronExpression,
+		TaskType:        taskType,
 		Status:          model.TaskStatusEnabled,
 		Timeout:         86400,
 		RetryInterval:   60,
@@ -65,6 +77,16 @@ func (h *TaskHandler) Create(c *gin.Context) {
 	}
 	if req.NotifyOnSuccess != nil {
 		task.NotifyOnSuccess = *req.NotifyOnSuccess
+	}
+	if req.NotificationChannelID != nil {
+		if *req.NotificationChannelID == 0 {
+			task.NotificationChannelID = nil
+		} else if err := validateTaskNotificationChannelID(req.NotificationChannelID); err != nil {
+			response.BadRequest(c, err.Error())
+			return
+		} else {
+			task.NotificationChannelID = req.NotificationChannelID
+		}
 	}
 	if req.Labels != nil {
 		task.SetLabelsFromSlice(req.Labels)
@@ -120,24 +142,59 @@ func (h *TaskHandler) Update(c *gin.Context) {
 		req["labels"] = strings.Join(values, ",")
 	}
 
-	if cronExpr, ok := req["cron_expression"].(string); ok {
+	resolvedTaskType := task.GetTaskType()
+	if rawTaskType, exists := req["task_type"]; exists {
+		value, ok := rawTaskType.(string)
+		if !ok {
+			response.BadRequest(c, "无效的任务类型")
+			return
+		}
+		resolvedTaskType = model.NormalizeTaskType(value)
+		if resolvedTaskType == "" {
+			response.BadRequest(c, "无效的任务类型")
+			return
+		}
+		req["task_type"] = resolvedTaskType
+	}
+
+	if resolvedTaskType == model.TaskTypeCron {
+		cronExpr := task.CronExpression
+		if value, ok := req["cron_expression"].(string); ok {
+			cronExpr = value
+		}
 		result := panelcron.Parse(cronExpr)
 		if !result.Valid {
 			response.BadRequest(c, "无效的 cron 表达式")
 			return
 		}
+	} else {
+		req["cron_expression"] = ""
 	}
 
 	allowedFields := map[string]bool{
 		"name": true, "command": true, "cron_expression": true,
-		"timeout": true, "max_retries": true, "retry_interval": true,
-		"notify_on_failure": true, "notify_on_success": true, "labels": true, "depends_on": true,
+		"task_type": true,
+		"timeout":   true, "max_retries": true, "retry_interval": true,
+		"notify_on_failure": true, "notify_on_success": true, "notification_channel_id": true, "labels": true, "depends_on": true,
 		"sort_order": true, "task_before": true, "task_after": true,
 		"allow_multiple_instances": true,
 	}
 
 	updates := make(map[string]interface{})
 	for key, value := range req {
+		if key == "notification_channel_id" {
+			channelID, err := normalizeTaskNotificationChannelIDValue(value)
+			if err != nil {
+				response.BadRequest(c, err.Error())
+				return
+			}
+			if channelID == nil {
+				updates[key] = nil
+			} else {
+				updates[key] = *channelID
+			}
+			continue
+		}
 		if allowedFields[key] {
 			updates[key] = value
 		}
@@ -201,6 +258,7 @@ func (h *TaskHandler) Copy(c *gin.Context) {
 		Name:                   task.Name + " (副本)",
 		Command:                task.Command,
 		CronExpression:         task.CronExpression,
+		TaskType:               task.GetTaskType(),
 		Status:                 model.TaskStatusDisabled,
 		Labels:                 task.Labels,
 		Timeout:                task.Timeout,
@@ -208,6 +266,7 @@ func (h *TaskHandler) Copy(c *gin.Context) {
 		RetryInterval:          task.RetryInterval,
 		NotifyOnFailure:        task.NotifyOnFailure,
 		NotifyOnSuccess:        task.NotifyOnSuccess,
+		NotificationChannelID:  task.NotificationChannelID,
 		DependsOn:              task.DependsOn,
 		TaskBefore:             task.TaskBefore,
 		TaskAfter:              task.TaskAfter,

@@ -49,4 +49,24 @@ func TestResolveTaskInactiveStatus(t *testing.T) {
 			t.Fatalf("expected enabled status, got %v", got)
 		}
 	})
+
+	t.Run("running enabled manual task falls back to enabled when registered", func(t *testing.T) {
+		globalScheduler = &SchedulerV2{
+			entryMap: map[uint]cron.EntryID{5: 0},
+		}
+		task := &model.Task{ID: 5, Status: model.TaskStatusRunning, TaskType: model.TaskTypeManual}
+		if got := ResolveTaskInactiveStatus(task); got != model.TaskStatusEnabled {
+			t.Fatalf("expected enabled status, got %v", got)
+		}
+	})
+
+	t.Run("running disabled manual task falls back to disabled when unregistered", func(t *testing.T) {
+		globalScheduler = &SchedulerV2{
+			entryMap: make(map[uint]cron.EntryID),
+		}
+		task := &model.Task{ID: 6, Status: model.TaskStatusRunning, TaskType: model.TaskTypeManual}
+		if got := ResolveTaskInactiveStatus(task); got != model.TaskStatusDisabled {
+			t.Fatalf("expected disabled status, got %v", got)
+		}
+	})
 }

@@ -33,8 +33,8 @@ const nestedFolders = computed(() => props.allFolders.filter(folder => folder))
 </script>
 
 <template>
-  <el-dialog v-model="showCreateFileDialog" title="新建文件" :width="isMobile ? '90%' : '480px'">
-    <el-form label-width="80px">
+  <el-dialog v-model="showCreateFileDialog" title="新建文件" :width="isMobile ? '90%' : '480px'" :fullscreen="isMobile">
+    <el-form :label-width="isMobile ? 'auto' : '80px'" :label-position="isMobile ? 'top' : 'right'">
       <el-form-item label="上级目录">
         <el-select v-model="newFileParent" placeholder="根目录" clearable style="width: 100%">
           <el-option label="根目录" value="" />
@@ -51,8 +51,8 @@ const nestedFolders = computed(() => props.allFolders.filter(folder => folder))
     </template>
   </el-dialog>
 
-  <el-dialog v-model="showCreateDirDialog" title="新建目录" :width="isMobile ? '90%' : '480px'">
-    <el-form label-width="80px">
+  <el-dialog v-model="showCreateDirDialog" title="新建目录" :width="isMobile ? '90%' : '480px'" :fullscreen="isMobile">
+    <el-form :label-width="isMobile ? 'auto' : '80px'" :label-position="isMobile ? 'top' : 'right'">
       <el-form-item label="上级目录">
         <el-select v-model="newDirParent" placeholder="根目录" clearable style="width: 100%">
           <el-option label="根目录" value="" />
@@ -69,7 +69,7 @@ const nestedFolders = computed(() => props.allFolders.filter(folder => folder))
     </template>
   </el-dialog>
 
-  <el-dialog v-model="showRenameDialog" title="重命名" :width="isMobile ? '90%' : '400px'">
+  <el-dialog v-model="showRenameDialog" title="重命名" :width="isMobile ? '90%' : '400px'" :fullscreen="isMobile">
     <el-input v-model="renameTarget" placeholder="新名称" @keyup.enter="onRename" />
     <template #footer>
       <el-button @click="showRenameDialog = false">取消</el-button>
@@ -77,7 +77,7 @@ const nestedFolders = computed(() => props.allFolders.filter(folder => folder))
     </template>
   </el-dialog>
 
-  <el-dialog v-model="showVersionDialog" title="版本历史" :width="isMobile ? '95%' : '600px'">
+  <el-dialog v-model="showVersionDialog" title="版本历史" :width="isMobile ? '95%' : '600px'" :fullscreen="isMobile">
     <el-table :data="versions" v-loading="versionsLoading" max-height="400px">
       <el-table-column prop="version" label="版本" width="80" />
       <el-table-column prop="message" label="备注" />
@@ -95,8 +95,8 @@ const nestedFolders = computed(() => props.allFolders.filter(folder => folder))
     </el-table>
   </el-dialog>
 
-  <el-dialog v-model="showUploadDialog" title="上传文件" :width="isMobile ? '90%' : '480px'" destroy-on-close>
-    <el-form label-width="80px">
+  <el-dialog v-model="showUploadDialog" title="上传文件" :width="isMobile ? '90%' : '480px'" :fullscreen="isMobile" destroy-on-close>
+    <el-form :label-width="isMobile ? 'auto' : '80px'" :label-position="isMobile ? 'top' : 'right'">
       <el-form-item label="目标目录">
         <el-select v-model="uploadDir" placeholder="根目录" clearable style="width: 100%">
           <el-option label="根目录" value="" />

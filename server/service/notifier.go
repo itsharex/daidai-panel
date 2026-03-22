@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"log"
 	"net/http"
 	"net/smtp"
 	"net/url"
@@ -25,20 +26,111 @@ var (
 	wecomAppSendURL  = "https://qyapi.weixin.qq.com/cgi-bin/message/send"
 )
 
+type NotificationDispatchOptions struct {
+	ChannelIDs []uint
+	Context    map[string]string
+}
+
+type NotificationDispatchResult struct {
+	SentCount    int
+	FailedCount  int
+	ChannelNames []string
+	Errors       []string
+}
+
 func SendNotification(title, content string) {
-	var channels []model.NotifyChannel
-	database.DB.Where("enabled = ?", true).Find(&channels)
+	SendNotificationWithOptions(title, content, NotificationDispatchOptions{})
+}
+
+func SendNotificationWithOptions(title, content string, options NotificationDispatchOptions) {
+	channels, err := loadEnabledNotificationChannels(options.ChannelIDs)
+	if err != nil {
+		log.Printf("load notification channels failed: %v", err)
+		return
+	}
+
+	if len(channels) == 0 {
+		if len(options.ChannelIDs) > 0 {
+			log.Printf("notification skipped: no enabled channels matched ids=%v", options.ChannelIDs)
+		}
+		return
+	}
 
 	for _, ch := range channels {
-		go sendToChannel(ch, title, content)
+		go dispatchNotificationToChannel(ch, title, content, options.Context)
 	}
 }
 
 func SendNotificationToChannel(channel *model.NotifyChannel, title, content string) error {
-	return sendToChannel(*channel, title, content)
+	return sendToChannel(*channel, title, content, nil)
 }
 
-func sendToChannel(ch model.NotifyChannel, title, content string) error {
+func SendNotificationSyncWithOptions(title, content string, options NotificationDispatchOptions) (NotificationDispatchResult, error) {
+	result := NotificationDispatchResult{}
+
+	channels, err := loadEnabledNotificationChannels(options.ChannelIDs)
+	if err != nil {
+		return result, err
+	}
+	if len(channels) == 0 {
+		if len(options.ChannelIDs) > 0 {
+			return result, fmt.Errorf("未找到已启用的通知渠道")
+		}
+		return result, fmt.Errorf("暂无已启用的通知渠道")
+	}
+
+	for _, ch := range channels {
+		if err := sendToChannel(ch, title, content, options.Context); err != nil {
+			result.FailedCount++
+			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", ch.Name, err))
+			continue
+		}
+		result.SentCount++
+		result.ChannelNames = append(result.ChannelNames, ch.Name)
+	}
+
+	return result, nil
+}
+
+func dispatchNotificationToChannel(ch model.NotifyChannel, title, content string, context map[string]string) {
+	if err := sendToChannel(ch, title, content, context); err != nil {
+		log.Printf("send notification via channel %d(%s) failed: %v", ch.ID, ch.Name, err)
+	}
+}
+
+func loadEnabledNotificationChannels(channelIDs []uint) ([]model.NotifyChannel, error) {
+	var channels []model.NotifyChannel
+	query := database.DB.Where("enabled = ?", true)
+	if ids := uniqueNotificationChannelIDs(channelIDs); len(ids) > 0 {
+		query = query.Where("id IN ?", ids)
+	}
+	if err := query.Order("created_at DESC, id DESC").Find(&channels).Error; err != nil {
+		return nil, err
+	}
+	return channels, nil
+}
+
+func uniqueNotificationChannelIDs(ids []uint) []uint {
+	if len(ids) == 0 {
+		return nil
+	}
+
+	seen := make(map[uint]struct{}, len(ids))
+	result := make([]uint, 0, len(ids))
+	for _, id := range ids {
+		if id == 0 {
+			continue
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		result = append(result, id)
+	}
+	return result
+}
+
+func sendToChannel(ch model.NotifyChannel, title, content string, context map[string]string) error {
 	var cfg map[string]string
 	if err := json.Unmarshal([]byte(ch.Config), &cfg); err != nil {
 		return fmt.Errorf("invalid config: %w", err)
@@ -54,9 +146,9 @@ func sendToChannel(ch model.NotifyChannel, title, content string) error {
 	case "dingtalk":
 		return sendDingtalk(cfg, title, content)
 	case "wecom":
-		return sendWecom(cfg, title, content)
+		return sendWecomWithContext(cfg, title, content, context)
 	case "wecom_app":
-		return sendWecomApp(cfg, title, content)
+		return sendWecomAppWithContext(cfg, title, content, context)
 	case "bark":
 		return sendBark(cfg, title, content)
 	case "pushplus":
@@ -165,12 +257,18 @@ func sendTelegram(cfg map[string]string, title, content string) error {
 		apiHost = strings.TrimRight(v, "/")
 	}
 	apiURL := fmt.Sprintf("%s/bot%s/sendMessage", apiHost, token)
-	body := map[string]string{
-		"chat_id":    chatID,
-		"text":       fmt.Sprintf("*%s*\n%s", title, content),
-		"parse_mode": "Markdown",
+
+	messages := buildTelegramMessages(title, content)
+	for _, message := range messages {
+		body := map[string]string{
+			"chat_id": chatID,
+			"text":    message,
+		}
+		if err := httpPost(apiURL, body, nil); err != nil {
+			return err
+		}
 	}
-	return httpPost(apiURL, body, nil)
+	return nil
 }
 
 func sendDingtalk(cfg map[string]string, title, content string) error {
@@ -201,6 +299,10 @@ func sendDingtalk(cfg map[string]string, title, content string) error {
 }
 
 func sendWecom(cfg map[string]string, title, content string) error {
+	return sendWecomWithContext(cfg, title, content, nil)
+}
+
+func sendWecomWithContext(cfg map[string]string, title, content string, context map[string]string) error {
 	webhook := cfg["webhook"]
 	if webhook == "" {
 		return fmt.Errorf("企业微信机器人 Webhook URL 为空")
@@ -215,7 +317,7 @@ func sendWecom(cfg map[string]string, title, content string) error {
 	switch msgType {
 	case "text":
 		textBody := map[string]interface{}{
-			"content": renderNotificationTemplate(cfg["content_template"], title, content, "{{title}}\n{{content}}"),
+			"content": renderNotificationTemplateWithContext(cfg["content_template"], title, content, "{{title}}\n{{content}}", context),
 		}
 		if mentioned := splitNotificationTargets(cfg["mentioned_list"]); len(mentioned) > 0 {
 			textBody["mentioned_list"] = mentioned
@@ -226,7 +328,7 @@ func sendWecom(cfg map[string]string, title, content string) error {
 		body["text"] = textBody
 	case "markdown", "markdown_v2":
 		body[msgType] = map[string]string{
-			"content": renderNotificationTemplate(cfg["content_template"], title, content, "**{{title}}**\n{{content}}"),
+			"content": renderNotificationTemplateWithContext(cfg["content_template"], title, content, "**{{title}}**\n{{content}}", context),
 		}
 	case "image":
 		base64Data := strings.TrimSpace(cfg["image_base64"])
@@ -239,7 +341,7 @@ func sendWecom(cfg map[string]string, title, content string) error {
 			"md5":    md5Value,
 		}
 	case "news":
-		articles, err := parseNotificationJSONTemplate(cfg["news_articles"], title, content)
+		articles, err := parseNotificationJSONTemplateWithContext(cfg["news_articles"], title, content, context)
 		if err != nil {
 			return fmt.Errorf("企业微信机器人图文消息配置无效: %w", err)
 		}
@@ -251,7 +353,7 @@ func sendWecom(cfg map[string]string, title, content string) error {
 			"articles": articleList,
 		}
 	case "template_card":
-		cardPayload, err := parseNotificationJSONTemplate(cfg["template_card_payload"], title, content)
+		cardPayload, err := parseNotificationJSONTemplateWithContext(cfg["template_card_payload"], title, content, context)
 		if err != nil {
 			return fmt.Errorf("企业微信机器人模版卡片配置无效: %w", err)
 		}
@@ -268,6 +370,10 @@ func sendWecom(cfg map[string]string, title, content string) error {
 }
 
 func sendWecomApp(cfg map[string]string, title, content string) error {
+	return sendWecomAppWithContext(cfg, title, content, nil)
+}
+
+func sendWecomAppWithContext(cfg map[string]string, title, content string, context map[string]string) error {
 	corpID := strings.TrimSpace(cfg["corp_id"])
 	secret := strings.TrimSpace(cfg["secret"])
 	agentID := strings.TrimSpace(cfg["agent_id"])
@@ -347,11 +453,11 @@ func sendWecomApp(cfg map[string]string, title, content string) error {
 		body["safe"] = notificationConfigInt(cfg["safe"], 0)
 		body["enable_id_trans"] = notificationConfigInt(cfg["enable_id_trans"], 0)
 		body["text"] = map[string]string{
-			"content": renderNotificationTemplate(cfg["content_template"], title, content, "{{title}}\n{{content}}"),
+			"content": renderNotificationTemplateWithContext(cfg["content_template"], title, content, "{{title}}\n{{content}}", context),
 		}
 	case "markdown":
 		body["markdown"] = map[string]string{
-			"content": renderNotificationTemplate(cfg["content_template"], title, content, "**{{title}}**\n{{content}}"),
+			"content": renderNotificationTemplateWithContext(cfg["content_template"], title, content, "**{{title}}**\n{{content}}", context),
 		}
 	case "image", "file", "video":
 		body["safe"] = notificationConfigInt(cfg["safe"], 0)
@@ -363,7 +469,7 @@ func sendWecomApp(cfg map[string]string, title, content string) error {
 			"media_id": mediaID,
 		}
 	case "news":
-		articles, err := parseNotificationJSONTemplate(cfg["news_articles"], title, content)
+		articles, err := parseNotificationJSONTemplateWithContext(cfg["news_articles"], title, content, context)
 		if err != nil {
 			return fmt.Errorf("企业微信应用图文消息配置无效: %w", err)
 		}
@@ -376,7 +482,7 @@ func sendWecomApp(cfg map[string]string, title, content string) error {
 		}
 	case "template_card":
 		body["enable_id_trans"] = notificationConfigInt(cfg["enable_id_trans"], 0)
-		cardPayload, err := parseNotificationJSONTemplate(cfg["template_card_payload"], title, content)
+		cardPayload, err := parseNotificationJSONTemplateWithContext(cfg["template_card_payload"], title, content, context)
 		if err != nil {
 			return fmt.Errorf("企业微信应用模版卡片配置无效: %w", err)
 		}
@@ -871,6 +977,67 @@ func splitNotificationIntTargets(raw string) ([]int, error) {
 	return result, nil
 }
 
+func buildTelegramMessages(title, content string) []string {
+	title = strings.TrimSpace(title)
+	content = strings.TrimSpace(content)
+
+	contentChunks := splitNotificationContentChunks(content, 3200)
+	if len(contentChunks) == 0 {
+		contentChunks = []string{""}
+	}
+
+	messages := make([]string, 0, len(contentChunks))
+	total := len(contentChunks)
+	for index, chunk := range contentChunks {
+		header := title
+		if total > 1 {
+			header = fmt.Sprintf("%s (%d/%d)", title, index+1, total)
+		}
+		if strings.TrimSpace(chunk) == "" {
+			messages = append(messages, header)
+			continue
+		}
+		messages = append(messages, header+"\n"+chunk)
+	}
+
+	return messages
+}
+
+func splitNotificationContentChunks(content string, limit int) []string {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return nil
+	}
+	if limit <= 0 {
+		return []string{content}
+	}
+
+	runes := []rune(content)
+	chunks := make([]string, 0, len(runes)/limit+1)
+	for start := 0; start < len(runes); {
+		end := start + limit
+		if end >= len(runes) {
+			chunks = append(chunks, strings.TrimSpace(string(runes[start:])))
+			break
+		}
+
+		splitAt := end
+		for idx := end; idx > start+limit/2; idx-- {
+			if runes[idx-1] == '\n' {
+				splitAt = idx
+				break
+			}
+		}
+		if splitAt <= start {
+			splitAt = end
+		}
+		chunks = append(chunks, strings.TrimSpace(string(runes[start:splitAt])))
+		start = splitAt
+	}
+
+	return chunks
+}
+
 func notificationConfigInt(raw string, defaultValue int) int {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -884,17 +1051,32 @@ func notificationConfigInt(raw string, defaultValue int) int {
 }
 
 func renderNotificationTemplate(template, title, content, fallback string) string {
+	return renderNotificationTemplateWithContext(template, title, content, fallback, nil)
+}
+
+func renderNotificationTemplateWithContext(template, title, content, fallback string, context map[string]string) string {
 	template = strings.TrimSpace(template)
 	if template == "" {
 		template = fallback
 	}
 	template = strings.ReplaceAll(template, "{{title}}", title)
 	template = strings.ReplaceAll(template, "{{content}}", content)
+	for key, value := range context {
+		placeholder := "{{" + strings.TrimSpace(key) + "}}"
+		if placeholder == "{{}}" {
+			continue
+		}
+		template = strings.ReplaceAll(template, placeholder, value)
+	}
 	return template
 }
 
 func parseNotificationJSONTemplate(raw, title, content string) (interface{}, error) {
-	rendered := renderNotificationTemplate(raw, title, content, "")
+	return parseNotificationJSONTemplateWithContext(raw, title, content, nil)
+}
+
+func parseNotificationJSONTemplateWithContext(raw, title, content string, context map[string]string) (interface{}, error) {
+	rendered := renderNotificationTemplateWithContext(raw, title, content, "", context)
 	if strings.TrimSpace(rendered) == "" {
 		return nil, fmt.Errorf("JSON 模板为空")
 	}
@@ -903,23 +1085,27 @@ func parseNotificationJSONTemplate(raw, title, content string) (interface{}, err
 	if err := json.Unmarshal([]byte(rendered), &payload); err != nil {
 		return nil, err
 	}
-	return renderNotificationJSONValue(payload, title, content), nil
+	return renderNotificationJSONValueWithContext(payload, title, content, context), nil
 }
 
 func renderNotificationJSONValue(value interface{}, title, content string) interface{} {
+	return renderNotificationJSONValueWithContext(value, title, content, nil)
+}
+
+func renderNotificationJSONValueWithContext(value interface{}, title, content string, context map[string]string) interface{} {
 	switch v := value.(type) {
 	case string:
-		return renderNotificationTemplate(v, title, content, v)
+		return renderNotificationTemplateWithContext(v, title, content, v, context)
 	case []interface{}:
 		items := make([]interface{}, 0, len(v))
 		for _, item := range v {
-			items = append(items, renderNotificationJSONValue(item, title, content))
+			items = append(items, renderNotificationJSONValueWithContext(item, title, content, context))
 		}
 		return items
 	case map[string]interface{}:
 		result := make(map[string]interface{}, len(v))
 		for key, item := range v {
-			result[key] = renderNotificationJSONValue(item, title, content)
+			result[key] = renderNotificationJSONValueWithContext(item, title, content, context)
 		}
 		return result
 	default:

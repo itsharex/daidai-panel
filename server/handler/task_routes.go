@@ -10,6 +10,7 @@ func (h *TaskHandler) RegisterRoutes(r *gin.RouterGroup) {
 	tasks := r.Group("/tasks", middleware.JWTAuth(), middleware.OpenAPIAccess("tasks"))
 	{
 		tasks.GET("", middleware.RequireRole("viewer"), h.List)
+		tasks.GET("/notification-channels", middleware.RequireRole("viewer"), h.NotificationChannels)
 		tasks.GET("/:id/latest-log", middleware.RequireRole("viewer"), h.LatestLog)
 		tasks.GET("/:id/live-logs", middleware.RequireRole("viewer"), h.LiveLogs)
 		tasks.GET("/:id/log-files", middleware.RequireRole("viewer"), h.LogFiles)

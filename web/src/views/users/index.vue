@@ -3,8 +3,10 @@ import { ref, onMounted } from 'vue'
 import { userApi } from '@/api/security'
 import { useAuthStore } from '@/stores/auth'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useResponsive } from '@/composables/useResponsive'
 
 const authStore = useAuthStore()
+const { isMobile, dialogFullscreen } = useResponsive()
 const users = ref<any[]>([])
 const loading = ref(false)
 
@@ -126,7 +128,72 @@ function getRoleName(role: string) {
       </el-button>
     </div>
 
-    <el-table :data="users" v-loading="loading" stripe>
+    <div v-if="isMobile" class="dd-mobile-list">
+      <div
+        v-for="row in users"
+        :key="row.id"
+        class="dd-mobile-card"
+      >
+        <div class="dd-mobile-card__header">
+          <div class="dd-mobile-card__title-wrap">
+            <span class="dd-mobile-card__title">{{ row.username }}</span>
+            <div class="dd-mobile-card__badges">
+              <el-tag size="small" :type="getRoleTag(row.role)">{{ getRoleName(row.role) }}</el-tag>
+            </div>
+          </div>
+          <el-switch
+            :model-value="row.enabled"
+            size="small"
+            :disabled="row.username === authStore.user?.username"
+            @change="handleToggle(row)"
+          />
+        </div>
+
+        <div class="dd-mobile-card__body">
+          <div class="dd-mobile-card__grid">
+            <div class="dd-mobile-card__field">
+              <span class="dd-mobile-card__label">角色</span>
+              <div class="dd-mobile-card__value">
+                <el-select
+                  :model-value="row.role"
+                  size="small"
+                  :disabled="row.username === authStore.user?.username"
+                  @change="(val: string) => handleRoleChange(row, val)"
+                >
+                  <el-option value="admin" label="管理员" />
+                  <el-option value="operator" label="操作员" />
+                  <el-option value="viewer" label="观察者" />
+                </el-select>
+              </div>
+            </div>
+            <div class="dd-mobile-card__field">
+              <span class="dd-mobile-card__label">最后登录</span>
+              <span class="dd-mobile-card__value">{{ row.last_login_at ? new Date(row.last_login_at).toLocaleString() : '-' }}</span>
+            </div>
+            <div class="dd-mobile-card__field">
+              <span class="dd-mobile-card__label">创建时间</span>
+              <span class="dd-mobile-card__value">{{ new Date(row.created_at).toLocaleString() }}</span>
+            </div>
+          </div>
+          <div class="dd-mobile-card__actions user-card__actions">
+            <el-button size="small" type="primary" plain @click="openResetPassword(row)">重置密码</el-button>
+            <el-button
+              size="small"
+              type="danger"
+              plain
+              :disabled="row.username === authStore.user?.username"
+              @click="handleDelete(row)"
+            >
+              删除
+            </el-button>
+          </div>
+        </div>
+      </div>
+
+      <el-empty v-if="!loading && users.length === 0" description="暂无用户" />
+    </div>
+
+    <el-table v-else :data="users" v-loading="loading" stripe>
       <el-table-column prop="id" label="ID" width="60" />
       <el-table-column prop="username" label="用户名" min-width="150" />
       <el-table-column prop="role" label="角色" width="140">
@@ -173,8 +240,8 @@ function getRoleName(role: string) {
       </el-table-column>
     </el-table>
 
-    <el-dialog v-model="showCreateDialog" title="新建用户" width="400px">
-      <el-form :model="createForm" label-width="80px">
+    <el-dialog v-model="showCreateDialog" title="新建用户" width="400px" :fullscreen="dialogFullscreen">
+      <el-form :model="createForm" :label-width="dialogFullscreen ? 'auto' : '80px'" :label-position="dialogFullscreen ? 'top' : 'right'">
         <el-form-item label="用户名">
           <el-input v-model="createForm.username" placeholder="3-32 位字母/数字/下划线" />
         </el-form-item>
@@ -195,8 +262,8 @@ function getRoleName(role: string) {
       </template>
     </el-dialog>
 
-    <el-dialog v-model="showResetPwdDialog" title="重置密码" width="400px">
-      <el-form :model="resetPwdForm" label-width="80px">
+    <el-dialog v-model="showResetPwdDialog" title="重置密码" width="400px" :fullscreen="dialogFullscreen">
+      <el-form :model="resetPwdForm" :label-width="dialogFullscreen ? 'auto' : '80px'" :label-position="dialogFullscreen ? 'top' : 'right'">
         <el-form-item label="用户">
           <el-input :model-value="resetPwdForm.username" disabled />
         </el-form-item>
@@ -230,6 +297,18 @@ function getRoleName(role: string) {
     color: var(--el-text-color-secondary);
     display: block;
     margin-top: 2px;
+  }
+}
+
+.user-card__actions > * {
+  flex: 1 1 calc(50% - 4px);
+}
+
+@media (max-width: 768px) {
+  .page-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
   }
 }
 </style>

@@ -8,9 +8,11 @@ import LogViewer from './components/LogViewer.vue'
 import TaskDetail from './components/TaskDetail.vue'
 import LogFileBrowser from './components/LogFileBrowser.vue'
 import { getDisplayTaskLabels } from './taskLabels'
+import { useResponsive } from '@/composables/useResponsive'
 
 const route = useRoute()
 const router = useRouter()
+const { isMobile } = useResponsive()
 let statusTimer: ReturnType<typeof setInterval> | null = null
 
 const tasks = ref<any[]>([])
@@ -21,6 +23,8 @@ const keyword = ref('')
 const statusFilter = ref<string>('')
 const loading = ref(false)
 const selectedIds = ref<number[]>([])
+const selectedIdSet = computed(() => new Set(selectedIds.value))
+const notificationChannels = ref<{ id: number; name: string; type: string; enabled: boolean }[]>([])
 const formVisible = ref(false)
 const editingTask = ref<any>(null)
 const prefillData = ref<any>(null)
@@ -32,6 +36,12 @@ const detailTask = ref<any>(null)
 const logFilesVisible = ref(false)
 const logFilesTaskId = ref<number | null>(null)
 const logFilesTaskName = ref('')
+
+function getTaskTypeLabel(taskType: string | null | undefined) {
+  if (taskType === 'manual') return '手动运行'
+  if (taskType === 'startup') return '开机运行'
+  return '常规定时'
+}
 
 const hasRunningTasks = computed(() => tasks.value.some(t => t.status === 2))
 
@@ -80,13 +90,22 @@ async function loadTasks() {
   }
 }
 
+async function loadNotificationChannels() {
+  try {
+    const res = await taskApi.notificationChannels()
+    notificationChannels.value = res.data || []
+  } catch {
+    notificationChannels.value = []
+  }
+}
+
 function checkAutoCreate() {
   if (route.query.autoCreate === '1') {
     const name = route.query.name as string || ''
     const command = route.query.command as string || ''
     if (name && command) {
       editingTask.value = null
-      prefillData.value = { name, command, cron_expression: '0 0 * * *' }
+      prefillData.value = { name, command, cron_expression: '0 0 * * *', task_type: 'cron' }
       formVisible.value = true
       router.replace({ path: '/tasks' })
     }
@@ -98,12 +117,14 @@ let mounted = false
 onMounted(() => {
   mounted = true
   loadTasks()
+  loadNotificationChannels()
   checkAutoCreate()
 })
 
 onActivated(() => {
   if (!mounted) {
     loadTasks()
+    loadNotificationChannels()
   }
   mounted = false
   checkAutoCreate()
@@ -287,6 +308,20 @@ function handleSelectionChange(rows: any[]) {
   selectedIds.value = rows.map(r => r.id)
 }
 
+function isSelected(id: number) {
+  return selectedIdSet.value.has(id)
+}
+
+function toggleSelected(id: number, checked: boolean | string | number) {
+  const next = new Set(selectedIds.value)
+  if (checked) {
+    next.add(id)
+  } else {
+    next.delete(id)
+  }
+  selectedIds.value = [...next]
+}
+
 async function handleBatchAction(action: string) {
   if (selectedIds.value.length === 0) {
     ElMessage.warning('请先选择任务')
@@ -427,7 +462,124 @@ async function handleImport(event: Event) {
       </div>
     </div>
 
+    <div v-if="isMobile" class="dd-mobile-list">
+      <div
+        v-for="row in tasks"
+        :key="row.id"
+        class="dd-mobile-card task-card"
+      >
+        <div class="dd-mobile-card__header">
+          <div class="dd-mobile-card__title-wrap task-card__title-wrap">
+            <div class="task-card__title-row">
+              <div class="dd-mobile-card__selection">
+                <el-checkbox :model-value="isSelected(row.id)" @change="toggleSelected(row.id, $event)" />
+                <div class="task-card__name-block">
+                  <div class="task-card__name-line">
+                    <el-icon v-if="row.is_pinned" class="pin-icon" @click="handlePin(row)"><Star /></el-icon>
+                    <span class="dd-mobile-card__title">{{ row.name }}</span>
+                  </div>
+                </div>
+              </div>
+              <el-tag :type="getStatusType(row.status)" size="small" :class="row.status === 2 ? 'tag-with-dot' : ''">
+                <span v-if="row.status === 2" class="pulse-dot"></span>
+                {{ getStatusText(row.status) }}
+              </el-tag>
+            </div>
+
+            <div class="dd-mobile-card__badges">
+              <el-tag size="small" effect="plain" class="task-label task-label--type">
+                {{ getTaskTypeLabel(row.task_type) }}
+              </el-tag>
+              <el-tag
+                v-for="label in displayTaskLabels(row)"
+                :key="label"
+                size="small"
+                effect="plain"
+                class="task-label"
+              >
+                {{ label }}
+              </el-tag>
+            </div>
+
+            <div class="dd-mobile-card__subtitle task-card__command">
+              <code class="command-text">
+                <template v-if="extractScriptPath(row.command)">
+                  <span>{{ row.command.replace(extractScriptPath(row.command), '') }}</span>
+                  <span class="script-link" @click.stop="navigateToScript(extractScriptPath(row.command)!)">{{ extractScriptPath(row.command) }}</span>
+                </template>
+                <template v-else>{{ row.command }}</template>
+              </code>
+            </div>
+          </div>
+        </div>
+
+        <div class="dd-mobile-card__body">
+          <div class="dd-mobile-card__grid">
+            <div class="dd-mobile-card__field">
+              <span class="dd-mobile-card__label">定时规则</span>
+              <div class="dd-mobile-card__value">
+                <template v-if="row.task_type === 'cron'">
+                  <code class="cron-text">{{ row.cron_expression }}</code>
+                </template>
+                <span v-else class="text-muted">{{ getTaskTypeLabel(row.task_type) }}</span>
+              </div>
+            </div>
+            <div class="dd-mobile-card__field">
+              <span class="dd-mobile-card__label">上次结果</span>
+              <div class="dd-mobile-card__value">
+                <el-tag :type="getRunStatusType(row.last_run_status)" size="small">
+                  {{ getRunStatusText(row.last_run_status) }}
+                </el-tag>
+              </div>
+            </div>
+            <div class="dd-mobile-card__field">
+              <span class="dd-mobile-card__label">最后运行</span>
+              <span class="dd-mobile-card__value time-text">{{ row.last_run_at ? formatTime(row.last_run_at) : '-' }}</span>
+            </div>
+            <div class="dd-mobile-card__field">
+              <span class="dd-mobile-card__label">下次运行</span>
+              <span class="dd-mobile-card__value time-text">{{ row.next_run_at ? formatTime(row.next_run_at) : '-' }}</span>
+            </div>
+            <div class="dd-mobile-card__field">
+              <span class="dd-mobile-card__label">耗时</span>
+              <span class="dd-mobile-card__value">{{ row.last_running_time != null ? `${row.last_running_time.toFixed(1)}s` : '-' }}</span>
+            </div>
+          </div>
+
+          <div class="dd-mobile-card__actions task-card__actions">
+            <el-button v-if="row.status !== 2" type="primary" size="small" @click="handleRun(row)">运行</el-button>
+            <el-button v-else type="warning" size="small" @click="handleStop(row)">停止</el-button>
+            <el-button size="small" @click="openLogViewer(row)">日志</el-button>
+            <el-button size="small" @click="openEdit(row)">编辑</el-button>
+            <el-dropdown trigger="click">
+              <el-button size="small">
+                更多
+                <el-icon><More /></el-icon>
+              </el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item @click="openDetail(row)">详情</el-dropdown-item>
+                  <el-dropdown-item @click="openLogFiles(row)">日志文件</el-dropdown-item>
+                  <el-dropdown-item divided @click="handleToggle(row)">
+                    {{ row.status === 0 ? '启用' : '禁用' }}
+                  </el-dropdown-item>
+                  <el-dropdown-item @click="handleCopy(row)">复制</el-dropdown-item>
+                  <el-dropdown-item @click="handlePin(row)">{{ row.is_pinned ? '取消置顶' : '置顶' }}</el-dropdown-item>
+                  <el-dropdown-item divided @click="handleDelete(row)">
+                    <span style="color: var(--el-color-danger)">删除</span>
+                  </el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+          </div>
+        </div>
+      </div>
+
+      <el-empty v-if="!loading && tasks.length === 0" description="暂无任务" />
+    </div>
+
     <el-table
+      v-else
       v-loading="loading"
       :data="tasks"
       @selection-change="handleSelectionChange"
@@ -440,6 +592,9 @@ async function handleImport(event: Event) {
           <div class="task-name">
             <el-icon v-if="row.is_pinned" class="pin-icon" @click="handlePin(row)"><Star /></el-icon>
             <span>{{ row.name }}</span>
+            <el-tag size="small" effect="plain" class="task-label task-label--type">
+              {{ getTaskTypeLabel(row.task_type) }}
+            </el-tag>
             <el-tag
               v-for="label in displayTaskLabels(row)"
               :key="label"
@@ -465,7 +620,10 @@ async function handleImport(event: Event) {
       </el-table-column>
       <el-table-column label="定时规则" min-width="130" show-overflow-tooltip>
         <template #default="{ row }">
-          <code class="cron-text">{{ row.cron_expression }}</code>
+          <template v-if="row.task_type === 'cron'">
+            <code class="cron-text">{{ row.cron_expression }}</code>
+          </template>
+          <span v-else class="text-muted">{{ getTaskTypeLabel(row.task_type) }}</span>
         </template>
       </el-table-column>
       <el-table-column label="状态" width="100" align="center">
@@ -546,6 +704,7 @@ async function handleImport(event: Event) {
       v-model:visible="formVisible"
       :task="editingTask"
       :prefill="prefillData"
+      :notification-channels="notificationChannels"
       @submit="handleFormSubmit"
     />
 
@@ -665,6 +824,37 @@ async function handleImport(event: Event) {
   justify-content: flex-end;
 }
 
+.task-card {
+  .command-text {
+    display: block;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+}
+
+.task-card__title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.task-card__name-block {
+  min-width: 0;
+}
+
+.task-card__name-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.task-card__actions {
+  > * {
+    flex: 1 1 calc(50% - 4px);
+  }
+}
+
 :deep(.el-table) {
   font-size: 14px;
 
@@ -701,6 +891,11 @@ async function handleImport(event: Event) {
   .filter-bar {
     flex-wrap: wrap;
     gap: 8px;
+
+    :deep(.el-input),
+    :deep(.el-select) {
+      width: 100% !important;
+    }
 
     .batch-actions {
       width: 100%;

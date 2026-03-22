@@ -2,8 +2,10 @@
 import { ref, onMounted, computed } from 'vue'
 import { notificationApi, sshKeyApi } from '@/api/notification'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useResponsive } from '@/composables/useResponsive'
 
 const activeTab = ref('channels')
+const { isMobile, dialogFullscreen } = useResponsive()
 
 const channels = ref<any[]>([])
 const channelLoading = ref(false)
@@ -410,7 +412,39 @@ async function handleDeleteSSHKey(id: number) {
           </el-button>
         </div>
 
-        <el-table :data="channels" v-loading="channelLoading" stripe>
+        <div v-if="isMobile" class="dd-mobile-list">
+          <div
+            v-for="row in channels"
+            :key="row.id"
+            class="dd-mobile-card"
+          >
+            <div class="dd-mobile-card__header">
+              <div class="dd-mobile-card__title-wrap">
+                <span class="dd-mobile-card__title">{{ row.name }}</span>
+                <div class="dd-mobile-card__badges">
+                  <el-tag size="small" effect="plain">{{ getTypeName(row.type) }}</el-tag>
+                </div>
+              </div>
+              <el-switch :model-value="row.enabled" size="small" @change="handleToggleChannel(row)" />
+            </div>
+            <div class="dd-mobile-card__body">
+              <div class="dd-mobile-card__grid">
+                <div class="dd-mobile-card__field">
+                  <span class="dd-mobile-card__label">创建时间</span>
+                  <span class="dd-mobile-card__value">{{ new Date(row.created_at).toLocaleString() }}</span>
+                </div>
+              </div>
+              <div class="dd-mobile-card__actions notification-card__actions">
+                <el-button size="small" type="success" plain @click="handleTestChannel(row.id)">测试</el-button>
+                <el-button size="small" type="primary" plain @click="openEditChannel(row)">编辑</el-button>
+                <el-button size="small" type="danger" plain @click="handleDeleteChannel(row.id)">删除</el-button>
+              </div>
+            </div>
+          </div>
+          <el-empty v-if="!channelLoading && channels.length === 0" description="暂无通知渠道" />
+        </div>
+
+        <el-table v-else :data="channels" v-loading="channelLoading" stripe>
           <el-table-column prop="name" label="名称" min-width="150" />
           <el-table-column prop="type" label="类型" width="120">
             <template #default="{ row }">
@@ -442,7 +476,35 @@ async function handleDeleteSSHKey(id: number) {
           </el-button>
         </div>
 
-        <el-table :data="sshKeys" v-loading="sshKeyLoading" stripe>
+        <div v-if="isMobile" class="dd-mobile-list">
+          <div
+            v-for="row in sshKeys"
+            :key="row.id"
+            class="dd-mobile-card"
+          >
+            <div class="dd-mobile-card__header">
+              <div class="dd-mobile-card__title-wrap">
+                <span class="dd-mobile-card__title">{{ row.name }}</span>
+                <span class="dd-mobile-card__subtitle">SSH 私钥凭据</span>
+              </div>
+            </div>
+            <div class="dd-mobile-card__body">
+              <div class="dd-mobile-card__grid">
+                <div class="dd-mobile-card__field">
+                  <span class="dd-mobile-card__label">创建时间</span>
+                  <span class="dd-mobile-card__value">{{ new Date(row.created_at).toLocaleString() }}</span>
+                </div>
+              </div>
+              <div class="dd-mobile-card__actions notification-card__actions">
+                <el-button size="small" type="primary" plain @click="openEditSSHKey(row)">编辑</el-button>
+                <el-button size="small" type="danger" plain @click="handleDeleteSSHKey(row.id)">删除</el-button>
+              </div>
+            </div>
+          </div>
+          <el-empty v-if="!sshKeyLoading && sshKeys.length === 0" description="暂无 SSH 密钥" />
+        </div>
+
+        <el-table v-else :data="sshKeys" v-loading="sshKeyLoading" stripe>
           <el-table-column prop="name" label="名称" min-width="200" />
           <el-table-column prop="created_at" label="创建时间" width="170">
             <template #default="{ row }">{{ new Date(row.created_at).toLocaleString() }}</template>
@@ -457,8 +519,8 @@ async function handleDeleteSSHKey(id: number) {
       </el-tab-pane>
     </el-tabs>
 
-    <el-dialog v-model="showChannelDialog" :title="isCreateChannel ? '新建通知渠道' : '编辑通知渠道'" width="600px">
-      <el-form :model="channelForm" label-width="130px">
+    <el-dialog v-model="showChannelDialog" :title="isCreateChannel ? '新建通知渠道' : '编辑通知渠道'" width="600px" :fullscreen="dialogFullscreen">
+      <el-form :model="channelForm" :label-width="dialogFullscreen ? 'auto' : '130px'" :label-position="dialogFullscreen ? 'top' : 'right'">
         <el-form-item label="名称">
           <el-input v-model="channelForm.name" placeholder="渠道名称" />
         </el-form-item>
@@ -500,8 +562,8 @@ async function handleDeleteSSHKey(id: number) {
       </template>
     </el-dialog>
 
-    <el-dialog v-model="showSSHKeyDialog" :title="isCreateSSHKey ? '新建 SSH 密钥' : '编辑 SSH 密钥'" width="550px">
-      <el-form :model="sshKeyForm" label-width="80px">
+    <el-dialog v-model="showSSHKeyDialog" :title="isCreateSSHKey ? '新建 SSH 密钥' : '编辑 SSH 密钥'" width="550px" :fullscreen="dialogFullscreen">
+      <el-form :model="sshKeyForm" :label-width="dialogFullscreen ? 'auto' : '80px'" :label-position="dialogFullscreen ? 'top' : 'right'">
         <el-form-item label="名称">
           <el-input v-model="sshKeyForm.name" placeholder="密钥名称" />
         </el-form-item>
@@ -546,5 +608,19 @@ async function handleDeleteSSHKey(id: number) {
   display: flex;
   justify-content: flex-end;
   margin-bottom: 16px;
+}
+
+.notification-card__actions > * {
+  flex: 1 1 calc(50% - 4px);
+}
+
+@media (max-width: 768px) {
+  .tab-header {
+    justify-content: stretch;
+  }
+
+  .tab-header > * {
+    width: 100%;
+  }
 }
 </style>

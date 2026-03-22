@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -31,6 +32,43 @@ func TestSplitNotificationIntTargets(t *testing.T) {
 func TestSplitNotificationIntTargetsRejectsInvalidValue(t *testing.T) {
 	if _, err := splitNotificationIntTargets("101;abc"); err == nil {
 		t.Fatal("expected invalid topic id to return an error")
+	}
+}
+
+func TestRenderNotificationTemplateWithContext(t *testing.T) {
+	got := renderNotificationTemplateWithContext(
+		"任务 {{task_name}} 在 {{ended_at}} {{status_text}}，退出码 {{exit_code}}",
+		"标题",
+		"正文",
+		"",
+		map[string]string{
+			"task_name":   "签到任务",
+			"ended_at":    "2026-03-22 12:00:00.000",
+			"status_text": "失败",
+			"exit_code":   "2",
+		},
+	)
+
+	want := "任务 签到任务 在 2026-03-22 12:00:00.000 失败，退出码 2"
+	if got != want {
+		t.Fatalf("unexpected rendered template: got %q want %q", got, want)
+	}
+}
+
+func TestBuildTelegramMessagesSplitsLongContent(t *testing.T) {
+	content := strings.Repeat("日志内容\n", 900)
+	messages := buildTelegramMessages("任务执行失败", content)
+	if len(messages) < 2 {
+		t.Fatalf("expected long telegram content to be split, got %d message(s)", len(messages))
+	}
+
+	for i, message := range messages {
+		if !strings.Contains(message, "任务执行失败") {
+			t.Fatalf("expected message %d to contain title, got %q", i, message)
+		}
+		if len([]rune(message)) > 3600 {
+			t.Fatalf("expected telegram message %d to stay under safe limit, got %d runes", i, len([]rune(message)))
+		}
 	}
 }
 

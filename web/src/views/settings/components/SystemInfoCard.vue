@@ -80,6 +80,7 @@ defineProps<{
 .si-value {
   font-size: 14px;
   font-weight: 600;
+  word-break: break-word;
 }
 
 .usage-success {
@@ -96,7 +97,8 @@ defineProps<{
 
 @media (max-width: 768px) {
   .system-info-grid {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: 1fr;
+    gap: 16px;
   }
 }
 </style>

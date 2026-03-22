@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useThemeStore } from '@/stores/theme'
 import { systemApi } from '@/api/system'
+import { useResponsive } from '@/composables/useResponsive'
 import {
   Bell,
   Box,
@@ -29,8 +30,8 @@ const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
 const themeStore = useThemeStore()
+const { isMobile } = useResponsive()
 const isCollapsed = ref(false)
-const isMobile = ref(false)
 const drawerVisible = ref(false)
 const panelTitle = ref('呆呆面板')
 const panelIcon = ref('')
@@ -74,14 +75,7 @@ const adminItems = [
   { index: '/admin/open-api', title: 'Open API', icon: Key, minRole: 'admin' },
 ]
 
-function checkMobile() {
-  isMobile.value = window.innerWidth <= 768
-  if (isMobile.value) isCollapsed.value = true
-}
-
 onMounted(() => {
-  checkMobile()
-  window.addEventListener('resize', checkMobile)
   loadPanelSettings()
   loadVersion()
   if (authStore.isLoggedIn && !authStore.user) {
@@ -89,9 +83,13 @@ onMounted(() => {
   }
 })
 
-onUnmounted(() => {
-  window.removeEventListener('resize', checkMobile)
-})
+watch(isMobile, (mobile) => {
+  if (mobile) {
+    isCollapsed.value = true
+    return
+  }
+  drawerVisible.value = false
+}, { immediate: true })
 
 const menuItems = computed(() => {
   const allItems = currentSection.value === 'admin' ? adminItems : workspaceItems
@@ -200,6 +198,23 @@ async function loadVersion() {
           <template #title>{{ item.title }}</template>
         </el-menu-item>
       </el-menu>
+      <div class="mobile-drawer-footer">
+        <el-button
+          v-if="canAccessAdmin"
+          class="mobile-footer-btn"
+          @click="toggleSection"
+        >
+          {{ sectionActionLabel }}
+        </el-button>
+        <div class="mobile-footer-actions">
+          <el-button text class="mobile-footer-link" @click="router.push('/profile'); drawerVisible = false">
+            个人设置
+          </el-button>
+          <el-button text class="mobile-footer-link" @click="handleLogout">
+            退出登录
+          </el-button>
+        </div>
+      </div>
     </el-drawer>
 
     <el-container>
@@ -210,10 +225,10 @@ async function loadVersion() {
             <span class="mobile-title">{{ panelTitle }}</span>
             <span v-if="panelVersion" class="mobile-version">v{{ panelVersion }}</span>
           </div>
-          <el-tag size="small" effect="plain" class="section-tag">{{ sectionLabel }}</el-tag>
+          <el-tag v-if="!isMobile" size="small" effect="plain" class="section-tag">{{ sectionLabel }}</el-tag>
         </div>
         <div class="header-right">
-          <el-button v-if="canAccessAdmin" text class="section-switch-btn" @click="toggleSection">
+          <el-button v-if="canAccessAdmin && !isMobile" text class="section-switch-btn" @click="toggleSection">
             {{ sectionActionLabel }}
           </el-button>
           <el-button :icon="themeIcon" text circle class="theme-btn" @click="themeStore.toggleTheme" />
@@ -415,6 +430,9 @@ async function loadVersion() {
   padding: 0 20px;
   background: var(--el-bg-color);
   backdrop-filter: blur(8px);
+  position: sticky;
+  top: 0;
+  z-index: 20;
 }
 
 .header-left {
@@ -463,6 +481,29 @@ async function loadVersion() {
   padding: 20px;
 }
 
+.mobile-drawer-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 12px 18px;
+  border-top: 1px solid var(--el-border-color-light);
+  margin-top: 8px;
+}
+
+.mobile-footer-btn {
+  width: 100%;
+}
+
+.mobile-footer-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.mobile-footer-link {
+  flex: 1;
+  justify-content: center;
+}
+
 .theme-btn {
   transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
 
@@ -501,12 +542,12 @@ async function loadVersion() {
 
 @media screen and (max-width: 768px) {
   .layout-header {
-    padding: 0 12px;
-    height: 50px;
+    padding: 0 10px;
+    height: 54px;
   }
 
   .layout-main {
-    padding: 12px;
+    padding: max(12px, env(safe-area-inset-top)) 12px calc(16px + env(safe-area-inset-bottom));
   }
 
   .logo-area {
@@ -531,6 +572,19 @@ async function loadVersion() {
 
   .header-left {
     gap: 6px;
+  }
+
+  .header-right {
+    gap: 2px;
+  }
+
+  .user-dropdown {
+    padding: 6px 8px;
+  }
+
+  .mobile-brand-inline {
+    min-width: 0;
+    max-width: 52vw;
   }
 }
 </style>

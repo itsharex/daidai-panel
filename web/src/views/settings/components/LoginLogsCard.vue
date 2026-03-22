@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { Delete, Document, Refresh } from '@element-plus/icons-vue'
+import { useResponsive } from '@/composables/useResponsive'
 
 const loginLogsPage = defineModel<number>('loginLogsPage', { required: true })
+const { isMobile } = useResponsive()
 
 defineProps<{
   loginLogs: any[]
@@ -23,7 +25,42 @@ defineProps<{
         </div>
       </div>
     </template>
-    <el-table :data="loginLogs" v-loading="loginLogsLoading" stripe empty-text="暂无数据">
+    <div v-if="isMobile" class="dd-mobile-list">
+      <div
+        v-for="row in loginLogs"
+        :key="row.id"
+        class="dd-mobile-card"
+      >
+        <div class="dd-mobile-card__header">
+          <div class="dd-mobile-card__title-wrap">
+            <span class="dd-mobile-card__title">{{ row.username }}</span>
+            <span class="dd-mobile-card__subtitle">{{ row.ip }}</span>
+          </div>
+          <el-tag size="small" :type="row.status === 0 ? 'success' : 'danger'">
+            {{ row.status === 0 ? '成功' : '失败' }}
+          </el-tag>
+        </div>
+        <div class="dd-mobile-card__body">
+          <div class="dd-mobile-card__grid">
+            <div class="dd-mobile-card__field">
+              <span class="dd-mobile-card__label">登录方式</span>
+              <span class="dd-mobile-card__value">{{ row.method }}</span>
+            </div>
+            <div class="dd-mobile-card__field">
+              <span class="dd-mobile-card__label">时间</span>
+              <span class="dd-mobile-card__value">{{ new Date(row.created_at).toLocaleString() }}</span>
+            </div>
+            <div class="dd-mobile-card__field dd-mobile-card__field--full">
+              <span class="dd-mobile-card__label">原因</span>
+              <span class="dd-mobile-card__value">{{ row.message || '-' }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <el-empty v-if="!loginLogsLoading && loginLogs.length === 0" description="暂无数据" />
+    </div>
+
+    <el-table v-else :data="loginLogs" v-loading="loginLogsLoading" stripe empty-text="暂无数据">
       <el-table-column prop="username" label="用户" width="100" />
       <el-table-column label="状态" width="80">
         <template #default="{ row }">
@@ -63,5 +100,12 @@ defineProps<{
   display: flex;
   justify-content: center;
   margin-top: 20px;
+}
+
+@media (max-width: 768px) {
+  .card-header-buttons {
+    width: 100%;
+    flex-wrap: wrap;
+  }
 }
 </style>

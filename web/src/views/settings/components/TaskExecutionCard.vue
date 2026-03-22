@@ -35,7 +35,7 @@ defineProps<{
       <label>日志删除频率</label>
       <div class="compound-input">
         <span>每</span>
-        <el-input v-model.number="form.log_retention_days" style="width: 120px" />
+        <el-input v-model.number="form.log_retention_days" class="retention-input" />
         <span>天</span>
       </div>
       <span class="form-hint">日志清理接口默认保留最近多少天的数据</span>
@@ -67,4 +67,14 @@ defineProps<{
 
 <style scoped lang="scss">
 @use './config-card-shared.scss' as *;
+
+.retention-input {
+  width: 120px;
+}
+
+@media (max-width: 768px) {
+  .retention-input {
+    width: 100%;
+  }
+}
 </style>

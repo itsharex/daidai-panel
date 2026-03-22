@@ -8,10 +8,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"daidai-panel/config"
 	"daidai-panel/database"
 	"daidai-panel/model"
+	"daidai-panel/service"
 )
 
 var scriptInterpreterMap = map[string][]string{
@@ -159,12 +161,12 @@ func scriptCommandParts(ext, target string) ([]string, error) {
 	return cmdParts, nil
 }
 
-func buildScriptExecEnv() ([]string, map[string]string) {
-	envMap := buildManagedScriptEnvMap()
+func buildScriptExecEnv(workDir string) ([]string, map[string]string) {
+	envMap := buildManagedScriptEnvMap(workDir)
 	return buildProcessEnv(envMap), envMap
 }
 
-func buildManagedScriptEnvMap() map[string]string {
+func buildManagedScriptEnvMap(workDir string) map[string]string {
 	var envVars []model.EnvVar
 	database.DB.Where("enabled = ?", true).Find(&envVars)
 
@@ -194,6 +196,12 @@ func buildManagedScriptEnvMap() map[string]string {
 				envMap["PYTHONPATH"] = filepath.Join(venvLib, entry.Name(), "site-packages")
 				break
 			}
+		}
+	}
+	service.AppendScriptHelperPaths(envMap, config.C.Data.ScriptsDir)
+	if helperEnv, err := service.BuildNotifyHelperEnv(config.C.Data.ScriptsDir, workDir, config.C.Server.Port, nil, 2*time.Hour); err == nil {
+		for key, value := range helperEnv {
+			envMap[key] = value
 		}
 	}
 

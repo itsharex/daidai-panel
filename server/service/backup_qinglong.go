@@ -700,6 +700,7 @@ func loadQingLongTasks(db *sql.DB) ([]model.Task, error) {
 			Name:                   name,
 			Command:                command,
 			CronExpression:         schedule,
+			TaskType:               model.TaskTypeCron,
 			Status:                 model.TaskStatusEnabled,
 			Timeout:                300,
 			MaxRetries:             0,

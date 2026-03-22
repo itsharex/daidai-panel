@@ -159,3 +159,57 @@ func TestEnvMoveTopAndCancelTopUseExplicitPinnedState(t *testing.T) {
 		t.Fatalf("expected sort_order=0 after cancel-top, got %d", pinned.SortOrder)
 	}
 }
+
+func TestEnvExportAllHonorsSelectedIDs(t *testing.T) {
+	testutil.SetupTestEnv(t)
+
+	engine := newProtectedRouter()
+	user := testutil.MustCreateUser(t, "env-operator", "operator")
+	token := testutil.MustCreateAccessToken(t, user.Username, user.Role)
+
+	envs := []*model.EnvVar{
+		{Name: "ALPHA", Value: "1", Enabled: true, Position: 1000},
+		{Name: "BETA", Value: "2", Enabled: true, Position: 2000},
+		{Name: "GAMMA", Value: "3", Enabled: false, Position: 3000},
+	}
+	for _, env := range envs {
+		if err := database.DB.Create(env).Error; err != nil {
+			t.Fatalf("create env %q: %v", env.Name, err)
+		}
+	}
+
+	rec := performRequest(
+		engine,
+		http.MethodGet,
+		fmt.Sprintf("/api/v1/envs/export-all?ids=%d,%d", envs[0].ID, envs[2].ID),
+		map[string]string{"Authorization": "Bearer " + token},
+	)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d, body=%s", rec.Code, rec.Body.String())
+	}
+
+	payload := decodeJSONMap(t, rec)
+	items, ok := payload["data"].([]interface{})
+	if !ok || len(items) != 2 {
+		t.Fatalf("expected 2 exported envs, got %#v", payload["data"])
+	}
+
+	gotNames := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		env, ok := item.(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected env object, got %#v", item)
+		}
+		gotNames[env["name"].(string)] = struct{}{}
+	}
+
+	if _, exists := gotNames["ALPHA"]; !exists {
+		t.Fatalf("expected ALPHA in export, got %v", gotNames)
+	}
+	if _, exists := gotNames["GAMMA"]; !exists {
+		t.Fatalf("expected GAMMA in export, got %v", gotNames)
+	}
+	if _, exists := gotNames["BETA"]; exists {
+		t.Fatalf("did not expect BETA in selected export, got %v", gotNames)
+	}
+}

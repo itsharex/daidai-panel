@@ -5,6 +5,10 @@ export const taskApi = {
     return request.get('/tasks', { params }) as Promise<{ data: any[]; total: number; page: number; page_size: number }>
   },
 
+  notificationChannels() {
+    return request.get('/tasks/notification-channels') as Promise<{ data: { id: number; name: string; type: string; enabled: boolean }[] }>
+  },
+
   create(data: any) {
     return request.post('/tasks', data) as Promise<{ message: string; data: any }>
   },

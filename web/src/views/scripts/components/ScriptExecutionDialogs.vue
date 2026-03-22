@@ -34,7 +34,7 @@ function markDebugCodeChanged() {
 </script>
 
 <template>
-  <el-dialog v-model="showCodeRunner" title="代码运行器" :width="isMobile ? '98%' : '90%'" :close-on-click-modal="false" :top="isMobile ? '2vh' : '5vh'" destroy-on-close>
+  <el-dialog v-model="showCodeRunner" title="代码运行器" :width="isMobile ? '98%' : '90%'" :fullscreen="isMobile" :close-on-click-modal="false" :top="isMobile ? '2vh' : '5vh'" destroy-on-close>
     <div class="debug-container" :class="{ mobile: isMobile }">
       <div class="debug-code-panel">
         <div class="panel-header">
@@ -82,7 +82,7 @@ function markDebugCodeChanged() {
     </template>
   </el-dialog>
 
-  <el-dialog v-model="showDebugDialog" title="调试运行" :width="isMobile ? '98%' : '90%'" :close-on-click-modal="false" :top="isMobile ? '2vh' : '5vh'" destroy-on-close>
+  <el-dialog v-model="showDebugDialog" title="调试运行" :width="isMobile ? '98%' : '90%'" :fullscreen="isMobile" :close-on-click-modal="false" :top="isMobile ? '2vh' : '5vh'" destroy-on-close>
     <div class="debug-container" :class="{ mobile: isMobile }">
       <div class="debug-code-panel">
         <div class="panel-header">

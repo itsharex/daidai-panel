@@ -84,10 +84,12 @@ func (h *TaskHandler) Enable(c *gin.Context) {
 		return
 	}
 
-	result := panelcron.Parse(task.CronExpression)
-	if !result.Valid {
-		response.BadRequest(c, "无效的 cron 表达式，无法启用")
-		return
+	if task.UsesCronSchedule() {
+		result := panelcron.Parse(task.CronExpression)
+		if !result.Valid {
+			response.BadRequest(c, "无效的 cron 表达式，无法启用")
+			return
+		}
 	}
 
 	task.Status = model.TaskStatusEnabled

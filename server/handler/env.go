@@ -450,9 +450,48 @@ func (h *EnvHandler) Groups(c *gin.Context) {
 	response.Success(c, gin.H{"data": groups})
 }
 
+func parseEnvExportIDs(raw string) []uint {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+
+	fields := strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ',' || r == ';' || r == '\n' || r == '\r' || r == '\t' || r == ' '
+	})
+
+	seen := make(map[uint]struct{}, len(fields))
+	result := make([]uint, 0, len(fields))
+	for _, field := range fields {
+		field = strings.TrimSpace(field)
+		if field == "" {
+			continue
+		}
+		parsed, err := strconv.ParseUint(field, 10, 32)
+		if err != nil || parsed == 0 {
+			continue
+		}
+		id := uint(parsed)
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		result = append(result, id)
+	}
+	return result
+}
+
+func applyEnvExportIDs(query *gorm.DB, ids []uint) *gorm.DB {
+	if len(ids) == 0 {
+		return query
+	}
+	return query.Where("id IN ?", ids)
+}
+
 func (h *EnvHandler) Export(c *gin.Context) {
 	var envs []model.EnvVar
-	orderedEnvQuery().Where("enabled = ?", true).Find(&envs)
+	query := applyEnvExportIDs(orderedEnvQuery(), parseEnvExportIDs(c.Query("ids")))
+	query.Where("enabled = ?", true).Find(&envs)
 
 	data := make(map[string]string)
 	for _, e := range envs {
@@ -464,7 +503,7 @@ func (h *EnvHandler) Export(c *gin.Context) {
 
 func (h *EnvHandler) ExportAll(c *gin.Context) {
 	var envs []model.EnvVar
-	orderedEnvQuery().Find(&envs)
+	applyEnvExportIDs(orderedEnvQuery(), parseEnvExportIDs(c.Query("ids"))).Find(&envs)
 
 	data := make([]map[string]interface{}, len(envs))
 	for i, e := range envs {
@@ -484,6 +523,7 @@ func (h *EnvHandler) ExportFiles(c *gin.Context) {
 	var req struct {
 		Format      string `json:"format"`
 		EnabledOnly *bool  `json:"enabled_only"`
+		IDs         []uint `json:"ids"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		req.Format = "all"
@@ -492,8 +532,8 @@ func (h *EnvHandler) ExportFiles(c *gin.Context) {
 		req.Format = "all"
 	}
 
-	query := orderedEnvQuery()
-	if req.EnabledOnly != nil && *req.EnabledOnly {
+	query := applyEnvExportIDs(orderedEnvQuery(), req.IDs)
+	if len(req.IDs) == 0 && req.EnabledOnly != nil && *req.EnabledOnly {
 		query = query.Where("enabled = ?", true)
 	}
 

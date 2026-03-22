@@ -325,6 +325,7 @@ func syncSubscriptionTasks(sub *model.Subscription, emit PullCallback) {
 				Name:            candidate.Name,
 				Command:         candidate.Command,
 				CronExpression:  candidate.CronExpression,
+				TaskType:        model.TaskTypeCron,
 				Status:          model.TaskStatusEnabled,
 				Timeout:         86400,
 				NotifyOnFailure: true,

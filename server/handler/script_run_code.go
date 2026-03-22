@@ -48,7 +48,7 @@ func (h *ScriptHandler) RunCode(c *gin.Context) {
 	}
 
 	cmdParts, _ := scriptCommandParts(ext, tmpFile)
-	env, _ := buildScriptExecEnv()
+	env, _ := buildScriptExecEnv(tmpDir)
 	cmd := newScriptCommand(cmdParts, tmpDir, env)
 
 	run := newDebugRun()
