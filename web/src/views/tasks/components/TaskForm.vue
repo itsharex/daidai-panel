@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import { ElMessage } from 'element-plus'
 import CronInput from './CronInput.vue'
 import { mergeTaskLabels, splitTaskLabels } from '../taskLabels'
 import { useResponsive } from '@/composables/useResponsive'
@@ -22,6 +23,7 @@ const form = ref({
   cron_expression: '* * * * *',
   task_type: 'cron',
   timeout: 86400,
+  random_delay_seconds: null as number | null,
   max_retries: 0,
   retry_interval: 60,
   notify_on_failure: true,
@@ -37,18 +39,32 @@ const form = ref({
 const labelInput = ref('')
 const activeTab = ref('basic')
 const internalLabels = ref<string[]>([])
+const randomDelayMode = ref<'inherit' | 'disabled' | 'custom'>('inherit')
 const { dialogFullscreen } = useResponsive()
 
 watch(() => props.visible, (val) => {
   if (val && props.task) {
     const { editableLabels, internalLabels: hiddenLabels } = splitTaskLabels(props.task.labels || [])
     internalLabels.value = hiddenLabels
+    const taskRandomDelay = typeof props.task.random_delay_seconds === 'number'
+      ? props.task.random_delay_seconds
+      : props.task.random_delay_seconds == null
+        ? null
+        : Number(props.task.random_delay_seconds)
+    if (taskRandomDelay == null) {
+      randomDelayMode.value = 'inherit'
+    } else if (taskRandomDelay <= 0) {
+      randomDelayMode.value = 'disabled'
+    } else {
+      randomDelayMode.value = 'custom'
+    }
     form.value = {
       name: props.task.name || '',
       command: props.task.command || '',
       cron_expression: props.task.cron_expression || '* * * * *',
       task_type: props.task.task_type || 'cron',
       timeout: props.task.timeout ?? 86400,
+      random_delay_seconds: taskRandomDelay,
       max_retries: props.task.max_retries ?? 0,
       retry_interval: props.task.retry_interval ?? 60,
       notify_on_failure: props.task.notify_on_failure ?? true,
@@ -63,11 +79,12 @@ watch(() => props.visible, (val) => {
   } else if (val) {
     const p = props.prefill
     internalLabels.value = []
+    randomDelayMode.value = 'inherit'
     form.value = {
       name: p?.name || '', command: p?.command || '',
       cron_expression: p?.cron_expression || '* * * * *',
       task_type: p?.task_type || 'cron',
-      timeout: 86400, max_retries: 0, retry_interval: 60,
+      timeout: 86400, random_delay_seconds: null, max_retries: 0, retry_interval: 60,
       notify_on_failure: true, notify_on_success: false, notification_channel_id: null, labels: [], depends_on: null,
       task_before: '', task_after: '', allow_multiple_instances: false,
     }
@@ -78,6 +95,20 @@ watch(() => props.visible, (val) => {
 watch(() => form.value.task_type, (value) => {
   if (value === 'cron' && !form.value.cron_expression) {
     form.value.cron_expression = '* * * * *'
+  }
+})
+
+watch(randomDelayMode, (mode) => {
+  if (mode === 'inherit') {
+    form.value.random_delay_seconds = null
+    return
+  }
+  if (mode === 'disabled') {
+    form.value.random_delay_seconds = 0
+    return
+  }
+  if (form.value.random_delay_seconds == null || form.value.random_delay_seconds <= 0) {
+    form.value.random_delay_seconds = 60
   }
 })
 
@@ -95,6 +126,12 @@ function removeLabel(label: string) {
 
 function handleSubmit() {
   if (!form.value.name || !form.value.command) return
+  if (randomDelayMode.value === 'custom') {
+    if (form.value.random_delay_seconds == null || form.value.random_delay_seconds <= 0) {
+      ElMessage.warning('请输入大于 0 的随机延迟秒数')
+      return
+    }
+  }
   const data = { ...form.value }
   if (data.task_type === 'cron') {
     if (!data.cron_expression) return
@@ -174,6 +211,22 @@ function handleSubmit() {
           <el-form-item label="超时(秒)">
             <el-input-number v-model="form.timeout" :min="0" :max="86400" />
           </el-form-item>
+          <el-form-item label="随机延迟">
+            <div class="advanced-field-block">
+              <el-radio-group v-model="randomDelayMode">
+                <el-radio value="inherit">继承系统设置</el-radio>
+                <el-radio value="disabled">不随机延迟</el-radio>
+                <el-radio value="custom">任务单独设置</el-radio>
+              </el-radio-group>
+              <div v-if="randomDelayMode === 'custom'" class="advanced-inline-input">
+                <el-input-number v-model="form.random_delay_seconds" :min="1" :max="86400" />
+                <span>秒</span>
+              </div>
+              <div class="advanced-field-hint">
+                仅当前任务生效。未单独设置时继续沿用系统设置里的全局随机延迟；设置为“不随机延迟”可明确跳过全局规则。
+              </div>
+            </div>
+          </el-form-item>
           <el-form-item label="最大重试次数">
             <el-input-number v-model="form.max_retries" :min="0" :max="10" />
           </el-form-item>
@@ -244,9 +297,32 @@ function handleSubmit() {
   align-items: center;
 }
 
+.advanced-field-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.advanced-inline-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.advanced-field-hint {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  line-height: 1.6;
+}
+
 @media (max-width: 768px) {
   .label-area {
     align-items: stretch;
+  }
+
+  .advanced-inline-input {
+    flex-wrap: wrap;
   }
 }
 </style>

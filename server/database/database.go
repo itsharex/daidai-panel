@@ -110,6 +110,7 @@ func EnsureColumns() {
 		{"task_type", "VARCHAR(16) DEFAULT 'cron'"},
 		{"allow_multiple_instances", "BOOLEAN DEFAULT 0"},
 		{"timeout", "INTEGER DEFAULT 300"},
+		{"random_delay_seconds", "INTEGER"},
 		{"max_retries", "INTEGER DEFAULT 0"},
 		{"retry_interval", "INTEGER DEFAULT 60"},
 		{"notify_on_failure", "BOOLEAN DEFAULT 1"},

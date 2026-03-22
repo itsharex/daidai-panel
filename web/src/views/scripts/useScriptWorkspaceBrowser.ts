@@ -66,8 +66,8 @@ export function useScriptWorkspaceBrowser() {
     try {
       const res = await scriptApi.tree()
       fileTree.value = res.data || []
-    } catch {
-      ElMessage.error('加载文件树失败')
+    } catch (err: any) {
+      ElMessage.error(err?.response?.data?.error || err?.message || '加载文件树失败')
     } finally {
       treeLoading.value = false
     }
@@ -80,8 +80,10 @@ export function useScriptWorkspaceBrowser() {
       isBinary.value = res.data.is_binary ?? res.data.binary ?? false
       fileContent.value = res.data.content
       originalContent.value = res.data.content
-    } catch {
-      ElMessage.error('加载文件内容失败')
+      return true
+    } catch (err: any) {
+      ElMessage.error(err?.response?.data?.error || err?.message || '加载文件内容失败')
+      return false
     } finally {
       loading.value = false
     }
@@ -100,10 +102,30 @@ export function useScriptWorkspaceBrowser() {
         return
       }
     }
+
+    const previousState = {
+      selectedFile: selectedFile.value,
+      fileContent: fileContent.value,
+      originalContent: originalContent.value,
+      isBinary: isBinary.value,
+      isEditing: isEditing.value,
+      mobileShowEditor: mobileShowEditor.value,
+    }
+
     selectedFile.value = data.key
     isEditing.value = false
+    const loaded = await loadFileContent(data.key)
+    if (!loaded) {
+      selectedFile.value = previousState.selectedFile
+      fileContent.value = previousState.fileContent
+      originalContent.value = previousState.originalContent
+      isBinary.value = previousState.isBinary
+      isEditing.value = previousState.isEditing
+      mobileShowEditor.value = previousState.mobileShowEditor
+      return
+    }
+
     mobileShowEditor.value = true
-    await loadFileContent(data.key)
   }
 
   function allowDrag(draggingNode: any) {

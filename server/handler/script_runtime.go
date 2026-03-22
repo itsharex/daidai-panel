@@ -156,6 +156,12 @@ func scriptCommandParts(ext, target string) ([]string, error) {
 		return nil, fmt.Errorf("不支持执行此文件类型")
 	}
 
+	if ext == ".sh" {
+		if err := service.NormalizeShellScriptFile(target); err != nil {
+			return nil, fmt.Errorf("脚本换行规范化失败: %w", err)
+		}
+	}
+
 	cmdParts := append([]string{}, baseCmd...)
 	cmdParts = append(cmdParts, target)
 	return cmdParts, nil

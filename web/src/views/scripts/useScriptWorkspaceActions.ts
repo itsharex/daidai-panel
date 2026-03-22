@@ -12,7 +12,7 @@ interface ScriptWorkspaceActionsOptions {
   isEditing: Ref<boolean>
   hasChanges: ComputedRef<boolean>
   loadTree: () => Promise<void>
-  loadFileContent: (path: string) => Promise<void>
+  loadFileContent: (path: string) => Promise<boolean>
 }
 
 export function useScriptWorkspaceActions({
@@ -48,6 +48,10 @@ export function useScriptWorkspaceActions({
 
   const versions = ref<ScriptVersionRecord[]>([])
   const versionsLoading = ref(false)
+
+  function isActionCancelled(err: unknown) {
+    return err === 'cancel' || err === 'close' || String(err) === 'cancel' || String(err) === 'close'
+  }
 
   async function handleSave() {
     if (!selectedFile.value || isBinary.value) return
@@ -88,8 +92,8 @@ export function useScriptWorkspaceActions({
       selectedFile.value = fullPath
       isEditing.value = true
       await loadFileContent(fullPath)
-    } catch {
-      ElMessage.error('创建失败')
+    } catch (err: any) {
+      ElMessage.error(err?.response?.data?.error || err?.message || '创建失败')
     }
   }
 
@@ -105,8 +109,8 @@ export function useScriptWorkspaceActions({
       newDirName.value = ''
       newDirParent.value = ''
       await loadTree()
-    } catch {
-      ElMessage.error('创建失败')
+    } catch (err: any) {
+      ElMessage.error(err?.response?.data?.error || err?.message || '创建失败')
     }
   }
 
@@ -121,8 +125,9 @@ export function useScriptWorkspaceActions({
         originalContent.value = ''
       }
       await loadTree()
-    } catch {
-      // cancelled
+    } catch (err: any) {
+      if (isActionCancelled(err)) return
+      ElMessage.error(err?.response?.data?.error || err?.message || '删除失败')
     }
   }
 
@@ -136,8 +141,8 @@ export function useScriptWorkspaceActions({
         selectedFile.value = res.new_path || renameTarget.value.trim()
       }
       await loadTree()
-    } catch {
-      ElMessage.error('重命名失败')
+    } catch (err: any) {
+      ElMessage.error(err?.response?.data?.error || err?.message || '重命名失败')
     }
   }
 
@@ -229,8 +234,8 @@ export function useScriptWorkspaceActions({
     try {
       const res = await scriptApi.listVersions(selectedFile.value)
       versions.value = res.data || []
-    } catch {
-      ElMessage.error('加载版本历史失败')
+    } catch (err: any) {
+      ElMessage.error(err?.response?.data?.error || err?.message || '加载版本历史失败')
     } finally {
       versionsLoading.value = false
     }

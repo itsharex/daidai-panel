@@ -34,6 +34,7 @@ func (h *TaskHandler) Export(c *gin.Context) {
 			"status":                    task.Status,
 			"labels":                    task.GetLabels(),
 			"timeout":                   task.Timeout,
+			"random_delay_seconds":      task.RandomDelaySeconds,
 			"max_retries":               task.MaxRetries,
 			"retry_interval":            task.RetryInterval,
 			"notify_on_failure":         task.NotifyOnFailure,
@@ -104,6 +105,14 @@ func (h *TaskHandler) Import(c *gin.Context) {
 
 		if value, ok := taskData["timeout"].(float64); ok {
 			task.Timeout = int(value)
+		}
+		if value, exists := taskData["random_delay_seconds"]; exists {
+			randomDelayValue, err := normalizeTaskRandomDelaySecondsValue(value)
+			if err != nil {
+				errors = append(errors, fmt.Sprintf("任务 %d: %s", i+1, err.Error()))
+				continue
+			}
+			task.RandomDelaySeconds = randomDelayValue
 		}
 		if value, ok := taskData["max_retries"].(float64); ok {
 			task.MaxRetries = int(value)

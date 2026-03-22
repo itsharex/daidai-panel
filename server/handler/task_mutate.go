@@ -14,6 +14,32 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func normalizeTaskRandomDelaySecondsValue(value interface{}) (*int, error) {
+	if value == nil {
+		return nil, nil
+	}
+
+	switch typed := value.(type) {
+	case float64:
+		delay := int(typed)
+		if float64(delay) != typed {
+			return nil, fmt.Errorf("随机延迟最大秒数必须为整数")
+		}
+		if delay < 0 || delay > 86400 {
+			return nil, fmt.Errorf("随机延迟最大秒数需在 0-86400 之间")
+		}
+		return &delay, nil
+	case int:
+		if typed < 0 || typed > 86400 {
+			return nil, fmt.Errorf("随机延迟最大秒数需在 0-86400 之间")
+		}
+		delay := typed
+		return &delay, nil
+	default:
+		return nil, fmt.Errorf("随机延迟最大秒数无效")
+	}
+}
+
 func (h *TaskHandler) Create(c *gin.Context) {
 	var req struct {
 		Name                   string   `json:"name" binding:"required"`
@@ -21,6 +47,7 @@ func (h *TaskHandler) Create(c *gin.Context) {
 		CronExpression         string   `json:"cron_expression"`
 		TaskType               string   `json:"task_type"`
 		Timeout                *int     `json:"timeout"`
+		RandomDelaySeconds     *int     `json:"random_delay_seconds"`
 		MaxRetries             *int     `json:"max_retries"`
 		RetryInterval          *int     `json:"retry_interval"`
 		NotifyOnFailure        *bool    `json:"notify_on_failure"`
@@ -65,6 +92,14 @@ func (h *TaskHandler) Create(c *gin.Context) {
 
 	if req.Timeout != nil {
 		task.Timeout = *req.Timeout
+	}
+	if req.RandomDelaySeconds != nil {
+		randomDelayValue, err := normalizeTaskRandomDelaySecondsValue(*req.RandomDelaySeconds)
+		if err != nil {
+			response.BadRequest(c, err.Error())
+			return
+		}
+		task.RandomDelaySeconds = randomDelayValue
 	}
 	if req.MaxRetries != nil {
 		task.MaxRetries = *req.MaxRetries
@@ -174,7 +209,7 @@ func (h *TaskHandler) Update(c *gin.Context) {
 	allowedFields := map[string]bool{
 		"name": true, "command": true, "cron_expression": true,
 		"task_type": true,
-		"timeout":   true, "max_retries": true, "retry_interval": true,
+		"timeout":   true, "random_delay_seconds": true, "max_retries": true, "retry_interval": true,
 		"notify_on_failure": true, "notify_on_success": true, "notification_channel_id": true, "labels": true, "depends_on": true,
 		"sort_order": true, "task_before": true, "task_after": true,
 		"allow_multiple_instances": true,
@@ -182,6 +217,15 @@ func (h *TaskHandler) Update(c *gin.Context) {
 
 	updates := make(map[string]interface{})
 	for key, value := range req {
+		if key == "random_delay_seconds" {
+			randomDelayValue, err := normalizeTaskRandomDelaySecondsValue(value)
+			if err != nil {
+				response.BadRequest(c, err.Error())
+				return
+			}
+			updates[key] = randomDelayValue
+			continue
+		}
 		if key == "notification_channel_id" {
 			channelID, err := normalizeTaskNotificationChannelIDValue(value)
 			if err != nil {
@@ -262,6 +306,7 @@ func (h *TaskHandler) Copy(c *gin.Context) {
 		Status:                 model.TaskStatusDisabled,
 		Labels:                 task.Labels,
 		Timeout:                task.Timeout,
+		RandomDelaySeconds:     task.RandomDelaySeconds,
 		MaxRetries:             task.MaxRetries,
 		RetryInterval:          task.RetryInterval,
 		NotifyOnFailure:        task.NotifyOnFailure,

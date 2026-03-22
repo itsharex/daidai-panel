@@ -7,6 +7,8 @@ import { useAuthStore } from '@/stores/auth'
 import { ElLoading, ElMessage, ElMessageBox } from 'element-plus'
 import { createQrCodeDataUrl } from '@/utils/qrcode'
 
+const backupUploadMaxSize = 512 * 1024 * 1024
+
 export function useSettingsSecurity() {
   const router = useRouter()
   const authStore = useAuthStore()
@@ -87,12 +89,21 @@ export function useSettingsSecurity() {
     const input = e.target as HTMLInputElement
     const file = input.files?.[0]
     if (!file) return
+    if (file.size > backupUploadMaxSize) {
+      ElMessage.error('备份文件过大，当前上传上限为 512MB')
+      input.value = ''
+      return
+    }
     try {
       await systemApi.uploadBackup(file)
       ElMessage.success('备份文件导入成功')
       void loadBackups()
-    } catch {
-      ElMessage.error('导入备份失败')
+    } catch (err: any) {
+      if (err?.response?.status === 413) {
+        ElMessage.error('备份文件超过当前上传上限，请检查反向代理或容器上传限制')
+      } else {
+        ElMessage.error(err?.response?.data?.error || err?.message || '导入备份失败')
+      }
     }
     input.value = ''
   }

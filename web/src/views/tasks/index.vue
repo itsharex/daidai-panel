@@ -549,6 +549,9 @@ async function handleImport(event: Event) {
           <div class="dd-mobile-card__actions task-card__actions">
             <el-button v-if="row.status !== 2" type="primary" size="small" @click="handleRun(row)">运行</el-button>
             <el-button v-else type="warning" size="small" @click="handleStop(row)">停止</el-button>
+            <el-button :type="row.status === 0 ? 'success' : 'info'" size="small" plain @click="handleToggle(row)">
+              {{ row.status === 0 ? '启用' : '禁用' }}
+            </el-button>
             <el-button size="small" @click="openLogViewer(row)">日志</el-button>
             <el-button size="small" @click="openEdit(row)">编辑</el-button>
             <el-dropdown trigger="click">
@@ -560,9 +563,6 @@ async function handleImport(event: Event) {
                 <el-dropdown-menu>
                   <el-dropdown-item @click="openDetail(row)">详情</el-dropdown-item>
                   <el-dropdown-item @click="openLogFiles(row)">日志文件</el-dropdown-item>
-                  <el-dropdown-item divided @click="handleToggle(row)">
-                    {{ row.status === 0 ? '启用' : '禁用' }}
-                  </el-dropdown-item>
                   <el-dropdown-item @click="handleCopy(row)">复制</el-dropdown-item>
                   <el-dropdown-item @click="handlePin(row)">{{ row.is_pinned ? '取消置顶' : '置顶' }}</el-dropdown-item>
                   <el-dropdown-item divided @click="handleDelete(row)">
@@ -659,11 +659,14 @@ async function handleImport(event: Event) {
           <span v-else class="text-muted">-</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="260" fixed="right">
+      <el-table-column label="操作" width="320" fixed="right">
         <template #default="{ row }">
           <el-button-group size="small">
             <el-button v-if="row.status !== 2" type="primary" text @click="handleRun(row)">运行</el-button>
             <el-button v-else type="warning" text @click="handleStop(row)">停止</el-button>
+            <el-button :type="row.status === 0 ? 'success' : 'info'" text @click="handleToggle(row)">
+              {{ row.status === 0 ? '启用' : '禁用' }}
+            </el-button>
             <el-button text @click="openLogViewer(row)">日志</el-button>
             <el-button text @click="openEdit(row)">编辑</el-button>
             <el-dropdown trigger="click">
@@ -672,9 +675,6 @@ async function handleImport(event: Event) {
                 <el-dropdown-menu>
                   <el-dropdown-item @click="openDetail(row)">详情</el-dropdown-item>
                   <el-dropdown-item @click="openLogFiles(row)">日志文件</el-dropdown-item>
-                  <el-dropdown-item divided @click="handleToggle(row)">
-                    {{ row.status === 0 ? '启用' : '禁用' }}
-                  </el-dropdown-item>
                   <el-dropdown-item @click="handleCopy(row)">复制</el-dropdown-item>
                   <el-dropdown-item @click="handlePin(row)">{{ row.is_pinned ? '取消置顶' : '置顶' }}</el-dropdown-item>
                   <el-dropdown-item divided @click="handleDelete(row)">

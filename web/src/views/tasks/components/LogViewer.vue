@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onUnmounted } from 'vue'
+import { computed, ref, watch, onUnmounted } from 'vue'
 import { taskApi } from '@/api/task'
 import { openAuthorizedEventStream, type EventStreamConnection } from '@/utils/sse'
 import { useResponsive } from '@/composables/useResponsive'
@@ -14,7 +14,8 @@ const emit = defineEmits<{
   'update:visible': [value: boolean]
 }>()
 
-const logs = ref<string[]>([])
+const logLines = ref<string[]>([])
+const logTail = ref('')
 const done = ref(false)
 const error = ref<string | null>(null)
 const loading = ref(false)
@@ -25,6 +26,15 @@ let eventSource: EventStreamConnection | null = null
 let logBuffer: string[] = []
 let logFlushRaf = 0
 
+const hasLogs = computed(() => logLines.value.length > 0 || logTail.value.length > 0)
+const renderedLogText = computed(() => {
+  const lines = [...logLines.value]
+  if (logTail.value !== '' || lines.length === 0) {
+    lines.push(logTail.value)
+  }
+  return lines.join('\n')
+})
+
 watch(() => props.visible, (visible) => {
   if (visible && props.taskId) {
     startStream()
@@ -34,7 +44,7 @@ watch(() => props.visible, (visible) => {
 })
 
 async function startStream() {
-  logs.value = []
+  resetLogOutput()
   done.value = false
   error.value = null
   loading.value = true
@@ -54,7 +64,9 @@ async function startStream() {
       logBuffer.push(data)
       if (!logFlushRaf) {
         logFlushRaf = requestAnimationFrame(() => {
-          logs.value.push(...logBuffer)
+          for (const chunk of logBuffer) {
+            appendLogChunk(chunk, true)
+          }
           logBuffer = []
           logFlushRaf = 0
           if (autoScroll.value) {
@@ -73,7 +85,7 @@ async function startStream() {
         setTimeout(() => startStream(), 500)
         return
       }
-      if (logs.value.length === 0) {
+      if (!hasLogs.value) {
         fetchLatestLog()
       }
     },
@@ -81,7 +93,7 @@ async function startStream() {
       loading.value = false
       done.value = true
       cleanup()
-      if (logs.value.length === 0) {
+      if (!hasLogs.value) {
         fetchLatestLog()
       }
     }
@@ -96,7 +108,8 @@ async function fetchLatestLog() {
       return
     }
     if (res.content) {
-      logs.value = res.content.split('\n').filter((line: string) => line !== '')
+      resetLogOutput()
+      appendLogChunk(String(res.content))
     } else {
       error.value = '日志已过期，文件已被清理'
     }
@@ -106,6 +119,49 @@ async function fetchLatestLog() {
     } else {
       error.value = '获取日志失败'
     }
+  }
+}
+
+function resetLogOutput() {
+  logLines.value = []
+  logTail.value = ''
+}
+
+function pushLogLine() {
+  logLines.value.push(logTail.value)
+  logTail.value = ''
+}
+
+function appendLogChunk(chunk: string, commitBoundary = false) {
+  if (!chunk && !commitBoundary) return
+
+  let endedWithLineBreak = false
+  for (let i = 0; i < chunk.length; i++) {
+    const char = chunk[i]
+    if (char === '\r') {
+      if (chunk[i + 1] === '\n') {
+        pushLogLine()
+        endedWithLineBreak = true
+        i++
+        continue
+      }
+      logTail.value = ''
+      endedWithLineBreak = false
+      continue
+    }
+
+    if (char === '\n') {
+      pushLogLine()
+      endedWithLineBreak = true
+      continue
+    }
+
+    logTail.value += char
+    endedWithLineBreak = false
+  }
+
+  if (commitBoundary && !endedWithLineBreak) {
+    pushLogLine()
   }
 }
 
@@ -176,8 +232,8 @@ function handleClose() {
 
       <div ref="logContainerRef" class="log-container dd-log-surface" v-loading="loading">
         <div v-if="error" class="log-error">{{ error }}</div>
-        <div v-else-if="logs.length === 0 && !loading" class="log-empty">暂无日志输出</div>
-        <pre v-else class="log-content">{{ logs.join('\n') }}</pre>
+        <div v-else-if="!hasLogs && !loading" class="log-empty">暂无日志输出</div>
+        <pre v-else class="log-content">{{ renderedLogText }}</pre>
       </div>
     </div>
   </el-dialog>

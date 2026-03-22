@@ -78,6 +78,11 @@ function handleClose() {
       <el-descriptions-item label="执行命令" :span="2">
         <code style="word-break: break-all">{{ task.command }}</code>
       </el-descriptions-item>
+      <el-descriptions-item label="随机延迟">
+        <span v-if="task.random_delay_seconds == null" style="color: var(--el-text-color-secondary)">继承系统设置</span>
+        <span v-else-if="task.random_delay_seconds === 0">不随机延迟</span>
+        <span v-else>最多 {{ task.random_delay_seconds }} 秒</span>
+      </el-descriptions-item>
       <el-descriptions-item label="标签" :span="2">
         <el-tag v-for="label in displayLabels" :key="label" size="small" effect="plain" style="margin-right: 6px">
           {{ label }}

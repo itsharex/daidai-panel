@@ -26,6 +26,44 @@ defineProps<{
 const backupFileInput = ref<HTMLInputElement | null>(null)
 const { isMobile, dialogFullscreen } = useResponsive()
 
+const backupSelectionOptions: Array<{ key: keyof BackupSelection; title: string; description: string }> = [
+  {
+    key: 'configs',
+    title: '配置项',
+    description: '系统设置、Open API、通知渠道与安全配置；恢复时不会覆盖当前面板账号密码',
+  },
+  {
+    key: 'tasks',
+    title: '定时任务',
+    description: '任务定义、标签、执行参数与依赖关系',
+  },
+  {
+    key: 'subscriptions',
+    title: '订阅管理',
+    description: '订阅配置与 SSH 密钥',
+  },
+  {
+    key: 'env_vars',
+    title: '环境变量',
+    description: '面板环境变量与分组信息',
+  },
+  {
+    key: 'logs',
+    title: '日志文件',
+    description: '任务日志记录、日志目录与面板运行日志',
+  },
+  {
+    key: 'scripts',
+    title: '脚本文件',
+    description: '脚本目录内的源码、资源和可执行文件',
+  },
+  {
+    key: 'dependencies',
+    title: '依赖记录',
+    description: '记录已安装依赖，恢复时按记录重新安装',
+  },
+]
+
 function triggerUploadBackup() {
   backupFileInput.value?.click()
 }
@@ -111,27 +149,20 @@ function triggerUploadBackup() {
     <el-form :label-width="dialogFullscreen ? 'auto' : '100px'" :label-position="dialogFullscreen ? 'top' : 'right'">
       <el-form-item label="备份内容">
         <div class="backup-selection-grid">
-          <el-checkbox v-model="backupSelection.configs">配置项
-            <span class="backup-selection-hint">系统设置、Open API、通知渠道与安全配置；恢复时不会覆盖当前面板账号密码</span>
-          </el-checkbox>
-          <el-checkbox v-model="backupSelection.tasks">定时任务
-            <span class="backup-selection-hint">任务定义、标签、执行参数与依赖关系</span>
-          </el-checkbox>
-          <el-checkbox v-model="backupSelection.subscriptions">订阅管理
-            <span class="backup-selection-hint">订阅配置与 SSH 密钥</span>
-          </el-checkbox>
-          <el-checkbox v-model="backupSelection.env_vars">环境变量
-            <span class="backup-selection-hint">面板环境变量与分组信息</span>
-          </el-checkbox>
-          <el-checkbox v-model="backupSelection.logs">日志文件
-            <span class="backup-selection-hint">任务日志记录、日志目录与面板运行日志</span>
-          </el-checkbox>
-          <el-checkbox v-model="backupSelection.scripts">脚本文件
-            <span class="backup-selection-hint">脚本目录内的源码、资源和可执行文件</span>
-          </el-checkbox>
-          <el-checkbox v-model="backupSelection.dependencies">依赖记录
-            <span class="backup-selection-hint">记录已安装依赖，恢复时按记录重新安装</span>
-          </el-checkbox>
+          <label
+            v-for="option in backupSelectionOptions"
+            :key="option.key"
+            class="backup-selection-card"
+            :class="{ 'is-active': backupSelection[option.key] }"
+          >
+            <el-checkbox
+              :model-value="backupSelection[option.key]"
+              @update:model-value="backupSelection[option.key] = Boolean($event)"
+            >
+              {{ option.title }}
+            </el-checkbox>
+            <span class="backup-selection-hint">{{ option.description }}</span>
+          </label>
         </div>
       </el-form-item>
       <el-form-item label="备份密码">
@@ -183,19 +214,63 @@ function triggerUploadBackup() {
 .backup-selection-grid {
   display: grid;
   gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.backup-selection-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(59, 130, 246, 0.03), rgba(15, 23, 42, 0)),
+    var(--el-fill-color-extra-light);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+  cursor: pointer;
+
+  &:hover {
+    border-color: rgba(59, 130, 246, 0.35);
+    box-shadow: 0 10px 22px rgba(15, 23, 42, 0.08);
+    transform: translateY(-1px);
+  }
+
+  &.is-active {
+    border-color: rgba(59, 130, 246, 0.48);
+    background:
+      linear-gradient(180deg, rgba(59, 130, 246, 0.08), rgba(59, 130, 246, 0.02)),
+      var(--el-bg-color);
+    box-shadow: 0 10px 24px rgba(59, 130, 246, 0.12);
+  }
+
+  :deep(.el-checkbox) {
+    align-items: flex-start;
+    line-height: 1.4;
+  }
+
+  :deep(.el-checkbox__label) {
+    font-weight: 600;
+    color: var(--el-text-color-primary);
+    padding-left: 10px;
+  }
 }
 
 .backup-selection-hint {
   display: block;
   font-size: 12px;
   color: var(--el-text-color-secondary);
-  margin-top: 2px;
-  margin-left: 24px;
+  line-height: 1.6;
+  margin-left: 26px;
 }
 
 @media (max-width: 768px) {
   .card-header-buttons {
     width: 100%;
+  }
+
+  .backup-selection-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

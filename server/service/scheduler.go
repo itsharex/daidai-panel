@@ -228,11 +228,16 @@ func (s *Scheduler) executeTaskInner(taskID uint) {
 		}
 	}
 
-	randomDelay := model.GetRegisteredConfigInt("random_delay")
+	commandPlan, err := ParseCommandExecutionPlan(task.Command, s.scriptsDir)
+	if err != nil {
+		log.Printf("task %d parse command failed: %v", taskID, err)
+		return
+	}
+
 	commandTimeout := model.GetRegisteredConfigInt("command_timeout")
 	maxLogSize := model.GetRegisteredConfigInt("max_log_content_size")
 
-	if randomDelay > 0 {
+	if randomDelay := resolveTaskRandomDelaySeconds(&task, commandPlan); randomDelay > 0 {
 		delay := rand.Intn(randomDelay) + 1
 		time.Sleep(time.Duration(delay) * time.Second)
 	}
@@ -247,6 +252,9 @@ func (s *Scheduler) executeTaskInner(taskID uint) {
 	timeout := task.Timeout
 	if timeout <= 0 {
 		timeout = commandTimeout
+	}
+	if commandPlan.TimeoutOverride != nil && *commandPlan.TimeoutOverride > 0 {
+		timeout = *commandPlan.TimeoutOverride
 	}
 
 	logRelPath := GetRelativeLogPath(taskID)
@@ -308,7 +316,7 @@ func (s *Scheduler) executeTaskInner(taskID uint) {
 			s.processLock.Unlock()
 			database.DB.Model(&task).Update("pid", pid)
 		}
-		result, _, err := RunCommand(task.Command, s.scriptsDir, timeout, envVars, maxLogSize, onOutput, onStart)
+		result, _, err := RunCommandWithPlan(commandPlan, timeout, envVars, maxLogSize, onOutput, onStart)
 		if err != nil {
 			onOutput(fmt.Sprintf("[执行错误: %s]", err.Error()))
 			retries++

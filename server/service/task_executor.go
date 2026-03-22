@@ -21,7 +21,7 @@ import (
 type TaskExecutor struct {
 	scriptsDir       string
 	logDir           string
-	runningProcesses map[uint]*os.Process
+	runningProcesses map[uint]map[int]*os.Process
 	processLock      sync.Mutex
 }
 
@@ -29,7 +29,7 @@ func NewTaskExecutor() *TaskExecutor {
 	return &TaskExecutor{
 		scriptsDir:       config.C.Data.ScriptsDir,
 		logDir:           config.C.Data.LogDir,
-		runningProcesses: make(map[uint]*os.Process),
+		runningProcesses: make(map[uint]map[int]*os.Process),
 	}
 }
 
@@ -49,9 +49,14 @@ func (e *TaskExecutor) OnTaskExecuting(req *ExecutionRequest) error {
 		}
 	}
 
-	randomDelay := model.GetRegisteredConfigInt("random_delay")
-	delayExts := parseTaskExtensions(model.GetRegisteredConfig("random_delay_extensions"))
-	if randomDelay > 0 && shouldApplyRandomDelay(task.Command, delayExts) {
+	plan, err := ParseCommandExecutionPlan(task.Command, e.scriptsDir)
+	if err != nil {
+		return err
+	}
+	req.CommandPlan = plan
+
+	randomDelay := resolveTaskRandomDelaySeconds(task, plan)
+	if randomDelay > 0 {
 		delay := rand.Intn(randomDelay) + 1
 		time.Sleep(time.Duration(delay) * time.Second)
 	}
@@ -63,9 +68,13 @@ func (e *TaskExecutor) OnTaskExecuting(req *ExecutionRequest) error {
 	})
 
 	logID := fmt.Sprintf("%d_%d", task.ID, now.UnixNano())
-	tinyLog, err := GetTinyLogManager().Create(logID)
-	if err != nil {
-		return fmt.Errorf("failed to create log: %w", err)
+	var tinyLog *TinyLog
+	if !plan.SuppressLiveOutput {
+		tinyLog, err = GetTinyLogManager().Create(logID)
+		if err != nil {
+			return fmt.Errorf("failed to create log: %w", err)
+		}
+		req.LogID = logID
 	}
 
 	relLogPath := GetRelativeLogPath(task.ID)
@@ -78,7 +87,6 @@ func (e *TaskExecutor) OnTaskExecuting(req *ExecutionRequest) error {
 	}
 	database.DB.Create(taskLog)
 
-	req.LogID = logID
 	req.TaskLogID = taskLog.ID
 
 	go e.runTask(req, taskLog, tinyLog)
@@ -125,8 +133,10 @@ func (e *TaskExecutor) StopTask(taskID uint) bool {
 	e.processLock.Lock()
 	defer e.processLock.Unlock()
 
-	if p, ok := e.runningProcesses[taskID]; ok {
-		KillProcessGroup(p)
+	if processes, ok := e.runningProcesses[taskID]; ok {
+		for _, process := range processes {
+			KillProcessGroup(process)
+		}
 		delete(e.runningProcesses, taskID)
 		return true
 	}
@@ -135,6 +145,15 @@ func (e *TaskExecutor) StopTask(taskID uint) bool {
 
 func (e *TaskExecutor) runTask(req *ExecutionRequest, taskLog *model.TaskLog, tinyLog *TinyLog) {
 	task := req.Task
+	plan := req.CommandPlan
+	if plan == nil {
+		parsedPlan, err := ParseCommandExecutionPlan(task.Command, e.scriptsDir)
+		if err != nil {
+			panic(err)
+		}
+		plan = parsedPlan
+		req.CommandPlan = parsedPlan
+	}
 	startTime := time.Now()
 	exitCode := 0
 	success := false
@@ -198,8 +217,11 @@ func (e *TaskExecutor) runTask(req *ExecutionRequest, taskLog *model.TaskLog, ti
 
 		duration := time.Since(startTime).Seconds()
 
-		compressed, _ := tinyLog.Close()
-		GetTinyLogManager().Remove(tinyLog.LogID)
+		compressed := ""
+		if tinyLog != nil {
+			compressed, _ = tinyLog.Close()
+			GetTinyLogManager().Remove(tinyLog.LogID)
+		}
 
 		logStatus := model.LogStatusSuccess
 		if exitCode != 0 {
@@ -265,8 +287,11 @@ func (e *TaskExecutor) runTask(req *ExecutionRequest, taskLog *model.TaskLog, ti
 		}
 	}()
 
+	var outputCollectorMu sync.Mutex
 	onOutput := func(line string) {
-		fmt.Fprintf(tinyLog, "%s\n", line)
+		if tinyLog != nil {
+			fmt.Fprintf(tinyLog, "%s\n", line)
+		}
 		if fullLogPath != "" {
 			logMgr.Write(fullLogPath, line+"\n")
 		}
@@ -276,7 +301,9 @@ func (e *TaskExecutor) runTask(req *ExecutionRequest, taskLog *model.TaskLog, ti
 
 	onOutputWithCollect := func(line string) {
 		onOutput(line)
+		outputCollectorMu.Lock()
 		outputCollector.WriteString(line + "\n")
+		outputCollectorMu.Unlock()
 	}
 
 	onOutput(fmt.Sprintf("=== 开始执行 [%s] ===", startTime.Format("2006-01-02 15:04:05")))
@@ -301,18 +328,22 @@ func (e *TaskExecutor) runTask(req *ExecutionRequest, taskLog *model.TaskLog, ti
 
 		outputCollector.Reset()
 		onStart := func(process *os.Process) {
-			e.processLock.Lock()
-			e.runningProcesses[req.TaskID] = process
+			e.registerRunningProcess(req.TaskID, process)
 			pid := process.Pid
-			e.processLock.Unlock()
 			database.DB.Model(task).Update("pid", pid)
 		}
-		result, _, err := RunCommand(task.Command, e.scriptsDir, timeout, envVars, maxLogSize, onOutputWithCollect, onStart)
+		effectiveTimeout := timeout
+		if plan.TimeoutOverride != nil && *plan.TimeoutOverride > 0 {
+			effectiveTimeout = *plan.TimeoutOverride
+		}
+		result, _, err := RunCommandWithPlan(plan, effectiveTimeout, envVars, maxLogSize, onOutputWithCollect, onStart)
 		if err != nil {
 			onOutput(fmt.Sprintf("[执行错误: %s]", err.Error()))
 			retries++
 			lastExitCode = 1
+			outputCollectorMu.Lock()
 			lastFailureOutput = buildTaskFailureOutput(outputCollector.String(), err.Error())
+			outputCollectorMu.Unlock()
 			continue
 		}
 
@@ -322,10 +353,14 @@ func (e *TaskExecutor) runTask(req *ExecutionRequest, taskLog *model.TaskLog, ti
 			lastFailureOutput = ""
 			break
 		}
+		outputCollectorMu.Lock()
 		lastFailureOutput = outputCollector.String()
+		outputCollectorMu.Unlock()
 
 		if depInstallCount < maxDepInstalls && model.GetRegisteredConfigBool("auto_install_deps") {
+			outputCollectorMu.Lock()
 			collected := outputCollector.String()
+			outputCollectorMu.Unlock()
 			if e.detectAndInstallDeps(collected, envVars, onOutput) {
 				depInstallCount++
 				onOutput(fmt.Sprintf("[依赖已安装 (%d/%d)，自动重试执行]", depInstallCount, maxDepInstalls))
@@ -351,6 +386,19 @@ func (e *TaskExecutor) runTask(req *ExecutionRequest, taskLog *model.TaskLog, ti
 
 	onOutput(fmt.Sprintf("=== 执行结束 [%s] 耗时 %.2f 秒 退出码 %d ===",
 		endTime.Format("2006-01-02 15:04:05"), duration, lastExitCode))
+}
+
+func (e *TaskExecutor) registerRunningProcess(taskID uint, process *os.Process) {
+	if process == nil {
+		return
+	}
+	e.processLock.Lock()
+	defer e.processLock.Unlock()
+
+	if e.runningProcesses[taskID] == nil {
+		e.runningProcesses[taskID] = make(map[int]*os.Process)
+	}
+	e.runningProcesses[taskID][process.Pid] = process
 }
 
 func buildTaskNotificationChannelIDs(channelID *uint) []uint {
@@ -569,14 +617,46 @@ func shouldApplyRandomDelay(command string, allowedExts map[string]bool) bool {
 }
 
 func extractTaskScriptPath(command string) string {
-	parts := strings.Fields(strings.TrimSpace(command))
-	if len(parts) < 2 {
+	tokens, err := splitCommandTokens(command)
+	if err != nil || len(tokens) < 2 {
 		return ""
 	}
 
-	switch parts[0] {
-	case "task", "desi", "python", "python3", "node", "ts-node", "bash":
-		return strings.Join(parts[1:], " ")
+	switch tokens[0] {
+	case "task":
+		remaining := tokens[1:]
+		for len(remaining) > 0 {
+			switch remaining[0] {
+			case "-m":
+				if len(remaining) < 2 {
+					return ""
+				}
+				remaining = remaining[2:]
+			case "-l":
+				remaining = remaining[1:]
+			default:
+				taskShellTokens, _ := splitTaskShellAndScriptArgs(remaining)
+				for count := len(taskShellTokens); count >= 1; count-- {
+					candidate := strings.Join(taskShellTokens[:count], " ")
+					if isSupportedScriptExtension(candidate) {
+						return candidate
+					}
+				}
+				return ""
+			}
+		}
+		return ""
+	case "desi", "python", "python3", "node", "ts-node", "bash":
+		for count := len(tokens) - 1; count >= 2; count-- {
+			candidate := strings.Join(tokens[1:count], " ")
+			if isSupportedScriptExtension(candidate) {
+				return candidate
+			}
+		}
+		if isSupportedScriptExtension(tokens[1]) {
+			return tokens[1]
+		}
+		return ""
 	default:
 		return ""
 	}

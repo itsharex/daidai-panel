@@ -579,40 +579,46 @@ function formatDateTime(t: string | null) {
             <el-radio-button value="compact">紧凑</el-radio-button>
           </el-radio-group>
         </div>
-        <el-button type="primary" @click="openCreate">
-          <el-icon><Plus /></el-icon>新建
-        </el-button>
-        <el-button @click="showBatchDialog = true">
-          <el-icon><DocumentAdd /></el-icon>批量添加
-        </el-button>
-        <el-button @click="handleBatchEnable" :disabled="selectedIds.length === 0">
-          <el-icon><Check /></el-icon>批量启用
-        </el-button>
-        <el-button @click="handleBatchDisable" :disabled="selectedIds.length === 0">
-          <el-icon><Close /></el-icon>批量禁用
-        </el-button>
-        <el-button @click="handleBatchDelete" :disabled="selectedIds.length === 0">
-          <el-icon><Delete /></el-icon>批量删除
-        </el-button>
-        <el-button @click="handleBatchGroup" :disabled="selectedIds.length === 0">
-          <el-icon><FolderAdd /></el-icon>批量分组
-        </el-button>
-        <el-dropdown trigger="click">
-          <el-button>
-            <el-icon><Download /></el-icon>导出
+        <div class="env-toolbar-actions env-toolbar-actions--entry">
+          <el-button type="primary" @click="openCreate">
+            <el-icon><Plus /></el-icon>新建
           </el-button>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item @click="handleExportAll">导出 JSON</el-dropdown-item>
-              <el-dropdown-item @click="exportFormat = 'shell'; handleExportFiles()">导出 Shell</el-dropdown-item>
-              <el-dropdown-item @click="exportFormat = 'js'; handleExportFiles()">导出 JS</el-dropdown-item>
-              <el-dropdown-item @click="exportFormat = 'python'; handleExportFiles()">导出 Python</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
-        <el-button @click="showImportDialog = true">
-          <el-icon><Upload /></el-icon>导入
-        </el-button>
+          <el-button @click="showBatchDialog = true">
+            <el-icon><DocumentAdd /></el-icon>批量添加
+          </el-button>
+        </div>
+        <div class="env-toolbar-actions env-toolbar-actions--batch">
+          <el-button @click="handleBatchEnable" :disabled="selectedIds.length === 0">
+            <el-icon><Check /></el-icon>批量启用
+          </el-button>
+          <el-button @click="handleBatchDisable" :disabled="selectedIds.length === 0">
+            <el-icon><Close /></el-icon>批量禁用
+          </el-button>
+          <el-button @click="handleBatchDelete" :disabled="selectedIds.length === 0">
+            <el-icon><Delete /></el-icon>批量删除
+          </el-button>
+          <el-button @click="handleBatchGroup" :disabled="selectedIds.length === 0">
+            <el-icon><FolderAdd /></el-icon>批量分组
+          </el-button>
+        </div>
+        <div class="env-toolbar-actions env-toolbar-actions--io">
+          <el-dropdown class="env-toolbar-actions__dropdown" trigger="click">
+            <el-button>
+              <el-icon><Download /></el-icon>导出
+            </el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item @click="handleExportAll">导出 JSON</el-dropdown-item>
+                <el-dropdown-item @click="exportFormat = 'shell'; handleExportFiles()">导出 Shell</el-dropdown-item>
+                <el-dropdown-item @click="exportFormat = 'js'; handleExportFiles()">导出 JS</el-dropdown-item>
+                <el-dropdown-item @click="exportFormat = 'python'; handleExportFiles()">导出 Python</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+          <el-button @click="showImportDialog = true">
+            <el-icon><Upload /></el-icon>导入
+          </el-button>
+        </div>
       </div>
     </div>
 
@@ -949,7 +955,24 @@ function formatDateTime(t: string | null) {
     display: flex;
     align-items: center;
     gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
   }
+}
+
+.env-toolbar-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+
+  > * {
+    min-width: 0;
+  }
+}
+
+.env-toolbar-actions__dropdown {
+  min-width: 0;
 }
 
 .table-density-switch {
@@ -1303,8 +1326,10 @@ function formatDateTime(t: string | null) {
 
     .header-right {
       width: 100%;
+      flex-direction: column;
+      align-items: stretch;
       justify-content: flex-start;
-      flex-wrap: wrap;
+      flex-wrap: nowrap;
     }
   }
 
@@ -1318,6 +1343,30 @@ function formatDateTime(t: string | null) {
   .table-density-switch {
     width: 100%;
     justify-content: space-between;
+  }
+
+  .env-toolbar-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+
+    > * {
+      width: 100%;
+    }
+
+    :deep(.el-button) {
+      width: 100%;
+      margin-left: 0;
+    }
+  }
+
+  .env-toolbar-actions__dropdown {
+    width: 100%;
+
+    :deep(.el-button) {
+      width: 100%;
+    }
   }
 
   .env-card__title-row {

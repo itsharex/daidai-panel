@@ -5,6 +5,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -79,5 +80,72 @@ func TestScriptUploadSupportsMultipleFiles(t *testing.T) {
 		if string(content) != fileCase.content {
 			t.Fatalf("unexpected content for %s: %q", uploadedPath, string(content))
 		}
+	}
+}
+
+func TestScriptUploadAllowsCommonMobileFilenamesAndSupportsReadDelete(t *testing.T) {
+	testutil.SetupTestEnv(t)
+
+	engine := newProtectedRouter()
+	user := testutil.MustCreateUser(t, "script-mobile", "operator")
+	token := testutil.MustCreateAccessToken(t, user.Username, user.Role)
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+
+	fileName := "手机 导入 (1).sh"
+	part, err := writer.CreateFormFile("file", fileName)
+	if err != nil {
+		t.Fatalf("create form file: %v", err)
+	}
+	if _, err := part.Write([]byte("echo hi\r\necho again\r\n")); err != nil {
+		t.Fatalf("write form file: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart writer: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/scripts/upload", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	rec := httptest.NewRecorder()
+	engine.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d, body=%s", rec.Code, rec.Body.String())
+	}
+
+	contentRec := performRequest(
+		engine,
+		http.MethodGet,
+		"/api/v1/scripts/content?path="+url.QueryEscape(fileName),
+		map[string]string{"Authorization": "Bearer " + token},
+	)
+	if contentRec.Code != http.StatusOK {
+		t.Fatalf("expected content request to succeed, got %d, body=%s", contentRec.Code, contentRec.Body.String())
+	}
+
+	contentPayload := decodeJSONMap(t, contentRec)
+	data, ok := contentPayload["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("unexpected content payload: %#v", contentPayload)
+	}
+	if got, _ := data["content"].(string); got != "echo hi\necho again\n" {
+		t.Fatalf("expected normalized shell content, got %q", got)
+	}
+
+	deleteRec := performRequest(
+		engine,
+		http.MethodDelete,
+		"/api/v1/scripts?path="+url.QueryEscape(fileName)+"&type=file",
+		map[string]string{"Authorization": "Bearer " + token},
+	)
+	if deleteRec.Code != http.StatusOK {
+		t.Fatalf("expected delete request to succeed, got %d, body=%s", deleteRec.Code, deleteRec.Body.String())
+	}
+
+	if _, err := os.Stat(filepath.Join(config.C.Data.ScriptsDir, fileName)); !os.IsNotExist(err) {
+		t.Fatalf("expected uploaded file to be deleted, stat err=%v", err)
 	}
 }

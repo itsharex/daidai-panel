@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { taskApi } from '@/api/task'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useResponsive } from '@/composables/useResponsive'
@@ -20,6 +20,39 @@ const selectedFile = ref<string | null>(null)
 const fileContent = ref('')
 const contentLoading = ref(false)
 const { dialogFullscreen } = useResponsive()
+
+const renderedFileContent = computed(() => {
+  let currentLine = ''
+  const lines: string[] = []
+
+  for (let i = 0; i < fileContent.value.length; i++) {
+    const char = fileContent.value[i]
+    if (char === '\r') {
+      if (fileContent.value[i + 1] === '\n') {
+        lines.push(currentLine)
+        currentLine = ''
+        i++
+        continue
+      }
+      currentLine = ''
+      continue
+    }
+
+    if (char === '\n') {
+      lines.push(currentLine)
+      currentLine = ''
+      continue
+    }
+
+    currentLine += char
+  }
+
+  if (currentLine !== '' || lines.length === 0) {
+    lines.push(currentLine)
+  }
+
+  return lines.join('\n')
+})
 
 watch(() => props.visible, (visible) => {
   if (visible && props.taskId) {
@@ -125,7 +158,7 @@ function handleClose() {
           <el-icon :size="48" color="var(--el-text-color-placeholder)"><Document /></el-icon>
           <span>选择文件查看内容</span>
         </div>
-        <pre v-else class="content-text">{{ fileContent || '(空文件)' }}</pre>
+        <pre v-else class="content-text">{{ renderedFileContent || '(空文件)' }}</pre>
       </div>
     </div>
   </el-dialog>

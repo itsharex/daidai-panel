@@ -30,6 +30,7 @@ type Task struct {
 	LastRunAt              *time.Time `json:"last_run_at"`
 	LastRunStatus          *int       `json:"last_run_status"`
 	Timeout                int        `json:"timeout"`
+	RandomDelaySeconds     *int       `json:"random_delay_seconds"`
 	MaxRetries             int        `json:"max_retries"`
 	RetryInterval          int        `json:"retry_interval"`
 	NotifyOnFailure        bool       `json:"notify_on_failure"`
@@ -69,6 +70,7 @@ func (t *Task) ToDict() map[string]interface{} {
 		"last_run_at":              t.LastRunAt,
 		"last_run_status":          t.LastRunStatus,
 		"timeout":                  t.Timeout,
+		"random_delay_seconds":     t.RandomDelaySeconds,
 		"max_retries":              t.MaxRetries,
 		"retry_interval":           t.RetryInterval,
 		"notify_on_failure":        t.NotifyOnFailure,

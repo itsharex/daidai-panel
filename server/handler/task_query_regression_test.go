@@ -405,6 +405,8 @@ func TestTaskCopyKeepsDisabledStatus(t *testing.T) {
 		Status:          model.TaskStatusEnabled,
 		NotifyOnFailure: false,
 	}
+	randomDelay := 18
+	task.RandomDelaySeconds = &randomDelay
 	channel := &model.NotifyChannel{
 		Name:    "复制渠道",
 		Type:    "telegram",
@@ -439,6 +441,134 @@ func TestTaskCopyKeepsDisabledStatus(t *testing.T) {
 	}
 	if got, ok := item["notification_channel_id"].(float64); !ok || uint(got) != channel.ID {
 		t.Fatalf("expected copied task notification_channel_id=%d, got %#v", channel.ID, item["notification_channel_id"])
+	}
+	if got, ok := item["random_delay_seconds"].(float64); !ok || int(got) != randomDelay {
+		t.Fatalf("expected copied task random_delay_seconds=%d, got %#v", randomDelay, item["random_delay_seconds"])
+	}
+}
+
+func TestTaskCreateAndUpdateRandomDelaySettings(t *testing.T) {
+	testutil.SetupTestEnv(t)
+
+	engine := newProtectedRouter()
+	user := testutil.MustCreateUser(t, "delay-operator", "operator")
+	accessToken := testutil.MustCreateAccessToken(t, user.Username, user.Role)
+
+	createRec := performJSONRequest(
+		engine,
+		http.MethodPost,
+		"/api/v1/tasks",
+		`{"name":"delay task","command":"task demo.py","cron_expression":"0 0 * * *","task_type":"cron","random_delay_seconds":25}`,
+		map[string]string{"Authorization": "Bearer " + accessToken},
+		"",
+	)
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("expected create 201, got %d: %s", createRec.Code, createRec.Body.String())
+	}
+
+	createPayload := decodeJSONMap(t, createRec)
+	created, ok := createPayload["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected created task payload, got %#v", createPayload["data"])
+	}
+	if got, ok := created["random_delay_seconds"].(float64); !ok || int(got) != 25 {
+		t.Fatalf("expected random_delay_seconds=25, got %#v", created["random_delay_seconds"])
+	}
+	taskID := uint(created["id"].(float64))
+
+	exportRec := performRequest(engine, http.MethodGet, "/api/v1/tasks/export", map[string]string{
+		"Authorization": "Bearer " + accessToken,
+	})
+	if exportRec.Code != http.StatusOK {
+		t.Fatalf("expected export 200, got %d: %s", exportRec.Code, exportRec.Body.String())
+	}
+	exportPayload := decodeJSONMap(t, exportRec)
+	exportedTasks, ok := exportPayload["data"].([]interface{})
+	if !ok || len(exportedTasks) == 0 {
+		t.Fatalf("expected exported tasks, got %#v", exportPayload["data"])
+	}
+	exportedTask, ok := exportedTasks[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected exported task object, got %#v", exportedTasks[0])
+	}
+	if got, ok := exportedTask["random_delay_seconds"].(float64); !ok || int(got) != 25 {
+		t.Fatalf("expected exported random_delay_seconds=25, got %#v", exportedTask["random_delay_seconds"])
+	}
+
+	disableRec := performJSONRequest(
+		engine,
+		http.MethodPut,
+		"/api/v1/tasks/"+strconv.FormatUint(uint64(taskID), 10),
+		`{"random_delay_seconds":0}`,
+		map[string]string{"Authorization": "Bearer " + accessToken},
+		"",
+	)
+	if disableRec.Code != http.StatusOK {
+		t.Fatalf("expected disable update 200, got %d: %s", disableRec.Code, disableRec.Body.String())
+	}
+	disablePayload := decodeJSONMap(t, disableRec)
+	disabledTask, ok := disablePayload["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected disabled task payload, got %#v", disablePayload["data"])
+	}
+	if got, ok := disabledTask["random_delay_seconds"].(float64); !ok || int(got) != 0 {
+		t.Fatalf("expected disabled random_delay_seconds=0, got %#v", disabledTask["random_delay_seconds"])
+	}
+
+	inheritRec := performJSONRequest(
+		engine,
+		http.MethodPut,
+		"/api/v1/tasks/"+strconv.FormatUint(uint64(taskID), 10),
+		`{"random_delay_seconds":null}`,
+		map[string]string{"Authorization": "Bearer " + accessToken},
+		"",
+	)
+	if inheritRec.Code != http.StatusOK {
+		t.Fatalf("expected inherit update 200, got %d: %s", inheritRec.Code, inheritRec.Body.String())
+	}
+	inheritPayload := decodeJSONMap(t, inheritRec)
+	inheritedTask, ok := inheritPayload["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected inherited task payload, got %#v", inheritPayload["data"])
+	}
+	if value, exists := inheritedTask["random_delay_seconds"]; exists && value != nil {
+		t.Fatalf("expected inherited random_delay_seconds=nil, got %#v", value)
+	}
+
+	var stored model.Task
+	if err := database.DB.First(&stored, taskID).Error; err != nil {
+		t.Fatalf("load updated task: %v", err)
+	}
+	if stored.RandomDelaySeconds != nil {
+		t.Fatalf("expected stored random_delay_seconds=nil, got %v", *stored.RandomDelaySeconds)
+	}
+}
+
+func TestTaskImportPreservesRandomDelaySettings(t *testing.T) {
+	testutil.SetupTestEnv(t)
+
+	engine := newProtectedRouter()
+	user := testutil.MustCreateUser(t, "import-operator", "operator")
+	accessToken := testutil.MustCreateAccessToken(t, user.Username, user.Role)
+
+	rec := performJSONRequest(
+		engine,
+		http.MethodPost,
+		"/api/v1/tasks/import",
+		`{"tasks":[{"name":"imported delay task","command":"task imported.py","cron_expression":"0 0 * * *","task_type":"cron","random_delay_seconds":12}]}`,
+		map[string]string{"Authorization": "Bearer " + accessToken},
+		"",
+	)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected import 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var task model.Task
+	if err := database.DB.Where("name = ?", "imported delay task").First(&task).Error; err != nil {
+		t.Fatalf("load imported task: %v", err)
+	}
+	if task.RandomDelaySeconds == nil || *task.RandomDelaySeconds != 12 {
+		t.Fatalf("expected imported random_delay_seconds=12, got %#v", task.RandomDelaySeconds)
 	}
 }
 

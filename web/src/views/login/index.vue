@@ -65,6 +65,7 @@ onUnmounted(() => {
 const form = ref({
   username: '',
   password: '',
+  confirmPassword: '',
   totp_code: ''
 })
 
@@ -259,6 +260,16 @@ async function handleSubmit() {
     ElMessage.warning('请输入用户名和密码')
     return
   }
+  if (!isInit.value) {
+    if (!form.value.confirmPassword) {
+      ElMessage.warning('请再次输入密码')
+      return
+    }
+    if (form.value.password !== form.value.confirmPassword) {
+      ElMessage.error('两次输入的密码不一致')
+      return
+    }
+  }
   if (require2FA.value && !form.value.totp_code) {
     ElMessage.warning('请输入两步验证码')
     return
@@ -271,6 +282,7 @@ async function handleSubmit() {
       await authApi.init(form.value.username, form.value.password)
       ElMessage.success('初始化成功')
       isInit.value = true
+      form.value.confirmPassword = ''
       await loadCaptchaConfig(form.value.username)
     }
 
@@ -422,6 +434,18 @@ const captchaHintText = computed(() => {
                   </el-icon>
                 </template>
               </el-input>
+            </el-form-item>
+            <el-form-item v-if="!isInit">
+              <el-input
+                v-model="form.confirmPassword"
+                :type="pwdVisible ? 'text' : 'password'"
+                placeholder="确认密码"
+                :prefix-icon="Key"
+                size="large"
+                @focus="handlePasswordFocus"
+                @blur="handleBlur"
+                @keyup.enter="handleSubmit"
+              />
             </el-form-item>
             <el-form-item v-if="require2FA">
               <el-input

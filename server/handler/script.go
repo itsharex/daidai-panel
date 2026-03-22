@@ -3,6 +3,7 @@ package handler
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -27,7 +28,7 @@ var binaryExtensions = map[string]bool{
 	".ico": true, ".bmp": true, ".webp": true, ".so": true,
 }
 
-var filenamePattern = regexp.MustCompile(`^[\w\x{4e00}-\x{9fff}\-./]+$`)
+var invalidScriptPathCharsPattern = regexp.MustCompile(`[<>:"\\|?*\x00-\x1F]`)
 
 const maxUploadSize = 10 * 1024 * 1024
 
@@ -55,26 +56,45 @@ func scriptsDir() string {
 	return config.C.Data.ScriptsDir
 }
 
-func safePath(relPath string, mustExist bool) (string, error) {
+func normalizeScriptRelativePath(relPath string) (string, error) {
 	relPath = strings.TrimSpace(relPath)
 	if relPath == "" {
 		return "", fmt.Errorf("路径不能为空")
 	}
-	if !filenamePattern.MatchString(relPath) {
-		return "", fmt.Errorf("路径包含非法字符")
-	}
-	if strings.Contains(relPath, "..") {
-		return "", fmt.Errorf("不允许路径穿越")
+
+	normalized := strings.ReplaceAll(relPath, "\\", "/")
+	normalized = strings.TrimPrefix(path.Clean("/"+normalized), "/")
+	if normalized == "" || normalized == "." {
+		return "", fmt.Errorf("路径不能为空")
 	}
 
-	full, err := pathutil.ResolveWithinBase(scriptsDir(), relPath, false)
+	segments := strings.Split(normalized, "/")
+	for _, segment := range segments {
+		if segment == "" || segment == "." || segment == ".." {
+			return "", fmt.Errorf("不允许路径穿越")
+		}
+		if invalidScriptPathCharsPattern.MatchString(segment) {
+			return "", fmt.Errorf("路径包含非法字符")
+		}
+	}
+
+	return normalized, nil
+}
+
+func safePath(relPath string, mustExist bool) (string, error) {
+	normalizedPath, err := normalizeScriptRelativePath(relPath)
+	if err != nil {
+		return "", err
+	}
+
+	full, err := pathutil.ResolveWithinBase(scriptsDir(), normalizedPath, false)
 	if err != nil {
 		return "", err
 	}
 
 	if mustExist {
 		if _, err := os.Stat(full); os.IsNotExist(err) {
-			return "", fmt.Errorf("文件不存在: %s", relPath)
+			return "", fmt.Errorf("文件不存在: %s", normalizedPath)
 		}
 	}
 	return full, nil

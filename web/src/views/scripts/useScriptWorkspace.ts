@@ -25,10 +25,17 @@ export function useScriptWorkspace() {
 
     const fileParam = route.query.file as string
     if (fileParam) {
-      browser.selectedFile.value = fileParam
-      void browser.loadFileContent(fileParam)
-      browser.mobileShowEditor.value = true
-      void router.replace({ path: '/scripts' })
+      void (async () => {
+        const previousSelectedFile = browser.selectedFile.value
+        browser.selectedFile.value = fileParam
+        const loaded = await browser.loadFileContent(fileParam)
+        if (!loaded) {
+          browser.selectedFile.value = previousSelectedFile
+        } else {
+          browser.mobileShowEditor.value = true
+        }
+        await router.replace({ path: '/scripts' })
+      })()
     }
   })
 

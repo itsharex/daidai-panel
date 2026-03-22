@@ -12,18 +12,20 @@
       <el-tab-pane label="Linux" name="linux" />
     </el-tabs>
     <div class="deps-toolbar">
-      <el-button type="primary" @click="createType = activeTab; showCreateDialog = true">
-        <el-icon><Plus /></el-icon>新建依赖
-      </el-button>
-      <el-button @click="loadData" :loading="loading">
-        <el-icon><Refresh /></el-icon>刷新
-      </el-button>
-      <el-button type="danger" plain @click="handleBatchDelete" :disabled="selectedIds.length === 0">
-        <el-icon><Delete /></el-icon>批量卸载
-      </el-button>
-      <el-button @click="openMirrorDialog">
-        <el-icon><Setting /></el-icon>镜像源设置
-      </el-button>
+      <div class="deps-toolbar__actions">
+        <el-button type="primary" @click="createType = activeTab; showCreateDialog = true">
+          <el-icon><Plus /></el-icon>新建依赖
+        </el-button>
+        <el-button @click="loadData" :loading="loading">
+          <el-icon><Refresh /></el-icon>刷新
+        </el-button>
+        <el-button type="danger" plain @click="handleBatchDelete" :disabled="selectedIds.length === 0">
+          <el-icon><Delete /></el-icon>批量卸载
+        </el-button>
+        <el-button @click="openMirrorDialog">
+          <el-icon><Setting /></el-icon>镜像源设置
+        </el-button>
+      </div>
       <div class="deps-stats">
         <div class="stat-item" :class="{ active: activeTab === 'nodejs' }" @click="activeTab = 'nodejs'; loadData()">
           <span class="stat-label">Node.js</span>
@@ -606,9 +608,21 @@ onBeforeUnmount(() => {
 
 .deps-toolbar {
   display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.deps-toolbar__actions {
+  display: inline-flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 16px;
+  flex-wrap: wrap;
+
+  > * {
+    min-width: 0;
+  }
 }
 
 .deps-stats {
@@ -710,17 +724,37 @@ onBeforeUnmount(() => {
 
 @media (max-width: 768px) {
   .deps-toolbar {
-    flex-wrap: wrap;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .deps-toolbar__actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+
+    > * {
+      width: 100%;
+    }
+
+    :deep(.el-button) {
+      width: 100%;
+      margin-left: 0;
+    }
   }
 
   .deps-stats {
     margin-left: 0;
     width: 100%;
     justify-content: stretch;
+    border-radius: 12px;
   }
 
   .deps-stats .stat-item {
     flex: 1 1 0;
+    min-height: 72px;
+    justify-content: center;
   }
 
   .deps-card__title-row {

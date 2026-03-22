@@ -25,6 +25,7 @@ type ExecutionRequest struct {
 	RetryIndex  int
 	LogID       string
 	TaskLogID   uint
+	CommandPlan *CommandExecutionPlan
 }
 
 type ExecutionResult struct {

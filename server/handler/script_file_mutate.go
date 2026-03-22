@@ -10,6 +10,7 @@ import (
 
 	"daidai-panel/pkg/pathutil"
 	"daidai-panel/pkg/response"
+	"daidai-panel/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -20,18 +21,23 @@ type scriptUploadTarget struct {
 	fullPath   string
 }
 
-func resolveScriptUploadPath(targetPath string) (string, error) {
+func resolveScriptUploadPath(targetPath string) (string, string, error) {
+	normalizedPath, err := normalizeScriptRelativePath(targetPath)
+	if err != nil {
+		return "", "", err
+	}
+
 	baseDir, err := filepath.Abs(scriptsDir())
 	if err != nil {
-		return "", fmt.Errorf("脚本目录无效")
+		return "", "", fmt.Errorf("脚本目录无效")
 	}
 
-	fullPath := filepath.Clean(filepath.Join(baseDir, filepath.FromSlash(targetPath)))
+	fullPath := filepath.Clean(filepath.Join(baseDir, filepath.FromSlash(normalizedPath)))
 	if !pathutil.IsWithinBase(baseDir, fullPath) {
-		return "", fmt.Errorf("检测到路径穿越")
+		return "", "", fmt.Errorf("检测到路径穿越")
 	}
 
-	return fullPath, nil
+	return normalizedPath, fullPath, nil
 }
 
 func (h *ScriptHandler) SaveContent(c *gin.Context) {
@@ -62,13 +68,18 @@ func (h *ScriptHandler) SaveContent(c *gin.Context) {
 		return
 	}
 
+	content := req.Content
+	if ext == ".sh" {
+		content = string(service.NormalizeShellLineEndings([]byte(content)))
+	}
+
 	os.MkdirAll(filepath.Dir(full), 0755)
-	if err := os.WriteFile(full, []byte(req.Content), 0644); err != nil {
+	if err := os.WriteFile(full, []byte(content), 0644); err != nil {
 		response.InternalError(c, "写入文件失败")
 		return
 	}
 
-	newVersion := recordScriptVersion(req.Path, req.Content, req.Message)
+	newVersion := recordScriptVersion(req.Path, content, req.Message)
 	response.Success(c, gin.H{"message": "保存成功", "version": newVersion})
 }
 
@@ -105,7 +116,7 @@ func (h *ScriptHandler) Upload(c *gin.Context) {
 			targetPath = filepath.ToSlash(filepath.Join(dir, filename))
 		}
 
-		full, err := resolveScriptUploadPath(targetPath)
+		normalizedTargetPath, full, err := resolveScriptUploadPath(targetPath)
 		if err != nil {
 			response.BadRequest(c, err.Error())
 			return
@@ -113,7 +124,7 @@ func (h *ScriptHandler) Upload(c *gin.Context) {
 
 		targets = append(targets, scriptUploadTarget{
 			header:     header,
-			targetPath: filepath.ToSlash(targetPath),
+			targetPath: normalizedTargetPath,
 			fullPath:   full,
 		})
 	}
@@ -124,7 +135,24 @@ func (h *ScriptHandler) Upload(c *gin.Context) {
 			response.InternalError(c, "创建目录失败")
 			return
 		}
-		if err := c.SaveUploadedFile(target.header, target.fullPath); err != nil {
+		file, err := target.header.Open()
+		if err != nil {
+			response.InternalError(c, fmt.Sprintf("读取上传文件失败: %s", target.header.Filename))
+			return
+		}
+
+		content, err := io.ReadAll(file)
+		file.Close()
+		if err != nil {
+			response.InternalError(c, fmt.Sprintf("读取上传文件失败: %s", target.header.Filename))
+			return
+		}
+
+		if strings.ToLower(filepath.Ext(target.targetPath)) == ".sh" {
+			content = service.NormalizeShellLineEndings(content)
+		}
+
+		if err := os.WriteFile(target.fullPath, content, 0644); err != nil {
 			response.InternalError(c, fmt.Sprintf("保存文件失败: %s", target.header.Filename))
 			return
 		}
@@ -155,9 +183,15 @@ func (h *ScriptHandler) Delete(c *gin.Context) {
 	}
 
 	if fileType == "directory" {
-		os.RemoveAll(full)
+		if err := os.RemoveAll(full); err != nil {
+			response.InternalError(c, "删除目录失败")
+			return
+		}
 	} else {
-		os.Remove(full)
+		if err := os.Remove(full); err != nil {
+			response.InternalError(c, "删除文件失败")
+			return
+		}
 	}
 
 	response.Success(c, gin.H{"message": "删除成功"})
