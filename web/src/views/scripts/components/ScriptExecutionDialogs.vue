@@ -45,6 +45,7 @@ function markDebugCodeChanged() {
             <el-option label="JavaScript" value="javascript" />
             <el-option label="TypeScript" value="typescript" />
             <el-option label="Shell" value="shell" />
+            <el-option label="Go" value="go" />
           </el-select>
         </div>
         <div class="panel-content" style="padding: 0">

@@ -40,6 +40,37 @@ func resolveScriptUploadPath(targetPath string) (string, string, error) {
 	return normalizedPath, fullPath, nil
 }
 
+func validateScriptLeafName(name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", fmt.Errorf("名称不能为空")
+	}
+	if strings.ContainsAny(name, "/\\") {
+		return "", fmt.Errorf("名称不能包含路径分隔符")
+	}
+	if name == "." || name == ".." {
+		return "", fmt.Errorf("名称不能为 . 或 ..")
+	}
+	if invalidScriptPathCharsPattern.MatchString(name) {
+		return "", fmt.Errorf("名称包含非法字符")
+	}
+	return name, nil
+}
+
+func resolveScriptDestinationPath(targetDir, name string) (string, string, error) {
+	validatedName, err := validateScriptLeafName(name)
+	if err != nil {
+		return "", "", err
+	}
+
+	targetPath := validatedName
+	if strings.TrimSpace(targetDir) != "" {
+		targetPath = filepath.ToSlash(filepath.Join(targetDir, validatedName))
+	}
+
+	return resolveScriptUploadPath(targetPath)
+}
+
 func (h *ScriptHandler) SaveContent(c *gin.Context) {
 	var req struct {
 		Path    string `json:"path" binding:"required"`
@@ -230,8 +261,9 @@ func (h *ScriptHandler) Rename(c *gin.Context) {
 		return
 	}
 
-	if strings.ContainsAny(req.NewName, "/\\") {
-		response.BadRequest(c, "新名称不能包含路径分隔符")
+	validatedName, err := validateScriptLeafName(req.NewName)
+	if err != nil {
+		response.BadRequest(c, err.Error())
 		return
 	}
 
@@ -241,7 +273,7 @@ func (h *ScriptHandler) Rename(c *gin.Context) {
 		return
 	}
 
-	newFull := filepath.Join(filepath.Dir(full), req.NewName)
+	newFull := filepath.Join(filepath.Dir(full), validatedName)
 	if err := os.Rename(full, newFull); err != nil {
 		response.InternalError(c, "重命名失败")
 		return
@@ -308,18 +340,21 @@ func (h *ScriptHandler) Copy(c *gin.Context) {
 		return
 	}
 
-	targetBase := scriptsDir()
-	if req.TargetDir != "" {
-		targetBase, _ = safePath(req.TargetDir, false)
-	}
-
 	name := filepath.Base(srcFull)
 	if req.NewName != "" {
 		name = req.NewName
 	}
 
-	destFull := filepath.Join(targetBase, name)
-	os.MkdirAll(targetBase, 0755)
+	normalizedDestPath, destFull, err := resolveScriptDestinationPath(req.TargetDir, name)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	if err := os.MkdirAll(filepath.Dir(destFull), 0o755); err != nil {
+		response.InternalError(c, "创建目标目录失败")
+		return
+	}
 
 	info, _ := os.Stat(srcFull)
 	if info != nil && info.IsDir() {
@@ -334,7 +369,7 @@ func (h *ScriptHandler) Copy(c *gin.Context) {
 		}
 	}
 
-	response.Created(c, gin.H{"message": "复制成功", "new_path": relPath(destFull)})
+	response.Created(c, gin.H{"message": "复制成功", "new_path": normalizedDestPath})
 }
 
 func copyFile(src, dst string) error {

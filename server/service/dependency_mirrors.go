@@ -1,14 +1,21 @@
 package service
 
 import (
+	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
 const (
-	DefaultPipMirror = "https://pypi.tuna.tsinghua.edu.cn/simple"
+	DefaultPipMirror = "https://mirrors.aliyun.com/pypi/simple"
 	DefaultNpmMirror = "https://registry.npmmirror.com"
 )
+
+type DependencyMirrorSettings struct {
+	PipMirror string `json:"pip_mirror,omitempty"`
+	NpmMirror string `json:"npm_mirror,omitempty"`
+}
 
 func EffectivePipMirror(configured string) string {
 	mirror := strings.TrimSpace(configured)
@@ -50,6 +57,49 @@ func NpmInstallEnv(base []string, configured string) []string {
 	env = append(env, "npm_config_registry="+mirror)
 	env = append(env, "NPM_CONFIG_REGISTRY="+mirror)
 	return env
+}
+
+func CurrentDependencyMirrorSettings() DependencyMirrorSettings {
+	return DependencyMirrorSettings{
+		PipMirror: strings.TrimSpace(CurrentPipMirror()),
+		NpmMirror: strings.TrimSpace(CurrentNpmMirror()),
+	}
+}
+
+func ApplyDependencyMirrorSettings(settings DependencyMirrorSettings) error {
+	var errs []string
+	if err := SetPipMirror(settings.PipMirror); err != nil {
+		errs = append(errs, err.Error())
+	}
+	if err := SetNpmMirror(settings.NpmMirror); err != nil {
+		errs = append(errs, err.Error())
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("%s", strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+func SetPipMirror(mirror string) error {
+	mirror = strings.TrimSpace(mirror)
+	if mirror != "" {
+		mirror = EffectivePipMirror(mirror)
+		if !strings.HasPrefix(mirror, "http://") && !strings.HasPrefix(mirror, "https://") {
+			return fmt.Errorf("pip 镜像源必须以 http:// 或 https:// 开头")
+		}
+	}
+	return writePipMirrorConfig(mirror)
+}
+
+func SetNpmMirror(mirror string) error {
+	mirror = strings.TrimSpace(mirror)
+	if mirror != "" {
+		mirror = EffectiveNpmMirror(mirror)
+		if !strings.HasPrefix(mirror, "http://") && !strings.HasPrefix(mirror, "https://") {
+			return fmt.Errorf("npm 镜像源必须以 http:// 或 https:// 开头")
+		}
+	}
+	return writeNpmMirrorConfig(mirror)
 }
 
 func CurrentPipMirror() string {
@@ -130,17 +180,204 @@ func extractMirrorHost(url string) string {
 
 func pipMirrorConfigPath() string {
 	if xdg := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); xdg != "" {
-		return xdg + "/pip/pip.conf"
+		return filepath.Join(xdg, "pip", "pip.conf")
 	}
 	if home := strings.TrimSpace(os.Getenv("HOME")); home != "" {
-		return home + "/.config/pip/pip.conf"
+		return filepath.Join(home, ".config", "pip", "pip.conf")
 	}
 	return ""
 }
 
 func npmConfigPath() string {
 	if home := strings.TrimSpace(os.Getenv("HOME")); home != "" {
-		return home + "/.npmrc"
+		return filepath.Join(home, ".npmrc")
 	}
 	return ""
+}
+
+func writePipMirrorConfig(mirror string) error {
+	path := pipMirrorConfigPath()
+	if path == "" {
+		return nil
+	}
+
+	lines, err := readConfigLines(path)
+	if err != nil {
+		return err
+	}
+
+	host := ""
+	if mirror != "" {
+		host = extractMirrorHost(mirror)
+	}
+
+	result := make([]string, 0, len(lines)+4)
+	inGlobal := false
+	seenGlobal := false
+	wroteIndexURL := false
+	wroteTrustedHost := false
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if isINISectionLine(trimmed) {
+			if inGlobal {
+				if mirror != "" && !wroteIndexURL {
+					result = append(result, "index-url = "+mirror)
+					wroteIndexURL = true
+				}
+				if host != "" && !wroteTrustedHost {
+					result = append(result, "trusted-host = "+host)
+					wroteTrustedHost = true
+				}
+			}
+
+			inGlobal = isGlobalPipSection(trimmed)
+			if inGlobal {
+				seenGlobal = true
+			}
+			result = append(result, line)
+			continue
+		}
+
+		if inGlobal {
+			switch pipConfigKey(trimmed) {
+			case "index-url":
+				if mirror != "" && !wroteIndexURL {
+					result = append(result, "index-url = "+mirror)
+					wroteIndexURL = true
+				}
+				continue
+			case "trusted-host":
+				if host != "" && !wroteTrustedHost {
+					result = append(result, "trusted-host = "+host)
+					wroteTrustedHost = true
+				}
+				continue
+			}
+		}
+
+		result = append(result, line)
+	}
+
+	if seenGlobal {
+		if inGlobal {
+			if mirror != "" && !wroteIndexURL {
+				result = append(result, "index-url = "+mirror)
+				wroteIndexURL = true
+			}
+			if host != "" && !wroteTrustedHost {
+				result = append(result, "trusted-host = "+host)
+				wroteTrustedHost = true
+			}
+		}
+	} else if mirror != "" || host != "" {
+		if len(result) > 0 && strings.TrimSpace(result[len(result)-1]) != "" {
+			result = append(result, "")
+		}
+		result = append(result, "[global]")
+		if mirror != "" {
+			result = append(result, "index-url = "+mirror)
+		}
+		if host != "" {
+			result = append(result, "trusted-host = "+host)
+		}
+	}
+
+	return writeConfigLines(path, result)
+}
+
+func writeNpmMirrorConfig(mirror string) error {
+	path := npmConfigPath()
+	if path == "" {
+		return nil
+	}
+
+	lines, err := readConfigLines(path)
+	if err != nil {
+		return err
+	}
+
+	result := make([]string, 0, len(lines)+1)
+	wroteRegistry := false
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(strings.ToLower(trimmed), "registry=") {
+			if mirror != "" && !wroteRegistry {
+				result = append(result, "registry="+mirror)
+				wroteRegistry = true
+			}
+			continue
+		}
+		result = append(result, line)
+	}
+
+	if mirror != "" && !wroteRegistry {
+		result = append(result, "registry="+mirror)
+	}
+
+	return writeConfigLines(path, result)
+}
+
+func readConfigLines(path string) ([]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	text := strings.ReplaceAll(string(data), "\r\n", "\n")
+	text = strings.TrimSuffix(text, "\n")
+	if text == "" {
+		return nil, nil
+	}
+	return strings.Split(text, "\n"), nil
+}
+
+func writeConfigLines(path string, lines []string) error {
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+
+	hasContent := false
+	for _, line := range lines {
+		if strings.TrimSpace(line) != "" {
+			hasContent = true
+			break
+		}
+	}
+
+	if !hasContent {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	content := strings.Join(lines, "\n") + "\n"
+	return os.WriteFile(path, []byte(content), 0o644)
+}
+
+func isINISectionLine(line string) bool {
+	return strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]")
+}
+
+func isGlobalPipSection(line string) bool {
+	name := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(line, "["), "]"))
+	return strings.EqualFold(name, "global")
+}
+
+func pipConfigKey(line string) string {
+	if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
+		return ""
+	}
+	parts := strings.SplitN(line, "=", 2)
+	if len(parts) != 2 {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(parts[0]))
 }

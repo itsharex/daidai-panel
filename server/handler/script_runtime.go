@@ -21,6 +21,7 @@ var scriptInterpreterMap = map[string][]string{
 	".js": {"node"},
 	".ts": {"npx", "ts-node"},
 	".sh": {"bash"},
+	".go": {"go", "run"},
 }
 
 var scriptLanguageExtMap = map[string]string{
@@ -28,6 +29,7 @@ var scriptLanguageExtMap = map[string]string{
 	"javascript": ".js",
 	"typescript": ".ts",
 	"shell":      ".sh",
+	"go":         ".go",
 }
 
 var scriptEnvPassthroughKeys = []string{

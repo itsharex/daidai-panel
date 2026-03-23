@@ -19,7 +19,7 @@ var allowedExtensions = map[string]bool{
 	".ini": true, ".env": true, ".toml": true, ".xml": true, ".csv": true,
 	".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".svg": true,
 	".ico": true, ".bmp": true, ".webp": true, ".log": true, ".htm": true,
-	".html": true, ".css": true, ".sql": true, ".bat": true, ".cmd": true, ".ps1": true,
+	".html": true, ".css": true, ".sql": true, ".bat": true, ".cmd": true, ".ps1": true, ".go": true,
 	".so": true,
 }
 

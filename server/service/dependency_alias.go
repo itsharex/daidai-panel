@@ -4,6 +4,7 @@ import "strings"
 
 var pythonModulePackageAliases = map[string]string{
 	"crypto": "pycryptodome",
+	"execjs": "pyexecjs",
 }
 
 func ResolvePythonAutoInstallPackage(moduleName string) string {

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -152,5 +153,84 @@ func TestRestoreBackupManifestPreservesCurrentPanelUsers(t *testing.T) {
 	}
 	if len(apps) != 1 || apps[0].Name != "backup-app" {
 		t.Fatalf("expected non-user config data to restore from backup, got %+v", apps)
+	}
+}
+
+func TestSnapshotConfigBundleIncludesDependencyMirrors(t *testing.T) {
+	root := testutil.SetupTestEnv(t)
+	home := filepath.Join(root, "home")
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+
+	if err := SetPipMirror("https://mirrors.aliyun.com/pypi/simple"); err != nil {
+		t.Fatalf("set pip mirror: %v", err)
+	}
+	if err := SetNpmMirror("https://mirrors.cloud.tencent.com/npm/"); err != nil {
+		t.Fatalf("set npm mirror: %v", err)
+	}
+
+	bundle, err := snapshotConfigBundle()
+	if err != nil {
+		t.Fatalf("snapshot config bundle: %v", err)
+	}
+	if bundle.DependencyMirrors == nil {
+		t.Fatalf("expected dependency mirrors to be snapshotted")
+	}
+	if bundle.DependencyMirrors.PipMirror != "https://mirrors.aliyun.com/pypi/simple" {
+		t.Fatalf("expected pip mirror to be snapshotted, got %q", bundle.DependencyMirrors.PipMirror)
+	}
+	if bundle.DependencyMirrors.NpmMirror != "https://mirrors.cloud.tencent.com/npm/" {
+		t.Fatalf("expected npm mirror to be snapshotted, got %q", bundle.DependencyMirrors.NpmMirror)
+	}
+}
+
+func TestRestoreBackupManifestAppliesDependencyMirrorsBeforeDependencyResume(t *testing.T) {
+	root := testutil.SetupTestEnv(t)
+	home := filepath.Join(root, "home")
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+
+	originalReinstallBatch := dependencyReinstallBatchFunc
+	t.Cleanup(func() {
+		dependencyReinstallBatchFunc = originalReinstallBatch
+	})
+
+	var gotPipMirror string
+	var gotNpmMirror string
+	dependencyReinstallBatchFunc = func(deps []model.Dependency) {
+		gotPipMirror = CurrentPipMirror()
+		gotNpmMirror = CurrentNpmMirror()
+	}
+
+	manifest := BackupManifest{
+		Format:  "daidai-panel-backup",
+		Version: "0.4.0",
+		Source:  "daidai-panel",
+		Selection: BackupSelection{
+			Configs:      true,
+			Dependencies: true,
+		},
+		Data: BackupPayload{
+			Configs: BackupConfigBundle{
+				DependencyMirrors: &DependencyMirrorSettings{
+					PipMirror: "https://mirrors.aliyun.com/pypi/simple",
+					NpmMirror: "https://mirrors.cloud.tencent.com/npm/",
+				},
+			},
+			Dependencies: []BackupDependency{
+				{Type: model.DepTypePython, Name: "daidai-restore-mirror-test-package"},
+			},
+		},
+	}
+
+	if err := restoreBackupManifest(manifest, t.TempDir()); err != nil {
+		t.Fatalf("restore backup manifest: %v", err)
+	}
+
+	if gotPipMirror != "https://mirrors.aliyun.com/pypi/simple" {
+		t.Fatalf("expected pip mirror to be restored before dependency resume, got %q", gotPipMirror)
+	}
+	if gotNpmMirror != "https://mirrors.cloud.tencent.com/npm/" {
+		t.Fatalf("expected npm mirror to be restored before dependency resume, got %q", gotNpmMirror)
 	}
 }

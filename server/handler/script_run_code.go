@@ -3,14 +3,11 @@ package handler
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 
-	"daidai-panel/config"
-	"daidai-panel/model"
 	"daidai-panel/pkg/response"
 	"daidai-panel/service"
 
@@ -86,38 +83,10 @@ func detectMissingDep(output string) string {
 	return ""
 }
 
-func installDepForDebug(depName, ext string, envMap map[string]string) bool {
-	depsDir := filepath.Join(config.C.Data.Dir, "deps")
-	env := os.Environ()
-	for k, v := range envMap {
-		env = append(env, k+"="+v)
-	}
+func detectAutoInstallCandidate(ext, output, workDir string) *service.AutoInstallCandidate {
+	return service.DetectAutoInstallCandidate(ext, output, workDir)
+}
 
-	isPython := ext == ".py"
-	if isPython {
-		installName := service.ResolvePythonAutoInstallPackage(depName)
-		venvPip := filepath.Join(depsDir, "python", "venv", "bin", "pip3")
-		if _, err := os.Stat(venvPip); err != nil {
-			venvPip = "pip3"
-		}
-		cmd := exec.Command(venvPip, "install", installName)
-		cmd.Env = service.PipInstallEnv(env, service.CurrentPipMirror())
-		out, err := cmd.CombinedOutput()
-		if err == nil {
-			service.RecordAutoInstalledDep(model.DepTypePython, installName, string(out))
-			return true
-		}
-		return false
-	}
-
-	nodeDir := filepath.Join(depsDir, "nodejs")
-	os.MkdirAll(nodeDir, 0755)
-	cmd := exec.Command("npm", "install", depName, "--prefix", nodeDir)
-	cmd.Env = service.NpmInstallEnv(env, service.CurrentNpmMirror())
-	out, err := cmd.CombinedOutput()
-	if err == nil {
-		service.RecordAutoInstalledDep(model.DepTypeNodeJS, depName, string(out))
-		return true
-	}
-	return false
+func installDepForDebug(candidate *service.AutoInstallCandidate, envMap map[string]string) service.AutoInstallResult {
+	return service.InstallAutoDependency(candidate, envMap)
 }

@@ -12,9 +12,25 @@ func TestScriptCommandParts(t *testing.T) {
 	}
 }
 
+func TestScriptCommandPartsSupportsGo(t *testing.T) {
+	parts, err := scriptCommandParts(".go", "demo.go")
+	if err != nil {
+		t.Fatalf("expected go command, got error: %v", err)
+	}
+	if len(parts) != 3 || parts[0] != "go" || parts[1] != "run" || parts[2] != "demo.go" {
+		t.Fatalf("unexpected go command parts: %#v", parts)
+	}
+}
+
 func TestScriptCommandPartsRejectsUnsupportedExtension(t *testing.T) {
 	if _, err := scriptCommandParts(".rb", "demo.rb"); err == nil {
 		t.Fatal("expected unsupported extension error")
+	}
+}
+
+func TestScriptLanguageExtMapSupportsGo(t *testing.T) {
+	if got := scriptLanguageExtMap["go"]; got != ".go" {
+		t.Fatalf("expected go language map to .go, got %q", got)
 	}
 }
 

@@ -5,7 +5,6 @@ import (
 	"log"
 	"math/rand"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -361,7 +360,7 @@ func (e *TaskExecutor) runTask(req *ExecutionRequest, taskLog *model.TaskLog, ti
 			outputCollectorMu.Lock()
 			collected := outputCollector.String()
 			outputCollectorMu.Unlock()
-			if e.detectAndInstallDeps(collected, envVars, onOutput) {
+			if e.detectAndInstallDeps(plan, collected, envVars, onOutput) {
 				depInstallCount++
 				onOutput(fmt.Sprintf("[依赖已安装 (%d/%d)，自动重试执行]", depInstallCount, maxDepInstalls))
 				continue
@@ -423,46 +422,50 @@ func buildTaskFailureOutput(output, errMessage string) string {
 func buildTaskExecutionNotification(task *model.Task, taskLogID uint, success bool, exitCode int, duration float64, endedAt time.Time, failureOutput string) (string, string, map[string]string) {
 	endedAtText := endedAt.Format("2006-01-02 15:04:05.000")
 	durationText := fmt.Sprintf("%.1f", duration)
+	failureExcerpt := summarizeTaskFailureOutput(failureOutput)
+
 	statusText := "失败"
 	statusValue := "failure"
 	title := "任务执行失败"
-	content := fmt.Sprintf(
-		"定时任务「%s」执行失败。\n运行时间: %s\n日志ID: %d\n退出码: %d\n耗时: %s 秒。",
-		task.Name,
-		endedAtText,
-		taskLogID,
-		exitCode,
-		durationText,
-	)
+	summaryLine := fmt.Sprintf("定时任务「%s」执行失败", task.Name)
+	metaLines := []string{
+		"完成时间: " + endedAtText,
+		"日志ID: " + strconv.FormatUint(uint64(taskLogID), 10),
+		"退出码: " + strconv.Itoa(exitCode),
+		"耗时: " + durationText + " 秒",
+	}
 
-	failureExcerpt := summarizeTaskFailureOutput(failureOutput)
 	if success {
 		statusText = "成功"
 		statusValue = "success"
 		title = "任务执行成功"
-		content = fmt.Sprintf(
-			"定时任务「%s」已于 %s 运行完毕。\n日志ID: %d\n耗时: %s 秒。",
-			task.Name,
-			endedAtText,
-			taskLogID,
-			durationText,
-		)
+		summaryLine = fmt.Sprintf("定时任务「%s」执行成功", task.Name)
+		metaLines = []string{
+			"完成时间: " + endedAtText,
+			"日志ID: " + strconv.FormatUint(uint64(taskLogID), 10),
+			"耗时: " + durationText + " 秒",
+		}
 	}
+
+	content := summaryLine + "\n" + strings.Join(metaLines, "\n")
 	if !success && failureExcerpt != "" {
 		content += "\n\n失败原因:\n" + failureExcerpt
 	}
 
 	context := map[string]string{
-		"task_name":   task.Name,
-		"task_id":     strconv.FormatUint(uint64(task.ID), 10),
-		"task_log_id": strconv.FormatUint(uint64(taskLogID), 10),
-		"exit_code":   strconv.Itoa(exitCode),
-		"duration":    durationText,
-		"ended_at":    endedAtText,
-		"status":      statusValue,
-		"status_text": statusText,
-		"error_log":   failureExcerpt,
-		"failure_log": failureExcerpt,
+		"task_name":      task.Name,
+		"task_id":        strconv.FormatUint(uint64(task.ID), 10),
+		"task_log_id":    strconv.FormatUint(uint64(taskLogID), 10),
+		"exit_code":      strconv.Itoa(exitCode),
+		"duration":       durationText,
+		"ended_at":       endedAtText,
+		"completed_at":   endedAtText,
+		"status":         statusValue,
+		"status_text":    statusText,
+		"result_summary": summaryLine,
+		"error_log":      failureExcerpt,
+		"failure_log":    failureExcerpt,
+		"failure_reason": failureExcerpt,
 	}
 	return title, content, context
 }
@@ -473,9 +476,44 @@ func summarizeTaskFailureOutput(output string) string {
 		return ""
 	}
 
-	lines := strings.Split(output, "\n")
-	kept := make([]string, 0, len(lines))
-	for _, line := range lines {
+	lines := normalizeTaskFailureLines(output)
+	if len(lines) == 0 {
+		return ""
+	}
+
+	if summary := summarizePythonFailureOutput(lines); summary != "" {
+		return summary
+	}
+
+	if summary := summarizeNodeFailureOutput(lines); summary != "" {
+		return summary
+	}
+
+	if summary := summarizeGenericFailureOutput(lines); summary != "" {
+		return summary
+	}
+
+	return truncateTaskFailureSummary(strings.Join(tailTaskFailureLines(lines, 4), "\n"), 420)
+}
+
+var (
+	pythonTraceFrameRe    = regexp.MustCompile(`^File "([^"]+)", line (\d+), in (.+)$`)
+	pythonExceptionLineRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.]*(?:Error|Exception|Warning|Exit|Interrupt|Failure)(?::.*)?$`)
+	nodeStackFrameRe      = regexp.MustCompile(`^(?:at\s+.+?\s+\()?(.+?):(\d+)(?::(\d+))?\)?$`)
+	caretIndicatorLineRe  = regexp.MustCompile(`^[\^~\s]+$`)
+	genericErrorLineRe    = regexp.MustCompile(`(?i)(error|exception|panic|failed|failure|timeout|denied|refused|invalid|fatal|失败|错误|异常|超时|拒绝)`)
+)
+
+type taskFailureFrame struct {
+	Path     string
+	Line     string
+	Function string
+}
+
+func normalizeTaskFailureLines(output string) []string {
+	rawLines := strings.Split(output, "\n")
+	lines := make([]string, 0, len(rawLines))
+	for _, line := range rawLines {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
@@ -483,79 +521,270 @@ func summarizeTaskFailureOutput(output string) string {
 		if strings.HasPrefix(line, "=== 开始执行") || strings.HasPrefix(line, "=== 执行结束") {
 			continue
 		}
-		kept = append(kept, line)
+		if line == "Traceback (most recent call last):" {
+			continue
+		}
+		if caretIndicatorLineRe.MatchString(line) {
+			continue
+		}
+		lines = append(lines, line)
 	}
+	return lines
+}
 
-	if len(kept) == 0 {
+func summarizePythonFailureOutput(lines []string) string {
+	if len(lines) == 0 {
 		return ""
 	}
 
-	const maxLines = 15
-	if len(kept) > maxLines {
-		kept = kept[len(kept)-maxLines:]
+	exceptionLine := strings.TrimSpace(lines[len(lines)-1])
+	if !pythonExceptionLineRe.MatchString(exceptionLine) {
+		return ""
 	}
 
-	summary := strings.Join(kept, "\n")
-	runes := []rune(summary)
-	const maxRunes = 1200
-	if len(runes) > maxRunes {
-		summary = "...\n" + string(runes[len(runes)-maxRunes:])
+	frames := extractPythonFailureFrames(lines)
+	location := formatTaskFailureLocation(selectPreferredFailureFrame(frames))
+	if location == "" {
+		return truncateTaskFailureSummary(exceptionLine, 240)
 	}
 
-	return summary
+	return truncateTaskFailureSummary(exceptionLine+"\n定位: "+location, 320)
 }
 
-var (
-	pyModuleRe   = regexp.MustCompile(`(?:ModuleNotFoundError|ImportError):\s*No module named\s+'([^']+)'`)
-	nodeModuleRe = regexp.MustCompile(`(?:Cannot find module|Error \[ERR_MODULE_NOT_FOUND\].*)\s*'([^']+)'`)
-)
-
-func (e *TaskExecutor) detectAndInstallDeps(output string, envVars map[string]string, onOutput OnOutputFunc) bool {
-	installed := false
-
-	depsDir := filepath.Join(config.C.Data.Dir, "deps")
-
-	if matches := pyModuleRe.FindStringSubmatch(output); len(matches) > 1 {
-		modName := strings.Split(matches[1], ".")[0]
-		installName := ResolvePythonAutoInstallPackage(modName)
-		onOutput(fmt.Sprintf("[自动安装 Python 依赖: %s -> %s]", modName, installName))
-		venvPip := filepath.Join(depsDir, "python", "venv", "bin", "pip3")
-		if _, err := os.Stat(venvPip); err != nil {
-			venvPip = "pip3"
+func extractPythonFailureFrames(lines []string) []taskFailureFrame {
+	frames := make([]taskFailureFrame, 0, len(lines))
+	for _, line := range lines {
+		matches := pythonTraceFrameRe.FindStringSubmatch(line)
+		if len(matches) != 4 {
+			continue
 		}
-		cmd := exec.Command(venvPip, "install", installName)
-		cmd.Env = PipInstallEnv(buildEnvSlice(envVars), CurrentPipMirror())
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			onOutput(fmt.Sprintf("[安装失败: %s]", strings.TrimSpace(string(out))))
-		} else {
-			onOutput(fmt.Sprintf("[安装成功: %s]", installName))
-			installed = true
-			RecordAutoInstalledDep(model.DepTypePython, installName, string(out))
-		}
+		frames = append(frames, taskFailureFrame{
+			Path:     matches[1],
+			Line:     matches[2],
+			Function: strings.TrimSpace(matches[3]),
+		})
+	}
+	return frames
+}
+
+func summarizeNodeFailureOutput(lines []string) string {
+	if len(lines) == 0 {
+		return ""
 	}
 
-	if matches := nodeModuleRe.FindStringSubmatch(output); len(matches) > 1 {
-		modName := matches[1]
-		if strings.HasPrefix(modName, ".") || strings.HasPrefix(modName, "/") {
-			return installed
-		}
-		onOutput(fmt.Sprintf("[自动安装 Node.js 依赖: %s]", modName))
-		nodeDir := filepath.Join(depsDir, "nodejs")
-		os.MkdirAll(nodeDir, 0755)
-		cmd := exec.Command("npm", "install", modName, "--prefix", nodeDir)
-		cmd.Env = NpmInstallEnv(buildEnvSlice(envVars), CurrentNpmMirror())
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			onOutput(fmt.Sprintf("[安装失败: %s]", strings.TrimSpace(string(out))))
-		} else {
-			onOutput(fmt.Sprintf("[安装成功: %s]", modName))
-			installed = true
-			RecordAutoInstalledDep(model.DepTypeNodeJS, modName, string(out))
-		}
+	errorLine := findLastTaskFailureErrorLine(lines)
+	if errorLine == "" {
+		return ""
 	}
 
-	return installed
+	var frames []taskFailureFrame
+	for _, line := range lines {
+		matches := nodeStackFrameRe.FindStringSubmatch(line)
+		if len(matches) < 3 {
+			continue
+		}
+		frames = append(frames, taskFailureFrame{
+			Path: matches[1],
+			Line: matches[2],
+		})
+	}
+	if len(frames) == 0 {
+		return ""
+	}
+
+	location := formatTaskFailureLocation(selectPreferredFailureFrame(frames))
+	if location == "" {
+		return truncateTaskFailureSummary(errorLine, 240)
+	}
+
+	return truncateTaskFailureSummary(errorLine+"\n定位: "+location, 320)
+}
+
+func summarizeGenericFailureOutput(lines []string) string {
+	if len(lines) == 0 {
+		return ""
+	}
+
+	errorLine := findLastTaskFailureErrorLine(lines)
+	if errorLine == "" {
+		return ""
+	}
+
+	contextLine := findLastTaskFailureContextLine(lines, errorLine)
+	if contextLine == "" {
+		return truncateTaskFailureSummary(errorLine, 260)
+	}
+
+	return truncateTaskFailureSummary(errorLine+"\n上下文: "+contextLine, 360)
+}
+
+func findLastTaskFailureErrorLine(lines []string) string {
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+		if genericErrorLineRe.MatchString(line) {
+			return line
+		}
+	}
+	return ""
+}
+
+func findLastTaskFailureContextLine(lines []string, errorLine string) string {
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line == "" || line == errorLine {
+			continue
+		}
+		if pythonTraceFrameRe.MatchString(line) || nodeStackFrameRe.MatchString(line) {
+			frame := taskFailureFrameFromLine(line)
+			location := formatTaskFailureLocation(&frame)
+			if location != "" {
+				return location
+			}
+		}
+		if genericErrorLineRe.MatchString(line) {
+			continue
+		}
+		return line
+	}
+	return ""
+}
+
+func taskFailureFrameFromLine(line string) taskFailureFrame {
+	if matches := pythonTraceFrameRe.FindStringSubmatch(line); len(matches) == 4 {
+		return taskFailureFrame{
+			Path:     matches[1],
+			Line:     matches[2],
+			Function: strings.TrimSpace(matches[3]),
+		}
+	}
+	if matches := nodeStackFrameRe.FindStringSubmatch(line); len(matches) >= 3 {
+		return taskFailureFrame{
+			Path: matches[1],
+			Line: matches[2],
+		}
+	}
+	return taskFailureFrame{}
+}
+
+func selectPreferredFailureFrame(frames []taskFailureFrame) *taskFailureFrame {
+	if len(frames) == 0 {
+		return nil
+	}
+
+	for i := len(frames) - 1; i >= 0; i-- {
+		frame := frames[i]
+		if !isRuntimeFailureFrame(frame.Path) {
+			return &frames[i]
+		}
+	}
+	return &frames[len(frames)-1]
+}
+
+func isRuntimeFailureFrame(path string) bool {
+	lower := strings.ToLower(strings.ReplaceAll(path, "\\", "/"))
+	runtimeMarkers := []string{
+		"/python",
+		"/asyncio/",
+		"site-packages/",
+		"/node_modules/",
+		"node:internal",
+		"<anonymous>",
+	}
+	for _, marker := range runtimeMarkers {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func formatTaskFailureLocation(frame *taskFailureFrame) string {
+	if frame == nil || strings.TrimSpace(frame.Path) == "" {
+		return ""
+	}
+
+	location := shortenTaskFailurePath(frame.Path)
+	if strings.TrimSpace(frame.Line) != "" {
+		location += ":" + strings.TrimSpace(frame.Line)
+	}
+
+	functionName := strings.TrimSpace(frame.Function)
+	if functionName != "" && functionName != "<module>" {
+		location += " (" + functionName + ")"
+	}
+	return location
+}
+
+func shortenTaskFailurePath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+
+	normalized := strings.ReplaceAll(path, "\\", "/")
+	parts := strings.FieldsFunc(normalized, func(r rune) bool {
+		return r == '/'
+	})
+	if len(parts) == 0 {
+		return normalized
+	}
+	if len(parts) >= 2 {
+		return strings.Join(parts[len(parts)-2:], "/")
+	}
+	return parts[0]
+}
+
+func tailTaskFailureLines(lines []string, count int) []string {
+	if len(lines) <= count {
+		return append([]string{}, lines...)
+	}
+	return append([]string{}, lines[len(lines)-count:]...)
+}
+
+func truncateTaskFailureSummary(summary string, maxRunes int) string {
+	summary = strings.TrimSpace(summary)
+	if summary == "" {
+		return ""
+	}
+
+	runes := []rune(summary)
+	if len(runes) <= maxRunes {
+		return summary
+	}
+	if maxRunes <= 1 {
+		return string(runes[:maxRunes])
+	}
+	return string(runes[:maxRunes-1]) + "…"
+}
+
+func (e *TaskExecutor) detectAndInstallDeps(plan *CommandExecutionPlan, output string, envVars map[string]string, onOutput OnOutputFunc) bool {
+	if plan == nil || plan.FullPath == "" {
+		return false
+	}
+
+	ext := strings.ToLower(filepath.Ext(plan.FullPath))
+	workDir := filepath.Dir(plan.FullPath)
+	candidate := DetectAutoInstallCandidate(ext, output, workDir)
+	if candidate == nil {
+		return false
+	}
+
+	onOutput(fmt.Sprintf("[检测到缺失依赖: %s，正在自动安装...]", candidate.DisplayName))
+	result := InstallAutoDependency(candidate, envVars)
+	if !result.Success {
+		failureReason := strings.TrimSpace(result.Error)
+		if failureReason == "" {
+			failureReason = "未知错误"
+		}
+		onOutput(fmt.Sprintf("[安装失败: %s]", failureReason))
+		return false
+	}
+
+	onOutput(fmt.Sprintf("[安装成功: %s]", candidate.DisplayName))
+	return true
 }
 
 func RecordAutoInstalledDep(depType, name, installLog string) {
@@ -646,7 +875,7 @@ func extractTaskScriptPath(command string) string {
 			}
 		}
 		return ""
-	case "desi", "python", "python3", "node", "ts-node", "bash":
+	case "desi", "python", "python3", "node", "ts-node", "bash", "go":
 		for count := len(tokens) - 1; count >= 2; count-- {
 			candidate := strings.Join(tokens[1:count], " ")
 			if isSupportedScriptExtension(candidate) {

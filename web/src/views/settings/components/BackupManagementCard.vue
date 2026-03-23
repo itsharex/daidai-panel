@@ -3,6 +3,7 @@ import { Clock, Delete, Download, Upload } from '@element-plus/icons-vue'
 import { ref } from 'vue'
 import type { BackupSelection } from '@/api/system'
 import { useResponsive } from '@/composables/useResponsive'
+import RestoreProgressDialog from './RestoreProgressDialog.vue'
 
 const showBackupDialog = defineModel<boolean>('showBackupDialog', { required: true })
 const backupPassword = defineModel<string>('backupPassword', { required: true })
@@ -14,12 +15,24 @@ defineProps<{
   backups: Array<{ name: string; size: number; created_at: string }>
   backupsLoading: boolean
   restoreFilename: string
+  restoreProgressVisible: boolean
+  restoreProgressStatus: string
+  restoreProgressStage: string
+  restoreProgressMessage: string
+  restoreProgressPercent: number
+  restoreProgressSource: string
+  restoreProgressSelection: Partial<BackupSelection>
+  restoreProgressStartedAt?: string
+  restoreRestartCountdown: number
+  restoreProgressError: string
   onCreateBackup: () => void | Promise<void>
   onUploadBackup: (event: Event) => void | Promise<void>
   onConfirmCreateBackup: () => void | Promise<void>
   onDownloadBackup: (filename: string) => void | Promise<void>
   onRestoreBackup: (filename: string) => void | Promise<void>
   onConfirmRestore: () => void | Promise<void>
+  onCloseRestoreProgress: () => void | Promise<void>
+  onRestartRestoreNow: () => void | Promise<void>
   onDeleteBackup: (filename: string) => void | Promise<void>
 }>()
 
@@ -195,6 +208,23 @@ function triggerUploadBackup() {
       <el-button type="danger" @click="onConfirmRestore">确认恢复</el-button>
     </template>
   </el-dialog>
+
+  <RestoreProgressDialog
+    :visible="restoreProgressVisible"
+    :fullscreen="dialogFullscreen"
+    :filename="restoreFilename"
+    :status="restoreProgressStatus"
+    :stage="restoreProgressStage"
+    :message="restoreProgressMessage"
+    :percent="restoreProgressPercent"
+    :source="restoreProgressSource"
+    :selection="restoreProgressSelection"
+    :started-at="restoreProgressStartedAt"
+    :countdown="restoreRestartCountdown"
+    :error-message="restoreProgressError"
+    :on-close="onCloseRestoreProgress"
+    :on-restart-now="onRestartRestoreNow"
+  />
 </template>
 
 <style scoped lang="scss">

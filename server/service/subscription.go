@@ -129,10 +129,9 @@ func pullGitRepoWithCallback(sub *model.Subscription, sshKeyPath string, emit Pu
 
 	destDir := filepath.Join(config.C.Data.ScriptsDir, saveDir)
 
-	env := AppendProxyEnv(os.Environ())
-	if sshKeyPath != "" {
-		sshCmd := fmt.Sprintf("ssh -i %s -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null", sshKeyPath)
-		env = append(env, "GIT_SSH_COMMAND="+sshCmd)
+	env, err := appendGitSSHEnv(os.Environ(), sshKeyPath)
+	if err != nil {
+		return "", err
 	}
 
 	if IsGitRepo(destDir) {

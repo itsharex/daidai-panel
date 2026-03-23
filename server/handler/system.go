@@ -186,6 +186,10 @@ func (h *SystemHandler) Restore(c *gin.Context) {
 	response.Success(c, gin.H{"message": "恢复成功"})
 }
 
+func (h *SystemHandler) RestoreProgress(c *gin.Context) {
+	response.Success(c, gin.H{"data": service.CurrentRestoreProgress()})
+}
+
 func (h *SystemHandler) DeleteBackup(c *gin.Context) {
 	filename := c.Query("filename")
 	if filename == "" {
@@ -425,6 +429,7 @@ func (h *SystemHandler) RegisterRoutes(r *gin.RouterGroup) {
 		sys.POST("/backup/upload", middleware.RequireAdmin(), h.UploadBackup)
 		sys.GET("/backups", middleware.RequireAdmin(), h.BackupList)
 		sys.GET("/backup/download/:filename", middleware.RequireAdmin(), h.DownloadBackup)
+		sys.GET("/restore/progress", middleware.RequireAdmin(), h.RestoreProgress)
 		sys.POST("/restore", middleware.RequireAdmin(), h.Restore)
 		sys.DELETE("/backup", middleware.RequireAdmin(), h.DeleteBackup)
 	}

@@ -97,11 +97,11 @@ func TestLinuxInstallCommandSpec(t *testing.T) {
 
 func TestRewriteAPTListLine(t *testing.T) {
 	line := "deb [arch=amd64] http://archive.ubuntu.com/ubuntu jammy main restricted"
-	updated, changed := rewriteAPTListLine(line, "ubuntu", "https://mirrors.tuna.tsinghua.edu.cn/ubuntu")
+	updated, changed := rewriteAPTListLine(line, "ubuntu", "https://mirrors.aliyun.com/ubuntu")
 	if !changed {
 		t.Fatalf("expected apt list line to change")
 	}
-	if updated != "deb [arch=amd64] https://mirrors.tuna.tsinghua.edu.cn/ubuntu jammy main restricted" {
+	if updated != "deb [arch=amd64] https://mirrors.aliyun.com/ubuntu jammy main restricted" {
 		t.Fatalf("unexpected updated line: %s", updated)
 	}
 
@@ -109,7 +109,7 @@ func TestRewriteAPTListLine(t *testing.T) {
 	if changed {
 		t.Fatalf("expected apt list line already using default accelerated mirror to remain unchanged")
 	}
-	if defaulted != "deb [arch=amd64] https://mirrors.tuna.tsinghua.edu.cn/ubuntu jammy main restricted" {
+	if defaulted != "deb [arch=amd64] https://mirrors.aliyun.com/ubuntu jammy main restricted" {
 		t.Fatalf("unexpected defaulted line: %s", defaulted)
 	}
 }
@@ -127,18 +127,18 @@ func TestRewriteAPTSourcesContent(t *testing.T) {
 
 func TestEffectiveLinuxMirrorFallsBackToDefaultAcceleratedMirror(t *testing.T) {
 	apkManager := linuxPackageManager{Name: "apk", Binary: "apk"}
-	if got := effectiveLinuxMirror(apkManager, "", ""); got != "https://mirrors.tuna.tsinghua.edu.cn/alpine" {
+	if got := effectiveLinuxMirror(apkManager, "", ""); got != "https://mirrors.aliyun.com/alpine" {
 		t.Fatalf("expected apk default mirror, got %q", got)
 	}
-	if got := effectiveLinuxMirror(apkManager, "", "https://dl-cdn.alpinelinux.org/alpine"); got != "https://mirrors.tuna.tsinghua.edu.cn/alpine" {
+	if got := effectiveLinuxMirror(apkManager, "", "https://dl-cdn.alpinelinux.org/alpine"); got != "https://mirrors.aliyun.com/alpine" {
 		t.Fatalf("expected apk official mirror to fall back to accelerated mirror, got %q", got)
 	}
 
 	aptManager := linuxPackageManager{Name: "apt", Binary: "apt-get"}
-	if got := effectiveLinuxMirror(aptManager, "ubuntu", ""); got != "https://mirrors.tuna.tsinghua.edu.cn/ubuntu" {
+	if got := effectiveLinuxMirror(aptManager, "ubuntu", ""); got != "https://mirrors.aliyun.com/ubuntu" {
 		t.Fatalf("expected ubuntu default mirror, got %q", got)
 	}
-	if got := effectiveLinuxMirror(aptManager, "debian", "http://deb.debian.org/debian"); got != "https://mirrors.tuna.tsinghua.edu.cn/debian" {
+	if got := effectiveLinuxMirror(aptManager, "debian", "http://deb.debian.org/debian"); got != "https://mirrors.aliyun.com/debian" {
 		t.Fatalf("expected debian official mirror to fall back to accelerated mirror, got %q", got)
 	}
 	if got := effectiveLinuxMirror(aptManager, "ubuntu", "https://mirrors.aliyun.com/ubuntu"); got != "https://mirrors.aliyun.com/ubuntu" {

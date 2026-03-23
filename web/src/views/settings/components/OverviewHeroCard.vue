@@ -1,17 +1,23 @@
 <script setup lang="ts">
 import { Refresh } from '@element-plus/icons-vue'
+import type { PanelUpdateStatus } from '@/api/system'
+import UpdateProgressDialog from './UpdateProgressDialog.vue'
 
 defineProps<{
   isAdmin: boolean
   currentVersion: string
   updateInfo: any
-  updateStatus: any
+  updateStatus: PanelUpdateStatus | null
   checkingUpdate: boolean
   updatingPanel: boolean
+  updateProgressVisible: boolean
+  updateProgressStatus: 'idle' | 'running' | 'restarting' | 'failed' | 'timeout'
+  updateProgressError: string
   onCheckUpdate: () => void | Promise<void>
   onStartUpdate: () => void | Promise<void>
   onRestartPanel: () => void | Promise<void>
   onOpenGitHub: () => void
+  onCloseUpdateProgress: () => void | Promise<void>
 }>()
 </script>
 
@@ -89,6 +95,17 @@ defineProps<{
       </div>
     </div>
   </el-card>
+
+  <UpdateProgressDialog
+    :visible="updateProgressVisible"
+    :current-version="currentVersion"
+    :latest-version="updateInfo?.latest"
+    :release-url="updateInfo?.release_url"
+    :status="updateProgressStatus"
+    :update-status="updateStatus"
+    :error-message="updateProgressError"
+    :on-close="onCloseUpdateProgress"
+  />
 </template>
 
 <style scoped lang="scss">

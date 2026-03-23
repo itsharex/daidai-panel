@@ -3,6 +3,7 @@ package handler_test
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"daidai-panel/database"
@@ -211,5 +212,70 @@ func TestEnvExportAllHonorsSelectedIDs(t *testing.T) {
 	}
 	if _, exists := gotNames["BETA"]; exists {
 		t.Fatalf("did not expect BETA in selected export, got %v", gotNames)
+	}
+}
+
+func TestEnvExportFilesPreservesEmbeddedAmpersands(t *testing.T) {
+	testutil.SetupTestEnv(t)
+
+	engine := newProtectedRouter()
+	user := testutil.MustCreateUser(t, "env-exporter", "operator")
+	token := testutil.MustCreateAccessToken(t, user.Username, user.Role)
+
+	envs := []*model.EnvVar{
+		{Name: "JD_COOKIE", Value: "pt_key=one&a=1", Enabled: true, Position: 1000},
+		{Name: "JD_COOKIE", Value: "pt_key=two&b=2", Enabled: true, Position: 2000},
+	}
+	for _, env := range envs {
+		if err := database.DB.Create(env).Error; err != nil {
+			t.Fatalf("create env %q: %v", env.Name, err)
+		}
+	}
+
+	rec := performJSONRequest(
+		engine,
+		http.MethodPost,
+		"/api/v1/envs/export-files",
+		`{"format":"shell"}`,
+		map[string]string{"Authorization": "Bearer " + token},
+		"",
+	)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d, body=%s", rec.Code, rec.Body.String())
+	}
+
+	payload := decodeJSONMap(t, rec)
+	data, ok := payload["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected export data map, got %#v", payload["data"])
+	}
+
+	shell, _ := data["shell"].(string)
+	if !strings.Contains(shell, "export JD_COOKIE='pt_key=one&a=1&&pt_key=two&b=2'") {
+		t.Fatalf("expected shell export to preserve embedded ampersands, got %s", shell)
+	}
+}
+
+func TestEnvCreateRejectsOversizedBody(t *testing.T) {
+	testutil.SetupTestEnv(t)
+
+	engine := newProtectedRouter()
+	user := testutil.MustCreateUser(t, "env-operator-limit", "operator")
+	token := testutil.MustCreateAccessToken(t, user.Username, user.Role)
+
+	largeValue := strings.Repeat("a", (1<<20)+128)
+	rec := performJSONRequest(
+		engine,
+		http.MethodPost,
+		"/api/v1/envs",
+		fmt.Sprintf(`{"name":"BIG_ENV","value":"%s"}`, largeValue),
+		map[string]string{"Authorization": "Bearer " + token},
+		"",
+	)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "请求体过大") {
+		t.Fatalf("expected oversized body message, got %s", rec.Body.String())
 	}
 }

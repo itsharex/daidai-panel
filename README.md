@@ -18,12 +18,12 @@
 
 ---
 
-呆呆面板 (Daidai Panel) 是一款轻量级定时任务管理平台，采用 Go (Gin) + Vue3 (Element Plus) + SQLite 架构，专注于脚本托管与自动化任务调度。支持 Python、Node.js、Shell 等多语言脚本的定时执行与可视化管理，内置 18 种消息推送渠道、订阅管理、环境变量、依赖管理、Open API 等功能。Docker 一键部署，开箱即用。
+呆呆面板 (Daidai Panel) 是一款轻量级定时任务管理平台，采用 Go (Gin) + Vue3 (Element Plus) + SQLite 架构，专注于脚本托管与自动化任务调度。支持 Python、Node.js、Shell、TypeScript、Go 等多语言脚本的定时执行与可视化管理，内置 18 种消息推送渠道、订阅管理、环境变量、依赖管理、Open API 等功能。Docker 一键部署，开箱即用。
 
 ## 功能特性
 
 - **定时任务** — Cron 表达式调度，支持重试、超时、任务依赖、前后置钩子
-- **脚本管理** — 在线代码编辑器，支持 Python、Node.js、Shell、TypeScript，拖拽移动文件
+- **脚本管理** — 在线代码编辑器，支持 Python、Node.js、Shell、TypeScript、Go，拖拽移动文件
 - **执行日志** — SSE 实时日志流，历史日志查看与自动清理
 - **环境变量** — 分组管理、拖拽排序、批量导入导出（兼容青龙格式）
 - **订阅管理** — 自动从 Git 仓库拉取脚本，支持定期同步
@@ -189,7 +189,7 @@ docker compose -f docker-compose.debian.yml up -d
 如果你是基于当前源码本地试跑，也可以手动构建：
 
 ```bash
-docker build --build-arg VERSION=1.9.3 -f Dockerfile.debian -t daidai-panel:debian-local .
+docker build --build-arg VERSION=1.9.4 -f Dockerfile.debian -t daidai-panel:debian-local .
 ```
 
 从 `v1.9.0` 开始，仓库里的发布工作流会自动发布 Debian 运行时镜像。Debian 运行时只保留一个滚动标签：
@@ -353,18 +353,18 @@ docker run -d \
 
 ## 自动发布
 
-仓库已配置 GitHub Actions 发布工作流。推送形如 `v1.9.3` 的 tag 后，会自动完成：
+仓库已配置 GitHub Actions 发布工作流。推送形如 `v1.9.4` 的 tag 后，会自动完成：
 
 - 创建 GitHub Release
 - 推送 Alpine 运行时镜像：`linzixuanzz/daidai-panel:latest`
-- 推送 Alpine 版本镜像：`linzixuanzz/daidai-panel:1.9.3`
+- 推送 Alpine 版本镜像：`linzixuanzz/daidai-panel:1.9.4`
 - 推送 Debian 运行时镜像：`linzixuanzz/daidai-panel:debian`
 
 本次版本发布命令示例：
 
 ```bash
-git tag v1.9.3
-git push origin v1.9.3
+git tag v1.9.4
+git push origin v1.9.4
 ```
 
 ## 更新方法
@@ -383,7 +383,7 @@ docker compose up -d
 如果你当前使用的是源码仓库里手动本地构建的 Debian 运行时镜像，更新方式是重新构建：
 
 ```bash
-docker build --build-arg VERSION=1.9.3 -f Dockerfile.debian -t daidai-panel:debian-local .
+docker build --build-arg VERSION=1.9.4 -f Dockerfile.debian -t daidai-panel:debian-local .
 ```
 
 如果你使用的是 Debian 运行时镜像，则按下面方式更新：

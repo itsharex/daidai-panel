@@ -433,34 +433,14 @@ func (h *DepsHandler) SetMirrors(c *gin.Context) {
 	var errors []string
 
 	if req.PipMirror != nil {
-		mirror := service.EffectivePipMirror(strings.TrimSpace(*req.PipMirror))
-		if !strings.HasPrefix(mirror, "http://") && !strings.HasPrefix(mirror, "https://") {
-			errors = append(errors, "pip 镜像源必须以 http:// 或 https:// 开头")
-		} else {
-			if out, err := exec.Command("pip3", "config", "set", "global.index-url", mirror).CombinedOutput(); err != nil {
-				if out2, err2 := exec.Command("pip", "config", "set", "global.index-url", mirror).CombinedOutput(); err2 != nil {
-					errors = append(errors, "设置 pip 镜像源失败: "+string(out)+string(out2))
-				}
-			}
-			host := extractHost(mirror)
-			if host != "" {
-				exec.Command("pip3", "config", "set", "global.trusted-host", host).Run()
-			}
+		if err := service.SetPipMirror(*req.PipMirror); err != nil {
+			errors = append(errors, err.Error())
 		}
 	}
 
 	if req.NpmMirror != nil {
-		mirror := service.EffectiveNpmMirror(strings.TrimSpace(*req.NpmMirror))
-		if mirror == "" {
-			errors = append(errors, "npm 镜像源不能为空")
-		} else {
-			if !strings.HasPrefix(mirror, "http://") && !strings.HasPrefix(mirror, "https://") {
-				errors = append(errors, "npm 镜像源必须以 http:// 或 https:// 开头")
-			} else {
-				if out, err := exec.Command("npm", "config", "set", "registry", mirror).CombinedOutput(); err != nil {
-					errors = append(errors, "设置 npm 镜像源失败: "+string(out))
-				}
-			}
+		if err := service.SetNpmMirror(*req.NpmMirror); err != nil {
+			errors = append(errors, err.Error())
 		}
 	}
 
@@ -483,17 +463,6 @@ func (h *DepsHandler) SetMirrors(c *gin.Context) {
 	}
 
 	response.Success(c, gin.H{"message": "镜像源设置成功"})
-}
-
-func extractHost(url string) string {
-	url = strings.TrimPrefix(url, "https://")
-	url = strings.TrimPrefix(url, "http://")
-	parts := strings.SplitN(url, "/", 2)
-	if len(parts) > 0 {
-		hostPort := strings.SplitN(parts[0], ":", 2)
-		return hostPort[0]
-	}
-	return ""
 }
 
 func runCmdWithSSE(cmd *exec.Cmd, id uint, successStatus string, deleteOnSuccess bool) {

@@ -172,6 +172,8 @@ func buildBackupManifest(selection BackupSelection) (BackupManifest, error) {
 
 func snapshotConfigBundle() (BackupConfigBundle, error) {
 	bundle := BackupConfigBundle{}
+	mirrors := CurrentDependencyMirrorSettings()
+	bundle.DependencyMirrors = &mirrors
 
 	if err := database.DB.Order("key ASC").Find(&bundle.SystemConfigs).Error; err != nil {
 		return BackupConfigBundle{}, fmt.Errorf("load system configs: %w", err)
@@ -355,7 +357,16 @@ func addDirectoryToTar(tw *tar.Writer, sourceDir, archiveRoot string) error {
 	})
 }
 
-func restoreBackupFile(filename, password string) error {
+func restoreBackupFile(filename, password string) (err error) {
+	if err := BeginRestoreProgress(filename); err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			FailRestoreProgress(err)
+		}
+	}()
+
 	backupDir := filepath.Join(config.C.Data.Dir, "backups")
 	filePath := filepath.Join(backupDir, filepath.Base(filename))
 
@@ -363,12 +374,14 @@ func restoreBackupFile(filename, password string) error {
 	if err != nil {
 		return fmt.Errorf("failed to read backup: %w", err)
 	}
+	UpdateRestoreProgress("reading", "正在读取备份文件...", 10)
 
 	rawData := fileData
 	if strings.HasSuffix(strings.ToLower(filename), ".enc") {
 		if strings.TrimSpace(password) == "" {
 			return fmt.Errorf("加密备份需要密码")
 		}
+		UpdateRestoreProgress("decrypting", "正在解密加密备份...", 18)
 		rawData, err = decryptData(fileData, password)
 		if err != nil {
 			return fmt.Errorf("failed to decrypt backup: %w", err)
@@ -376,10 +389,18 @@ func restoreBackupFile(filename, password string) error {
 	}
 
 	if looksLikeGzip(rawData) {
-		return restoreArchiveBytes(rawData)
+		if err := restoreArchiveBytes(rawData); err != nil {
+			return err
+		}
+		CompleteRestoreProgress("数据已恢复完成，正在准备重启面板...")
+		return nil
 	}
 	if looksLikeJSON(rawData) {
-		return restoreLegacyJSONBytes(rawData)
+		if err := restoreLegacyJSONBytes(rawData); err != nil {
+			return err
+		}
+		CompleteRestoreProgress("数据已恢复完成，正在准备重启面板...")
+		return nil
 	}
 
 	return fmt.Errorf("无法识别的备份格式")
@@ -395,6 +416,8 @@ func looksLikeJSON(data []byte) bool {
 }
 
 func restoreArchiveBytes(data []byte) error {
+	UpdateRestoreProgress("extracting", "正在解包并校验备份内容...", 28)
+
 	tempDir, err := os.MkdirTemp("", "daidai-restore-*")
 	if err != nil {
 		return fmt.Errorf("创建临时目录失败: %w", err)
@@ -407,6 +430,7 @@ func restoreArchiveBytes(data []byte) error {
 
 	manifestPath := filepath.Join(tempDir, "manifest.json")
 	if _, err := os.Stat(manifestPath); err == nil {
+		UpdateRestoreProgress("analyzing", "正在读取备份清单并分析恢复内容...", 40)
 		var manifest BackupManifest
 		manifestData, err := os.ReadFile(manifestPath)
 		if err != nil {
@@ -415,6 +439,7 @@ func restoreArchiveBytes(data []byte) error {
 		if err := json.Unmarshal(manifestData, &manifest); err != nil {
 			return fmt.Errorf("解析备份清单失败: %w", err)
 		}
+		BindRestoreProgressPlan(manifest.Source, manifest.Selection)
 		return restoreBackupManifest(manifest, tempDir)
 	}
 
@@ -422,10 +447,14 @@ func restoreArchiveBytes(data []byte) error {
 	if err != nil {
 		return err
 	}
+	UpdateRestoreProgress("analyzing", "已识别青龙备份，正在转换为面板数据...", 40)
+	BindRestoreProgressPlan(manifest.Source, manifest.Selection)
 	return restoreBackupManifest(manifest, tempDir)
 }
 
 func restoreLegacyJSONBytes(data []byte) error {
+	UpdateRestoreProgress("analyzing", "正在解析旧版备份并转换结构...", 34)
+
 	var legacy LegacyBackupData
 	if err := json.Unmarshal(data, &legacy); err != nil {
 		return fmt.Errorf("failed to parse backup: %w", err)
@@ -508,6 +537,7 @@ func restoreLegacyJSONBytes(data []byte) error {
 		})
 	}
 
+	BindRestoreProgressPlan(manifest.Source, manifest.Selection)
 	return restoreBackupManifest(manifest, tempDir)
 }
 
@@ -563,6 +593,7 @@ func restoreBackupManifest(manifest BackupManifest, extractedDir string) error {
 	if !selection.Any() {
 		return fmt.Errorf("备份内容为空")
 	}
+	UpdateRestoreProgress("restoring-data", "正在写入数据库与核心配置...", 56)
 
 	tx := database.DB.Begin()
 	if tx.Error != nil {
@@ -682,16 +713,25 @@ func restoreBackupManifest(manifest BackupManifest, extractedDir string) error {
 	}
 
 	if selection.Scripts {
+		UpdateRestoreProgress("restoring-files", "正在恢复脚本文件与资源...", 72)
 		if err := restoreScriptFiles(extractedDir, manifest.Source); err != nil {
 			return err
 		}
 	}
 	if selection.Logs {
+		UpdateRestoreProgress("restoring-files", "正在恢复日志文件与面板日志...", 78)
 		if err := restoreLogFiles(extractedDir, manifest.Source); err != nil {
 			return err
 		}
 	}
+	if selection.Configs && manifest.Data.Configs.DependencyMirrors != nil {
+		UpdateRestoreProgress("restoring-mirrors", "正在恢复依赖镜像与运行时配置...", 84)
+		if err := ApplyDependencyMirrorSettings(*manifest.Data.Configs.DependencyMirrors); err != nil {
+			return err
+		}
+	}
 
+	UpdateRestoreProgress("finalizing", "正在刷新任务调度与恢复后状态...", 92)
 	model.InitDefaultConfigs()
 	_ = middleware.ConfigureTrustedProxyCIDRs(model.GetRegisteredConfig("trusted_proxy_cidrs"))
 
@@ -702,6 +742,7 @@ func restoreBackupManifest(manifest BackupManifest, extractedDir string) error {
 		subScheduler.ReloadAllJobs()
 	}
 	if selection.Dependencies {
+		UpdateRestoreProgress("finalizing", "正在提交依赖重装任务...", 96)
 		dependencyReinstallBatchFunc(createdDependencies)
 	}
 

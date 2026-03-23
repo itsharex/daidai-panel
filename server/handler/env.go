@@ -3,8 +3,10 @@ package handler
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"regexp"
 	"sort"
 	"strconv"
@@ -14,6 +16,7 @@ import (
 	"daidai-panel/middleware"
 	"daidai-panel/model"
 	"daidai-panel/pkg/response"
+	"daidai-panel/service"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -22,15 +25,25 @@ import (
 var envNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 const (
-	envNormalSortOrder = 0
-	envPinnedSortOrder = 1
-	envPositionStep    = 1000.0
+	envNormalSortOrder    = 0
+	envPinnedSortOrder    = 1
+	envPositionStep       = 1000.0
+	maxEnvRequestBodySize = 1 << 20
 )
 
 type EnvHandler struct{}
 
 func NewEnvHandler() *EnvHandler {
 	return &EnvHandler{}
+}
+
+func limitEnvRequestBody(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxEnvRequestBodySize)
+}
+
+func isRequestBodyTooLarge(err error) bool {
+	var maxBytesErr *http.MaxBytesError
+	return errors.As(err, &maxBytesErr)
 }
 
 func orderedEnvQuery() *gorm.DB {
@@ -183,8 +196,13 @@ func (h *EnvHandler) List(c *gin.Context) {
 }
 
 func (h *EnvHandler) Create(c *gin.Context) {
+	limitEnvRequestBody(c)
 	raw, err := io.ReadAll(c.Request.Body)
 	if err != nil {
+		if isRequestBodyTooLarge(err) {
+			response.BadRequest(c, "请求体过大（最大 1MB）")
+			return
+		}
 		response.BadRequest(c, "请求参数错误")
 		return
 	}
@@ -563,7 +581,7 @@ func groupEnvs(envs []model.EnvVar) map[string]string {
 	}
 	result := make(map[string]string)
 	for name, vals := range grouped {
-		result[name] = strings.Join(vals, "&")
+		result[name] = service.JoinTaskEnvValues(vals)
 	}
 	return result
 }
@@ -627,7 +645,12 @@ func (h *EnvHandler) Import(c *gin.Context) {
 		Envs []map[string]interface{} `json:"envs" binding:"required"`
 		Mode string                   `json:"mode"`
 	}
+	limitEnvRequestBody(c)
 	if err := c.ShouldBindJSON(&req); err != nil {
+		if isRequestBodyTooLarge(err) {
+			response.BadRequest(c, "请求体过大（最大 1MB）")
+			return
+		}
 		response.BadRequest(c, "请求参数错误")
 		return
 	}

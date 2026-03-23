@@ -74,14 +74,18 @@ watch(
     destroy-on-close
     @update:model-value="emit('update:modelValue', $event)"
   >
-    <el-form :label-width="dialogFullscreen ? 'auto' : '80px'" :label-position="dialogFullscreen ? 'top' : 'right'">
+    <el-form
+      class="env-import-dialog__form"
+      :label-width="dialogFullscreen ? 'auto' : '96px'"
+      :label-position="dialogFullscreen ? 'top' : 'right'"
+    >
       <el-form-item label="导入模式">
         <el-radio-group v-model="importMode">
           <el-radio value="merge">合并 (同名同值更新)</el-radio>
           <el-radio value="replace">替换 (清空后导入)</el-radio>
         </el-radio-group>
       </el-form-item>
-      <el-form-item label="JSON 数据">
+      <el-form-item class="env-import-dialog__json-item" label="JSON 数据">
         <div style="width: 100%">
           <el-upload
             :show-file-list="false"
@@ -106,3 +110,14 @@ watch(
     </template>
   </el-dialog>
 </template>
+
+<style scoped>
+.env-import-dialog__form :deep(.el-form-item__label) {
+  white-space: nowrap;
+  word-break: keep-all;
+}
+
+.env-import-dialog__json-item :deep(.el-form-item__label) {
+  align-self: flex-start;
+}
+</style>

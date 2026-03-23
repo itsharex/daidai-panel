@@ -255,6 +255,29 @@ function togglePwdVisible() {
   }
 }
 
+function isGatewayLikeErrorStatus(status?: number) {
+  return status === 502 || status === 503 || status === 504
+}
+
+function resolveLoginErrorMessage(err: any) {
+  const status = err?.response?.status
+  const data = err?.response?.data
+
+  if (typeof data?.error === 'string' && data.error.trim()) {
+    return data.error.trim()
+  }
+
+  if (isGatewayLikeErrorStatus(status)) {
+    return '登录服务暂时不可用或面板正在重启，请稍后重试'
+  }
+
+  if (typeof data === 'string' && data.trim()) {
+    return data.trim()
+  }
+
+  return err?.message || '操作失败'
+}
+
 async function handleSubmit() {
   if (!form.value.username || !form.value.password) {
     ElMessage.warning('请输入用户名和密码')
@@ -309,6 +332,7 @@ async function handleSubmit() {
   } catch (err: any) {
     mood.value = 'error'
     const data = err?.response?.data
+    const status = err?.response?.status
     if (data?.two_factor_required) {
       require2FA.value = true
     }
@@ -325,19 +349,24 @@ async function handleSubmit() {
       captchaConfig.value.enabled = true
       captchaConfig.value.required = true
       captchaVisible.value = true
-      captchaStatusText.value = data?.captcha_invalid
-        ? '验证码已失效，请重新完成人机验证'
-        : `连续失败达到 ${data?.require_after_failures || captchaConfig.value.require_after_failures || 3} 次，请先完成人机验证`
-      resetCaptchaProof(true)
       pendingSubmitAfterCaptcha = false
-      void triggerCaptcha().catch(() => {})
+      if (data?.captcha_service_unavailable) {
+        resetCaptchaProof(true)
+        captchaStatusText.value = data?.error || '验证码服务暂时不可用，请稍后重试'
+      } else {
+        captchaStatusText.value = data?.captcha_invalid
+          ? '验证码已失效，请重新完成人机验证'
+          : `连续失败达到 ${data?.require_after_failures || captchaConfig.value.require_after_failures || 3} 次，请先完成人机验证`
+        resetCaptchaProof(true)
+        void triggerCaptcha().catch(() => {})
+      }
     } else if (submittedCaptcha) {
       resetCaptchaProof(false)
       pendingSubmitAfterCaptcha = false
-    } else if (!data) {
+    } else if (!data || isGatewayLikeErrorStatus(status)) {
       pendingSubmitAfterCaptcha = false
     }
-    const msg = data?.error || err?.message || '操作失败'
+    const msg = resolveLoginErrorMessage(err)
     ElMessage.error(msg)
     setTimeout(() => {
       mood.value = 'idle'

@@ -1,13 +1,22 @@
-import { ref } from 'vue'
+import { onBeforeUnmount, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { systemApi, type BackupSelection } from '@/api/system'
+import { systemApi, type BackupSelection, type RestoreProgressState } from '@/api/system'
 import { securityApi } from '@/api/security'
 import { authApi } from '@/api/auth'
 import { useAuthStore } from '@/stores/auth'
-import { ElLoading, ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { createQrCodeDataUrl } from '@/utils/qrcode'
 
 const backupUploadMaxSize = 512 * 1024 * 1024
+
+type RestoreVisualStatus =
+  | 'idle'
+  | 'running'
+  | 'completed'
+  | 'queued-restart'
+  | 'restarting'
+  | 'failed'
+  | 'restart-timeout'
 
 export function useSettingsSecurity() {
   const router = useRouter()
@@ -31,8 +40,20 @@ export function useSettingsSecurity() {
   const showRestoreDialog = ref(false)
   const restoreFilename = ref('')
   const restorePassword = ref('')
-  const restoreCountdown = ref(0)
   let restoreTimer: ReturnType<typeof setInterval> | null = null
+  const restoreProgressVisible = ref(false)
+  const restoreProgressStatus = ref<RestoreVisualStatus>('idle')
+  const restoreProgressStage = ref('preparing')
+  const restoreProgressMessage = ref('')
+  const restoreProgressPercent = ref(0)
+  const restoreProgressSource = ref('')
+  const restoreProgressSelection = ref<Partial<BackupSelection>>({})
+  const restoreProgressStartedAt = ref('')
+  const restoreProgressError = ref('')
+  const restoreRestartCountdown = ref(0)
+  let restoreProgressPollTimer: ReturnType<typeof setInterval> | null = null
+  let restartProbeTimer: ReturnType<typeof setInterval> | null = null
+  let restartProbeDelayTimer: ReturnType<typeof setTimeout> | null = null
 
   const oldPassword = ref('')
   const newPassword = ref('')
@@ -147,51 +168,167 @@ export function useSettingsSecurity() {
     showRestoreDialog.value = true
   }
 
-  async function confirmRestore() {
-    try {
-      await systemApi.restore(restoreFilename.value, restorePassword.value)
-      showRestoreDialog.value = false
-      restoreCountdown.value = 10
-      ElMessageBox.alert(
-        '',
-        '恢复成功',
-        {
-          confirmButtonText: '立即重启',
-          type: 'success',
-          showClose: false,
-          closeOnClickModal: false,
-          closeOnPressEscape: false,
-          message: `数据恢复成功，面板将在 ${restoreCountdown.value} 秒后自动重启...`,
-          callback: () => {
-            if (restoreTimer) {
-              clearInterval(restoreTimer)
-              restoreTimer = null
-            }
-            void doRestart()
-          }
-        }
-      )
-      restoreTimer = setInterval(() => {
-        restoreCountdown.value--
-        const msgBox = document.querySelector('.el-message-box__message p')
-        if (msgBox) {
-          msgBox.textContent = `数据恢复成功，面板将在 ${restoreCountdown.value} 秒后自动重启...`
-        }
-        if (restoreCountdown.value <= 0) {
-          if (restoreTimer) {
-            clearInterval(restoreTimer)
-            restoreTimer = null
-          }
-          ElMessageBox.close()
-          void doRestart()
-        }
-      }, 1000)
-    } catch (e: any) {
-      ElMessage.error(e?.response?.data?.error || '恢复失败')
+  function stopRestoreCountdown() {
+    if (restoreTimer) {
+      clearInterval(restoreTimer)
+      restoreTimer = null
     }
   }
 
+  function stopRestoreProgressPolling() {
+    if (restoreProgressPollTimer) {
+      clearInterval(restoreProgressPollTimer)
+      restoreProgressPollTimer = null
+    }
+  }
+
+  function stopRestartProbe() {
+    if (restartProbeDelayTimer) {
+      clearTimeout(restartProbeDelayTimer)
+      restartProbeDelayTimer = null
+    }
+    if (restartProbeTimer) {
+      clearInterval(restartProbeTimer)
+      restartProbeTimer = null
+    }
+  }
+
+  function resetRestoreProgressState() {
+    stopRestoreCountdown()
+    stopRestoreProgressPolling()
+    stopRestartProbe()
+    restoreProgressVisible.value = false
+    restoreProgressStatus.value = 'idle'
+    restoreProgressStage.value = 'preparing'
+    restoreProgressMessage.value = ''
+    restoreProgressPercent.value = 0
+    restoreProgressSource.value = ''
+    restoreProgressSelection.value = {}
+    restoreProgressStartedAt.value = ''
+    restoreProgressError.value = ''
+    restoreRestartCountdown.value = 0
+  }
+
+  function applyRestoreProgress(snapshot: RestoreProgressState) {
+    restoreProgressVisible.value = true
+    restoreProgressStage.value = snapshot.stage || restoreProgressStage.value || 'preparing'
+    restoreProgressMessage.value = snapshot.message || restoreProgressMessage.value || '正在恢复备份内容...'
+    restoreProgressPercent.value = Math.max(0, Math.min(100, Number(snapshot.percent || 0)))
+    restoreProgressSource.value = snapshot.source || restoreProgressSource.value || ''
+    restoreProgressSelection.value = snapshot.selection || restoreProgressSelection.value || {}
+    restoreProgressError.value = snapshot.error || ''
+    if (snapshot.started_at) {
+      restoreProgressStartedAt.value = snapshot.started_at
+    }
+
+    if (snapshot.status === 'failed') {
+      restoreProgressStatus.value = 'failed'
+      return
+    }
+    if (snapshot.status === 'completed') {
+      restoreProgressStatus.value = 'completed'
+      return
+    }
+    if (snapshot.active || snapshot.status === 'running') {
+      restoreProgressStatus.value = 'running'
+    }
+  }
+
+  async function fetchRestoreProgress(force = false) {
+    try {
+      const res = await systemApi.restoreProgress()
+      const snapshot = (res.data || {}) as RestoreProgressState
+      if (!force && !snapshot.active && snapshot.status === 'idle') {
+        return
+      }
+      if (!force && !snapshot.active && snapshot.updated_at && restoreProgressStartedAt.value) {
+        const snapshotUpdatedAt = Date.parse(snapshot.updated_at)
+        const currentRestoreStartedAt = Date.parse(restoreProgressStartedAt.value)
+        if (!Number.isNaN(snapshotUpdatedAt) && !Number.isNaN(currentRestoreStartedAt) && snapshotUpdatedAt < currentRestoreStartedAt) {
+          return
+        }
+      }
+      applyRestoreProgress(snapshot)
+    } catch {
+      // ignore progress probe errors while restore request is still running
+    }
+  }
+
+  function startRestoreProgressPolling() {
+    stopRestoreProgressPolling()
+    void fetchRestoreProgress()
+    restoreProgressPollTimer = setInterval(() => {
+      void fetchRestoreProgress()
+    }, 700)
+  }
+
+  function openRestoreProgress() {
+    stopRestoreCountdown()
+    stopRestartProbe()
+    restoreProgressVisible.value = true
+    restoreProgressStatus.value = 'running'
+    restoreProgressStage.value = 'preparing'
+    restoreProgressMessage.value = '正在提交恢复请求并准备恢复环境...'
+    restoreProgressPercent.value = 3
+    restoreProgressSource.value = ''
+    restoreProgressSelection.value = {}
+    restoreProgressStartedAt.value = new Date().toISOString()
+    restoreProgressError.value = ''
+    restoreRestartCountdown.value = 0
+  }
+
+  function startRestoreCountdown() {
+    stopRestoreCountdown()
+    restoreProgressStatus.value = 'queued-restart'
+    restoreProgressStage.value = 'completed'
+    restoreProgressPercent.value = 100
+    restoreProgressMessage.value = restoreProgressMessage.value || '数据恢复完成，正在准备重启面板...'
+    restoreRestartCountdown.value = 10
+
+    restoreTimer = setInterval(() => {
+      restoreRestartCountdown.value -= 1
+      if (restoreRestartCountdown.value <= 0) {
+        stopRestoreCountdown()
+        void doRestart()
+      }
+    }, 1000)
+  }
+
+  async function confirmRestore() {
+    showRestoreDialog.value = false
+    openRestoreProgress()
+    startRestoreProgressPolling()
+
+    try {
+      await systemApi.restore(restoreFilename.value, restorePassword.value)
+      stopRestoreProgressPolling()
+      await fetchRestoreProgress(true)
+      startRestoreCountdown()
+    } catch (e: any) {
+      stopRestoreProgressPolling()
+      await fetchRestoreProgress(true)
+      restoreProgressVisible.value = true
+      restoreProgressStatus.value = 'failed'
+      restoreProgressPercent.value = restoreProgressPercent.value || 0
+      restoreProgressStage.value = restoreProgressStage.value || 'preparing'
+      restoreProgressMessage.value = restoreProgressMessage.value || '恢复过程中出现异常'
+      restoreProgressError.value = e?.response?.data?.error || e?.message || '恢复失败'
+      ElMessage.error(restoreProgressError.value)
+    }
+  }
+
+  async function restartRestoreNow() {
+    stopRestoreCountdown()
+    await doRestart()
+  }
+
   async function doRestart() {
+    restoreProgressVisible.value = true
+    restoreProgressStatus.value = 'restarting'
+    restoreProgressStage.value = 'completed'
+    restoreProgressPercent.value = 100
+    restoreProgressMessage.value = '恢复数据已写入，正在等待面板重新启动...'
+    restoreProgressError.value = ''
     try {
       await systemApi.restart()
     } catch {
@@ -201,32 +338,38 @@ export function useSettingsSecurity() {
   }
 
   function waitForRestart() {
-    const loading = ElLoading.service({
-      lock: true,
-      text: '面板正在重启，请稍候...',
-      background: 'rgba(0, 0, 0, 0.7)'
-    })
+    stopRestartProbe()
     let attempts = 0
-    setTimeout(() => {
-      const poll = setInterval(async () => {
-        attempts++
+    restartProbeDelayTimer = setTimeout(() => {
+      restartProbeDelayTimer = null
+      restartProbeTimer = setInterval(async () => {
+        attempts += 1
         try {
-          const res = await fetch('/', { method: 'HEAD' })
+          const res = await fetch('/', { method: 'HEAD', cache: 'no-store' })
           if (res.ok) {
-            clearInterval(poll)
-            loading.close()
+            stopRestartProbe()
             window.location.reload()
           }
         } catch {
           // ignore
         }
+
         if (attempts >= 60) {
-          clearInterval(poll)
-          loading.close()
-          ElMessage.warning('重启超时，请手动刷新页面')
+          stopRestartProbe()
+          restoreProgressStatus.value = 'restart-timeout'
+          restoreProgressMessage.value = '恢复已经完成，但暂时还没有检测到面板重新上线。'
+          restoreProgressError.value = '重启等待超时，请稍后手动刷新页面，或检查容器/反向代理是否仍在重建。'
+          ElMessage.warning('重启超时，请稍后手动刷新页面')
         }
       }, 2000)
     }, 3000)
+  }
+
+  function closeRestoreProgress() {
+    if (restoreProgressStatus.value === 'running' || restoreProgressStatus.value === 'queued-restart' || restoreProgressStatus.value === 'restarting') {
+      return
+    }
+    resetRestoreProgressState()
   }
 
   async function handleDeleteBackup(filename: string) {
@@ -421,6 +564,12 @@ export function useSettingsSecurity() {
     else if (tab === 'ip-whitelist') void loadIPWhitelist()
   }
 
+  onBeforeUnmount(() => {
+    stopRestoreCountdown()
+    stopRestoreProgressPolling()
+    stopRestartProbe()
+  })
+
   return {
     securityTab,
     backups,
@@ -431,6 +580,16 @@ export function useSettingsSecurity() {
     showRestoreDialog,
     restoreFilename,
     restorePassword,
+    restoreProgressVisible,
+    restoreProgressStatus,
+    restoreProgressStage,
+    restoreProgressMessage,
+    restoreProgressPercent,
+    restoreProgressSource,
+    restoreProgressSelection,
+    restoreProgressStartedAt,
+    restoreRestartCountdown,
+    restoreProgressError,
     oldPassword,
     newPassword,
     confirmPassword,
@@ -458,6 +617,8 @@ export function useSettingsSecurity() {
     handleDownloadBackup,
     handleRestoreBackup,
     confirmRestore,
+    closeRestoreProgress,
+    restartRestoreNow,
     handleDeleteBackup,
     load2FAStatus,
     handleChangePassword,

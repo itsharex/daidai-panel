@@ -57,13 +57,13 @@ func (h *ScriptHandler) DebugRun(c *gin.Context) {
 		exitCode := resolveExitCode(waitErr)
 
 		if exitCode != 0 && model.GetRegisteredConfigBool("auto_install_deps") {
-			depName := detectMissingDep(run.logOutput())
-			if depName != "" {
-				run.appendLog(fmt.Sprintf("[检测到缺失依赖: %s，正在自动安装...]", depName))
+			candidate := detectAutoInstallCandidate(ext, run.logOutput(), workDir)
+			if candidate != nil {
+				run.appendLog(fmt.Sprintf("[检测到缺失依赖: %s，正在自动安装...]", candidate.DisplayName))
 
-				installOk := installDepForDebug(depName, ext, envMap)
-				if installOk {
-					run.appendLog(fmt.Sprintf("[安装成功: %s，自动重试执行]", depName))
+				installResult := installDepForDebug(candidate, envMap)
+				if installResult.Success {
+					run.appendLog(fmt.Sprintf("[安装成功: %s，自动重试执行]", candidate.DisplayName))
 
 					retryCmd := newScriptCommand(cmdParts, workDir, env)
 					service.SetPgid(retryCmd)
@@ -77,7 +77,11 @@ func (h *ScriptHandler) DebugRun(c *gin.Context) {
 						run.appendLog(fmt.Sprintf("[重试启动失败: %s]", startErr))
 					}
 				} else {
-					run.appendLog(fmt.Sprintf("[安装失败: %s]", depName))
+					failureReason := strings.TrimSpace(installResult.Error)
+					if failureReason == "" {
+						failureReason = candidate.DisplayName
+					}
+					run.appendLog(fmt.Sprintf("[安装失败: %s]", failureReason))
 				}
 			}
 		}

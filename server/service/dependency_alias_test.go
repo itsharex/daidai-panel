@@ -9,6 +9,7 @@ func TestResolvePythonAutoInstallPackage(t *testing.T) {
 		expect string
 	}{
 		{name: "crypto alias", input: "Crypto", expect: "pycryptodome"},
+		{name: "execjs alias", input: "execjs", expect: "pyexecjs"},
 		{name: "case insensitive", input: "crypto", expect: "pycryptodome"},
 		{name: "passthrough", input: "requests", expect: "requests"},
 	}

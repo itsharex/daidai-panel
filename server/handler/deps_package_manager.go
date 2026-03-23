@@ -544,13 +544,13 @@ func isHTTPMirror(value string) bool {
 func defaultLinuxMirror(manager linuxPackageManager, distribution string) string {
 	switch manager.Name {
 	case "apk":
-		return "https://mirrors.tuna.tsinghua.edu.cn/alpine"
+		return "https://mirrors.aliyun.com/alpine"
 	case "apt":
 		switch strings.ToLower(strings.TrimSpace(distribution)) {
 		case "debian":
-			return "https://mirrors.tuna.tsinghua.edu.cn/debian"
+			return "https://mirrors.aliyun.com/debian"
 		default:
-			return "https://mirrors.tuna.tsinghua.edu.cn/ubuntu"
+			return "https://mirrors.aliyun.com/ubuntu"
 		}
 	default:
 		return ""

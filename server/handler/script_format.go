@@ -29,6 +29,8 @@ func (h *ScriptHandler) Format(c *gin.Context) {
 		formatted, usedFormatter = formatPython(req.Content)
 	case "shell":
 		formatted, usedFormatter = formatShell(req.Content)
+	case "go":
+		formatted, usedFormatter = formatGo(req.Content)
 	case "json":
 		formatted, usedFormatter = formatJSON(req.Content)
 	default:
@@ -83,6 +85,18 @@ func formatShell(content string) (string, string) {
 		lines[i] = strings.TrimRight(line, " \t")
 	}
 	return strings.Join(lines, "\n"), "basic"
+}
+
+func formatGo(content string) (string, string) {
+	if _, err := exec.LookPath("gofmt"); err == nil {
+		cmd := exec.Command("gofmt")
+		cmd.Stdin = strings.NewReader(content)
+		out, err := cmd.Output()
+		if err == nil {
+			return string(out), "gofmt"
+		}
+	}
+	return content, "none"
 }
 
 func formatJSON(content string) (string, string) {

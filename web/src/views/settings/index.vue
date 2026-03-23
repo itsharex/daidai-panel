@@ -36,6 +36,9 @@ const {
   updateStatus,
   checkingUpdate,
   updatingPanel,
+  updateProgressVisible,
+  updateProgressStatus,
+  updateProgressError,
   formatBytes,
   getUsageClass,
   loadSystemInfo,
@@ -44,7 +47,8 @@ const {
   handleCheckUpdate,
   handleUpdatePanel,
   handleRestartPanel,
-  openGitHub
+  openGitHub,
+  closeUpdateProgress
 } = overview
 
 const {
@@ -71,6 +75,16 @@ const {
   showRestoreDialog,
   restoreFilename,
   restorePassword,
+  restoreProgressVisible,
+  restoreProgressStatus,
+  restoreProgressStage,
+  restoreProgressMessage,
+  restoreProgressPercent,
+  restoreProgressSource,
+  restoreProgressSelection,
+  restoreProgressStartedAt,
+  restoreRestartCountdown,
+  restoreProgressError,
   oldPassword,
   newPassword,
   confirmPassword,
@@ -97,6 +111,8 @@ const {
   handleDownloadBackup,
   handleRestoreBackup,
   confirmRestore,
+  closeRestoreProgress,
+  restartRestoreNow,
   handleDeleteBackup,
   load2FAStatus,
   handleChangePassword,
@@ -163,10 +179,14 @@ onMounted(() => {
           :update-status="updateStatus"
           :checking-update="checkingUpdate"
           :updating-panel="updatingPanel"
+          :update-progress-visible="updateProgressVisible"
+          :update-progress-status="updateProgressStatus"
+          :update-progress-error="updateProgressError"
           :on-check-update="handleCheckUpdate"
           :on-start-update="handleUpdatePanel"
           :on-restart-panel="handleRestartPanel"
           :on-open-git-hub="openGitHub"
+          :on-close-update-progress="closeUpdateProgress"
         />
 
         <OverviewStatsCard :system-stats="systemStats" />
@@ -225,12 +245,24 @@ onMounted(() => {
           :backups="backups"
           :backups-loading="backupsLoading"
           :restore-filename="restoreFilename"
+          :restore-progress-visible="restoreProgressVisible"
+          :restore-progress-status="restoreProgressStatus"
+          :restore-progress-stage="restoreProgressStage"
+          :restore-progress-message="restoreProgressMessage"
+          :restore-progress-percent="restoreProgressPercent"
+          :restore-progress-source="restoreProgressSource"
+          :restore-progress-selection="restoreProgressSelection"
+          :restore-progress-started-at="restoreProgressStartedAt"
+          :restore-restart-countdown="restoreRestartCountdown"
+          :restore-progress-error="restoreProgressError"
           :on-create-backup="handleCreateBackup"
           :on-upload-backup="handleUploadBackup"
           :on-confirm-create-backup="confirmCreateBackup"
           :on-download-backup="handleDownloadBackup"
           :on-restore-backup="handleRestoreBackup"
           :on-confirm-restore="confirmRestore"
+          :on-close-restore-progress="closeRestoreProgress"
+          :on-restart-restore-now="restartRestoreNow"
           :on-delete-backup="handleDeleteBackup"
         />
       </el-tab-pane>

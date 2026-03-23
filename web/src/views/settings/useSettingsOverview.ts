@@ -1,15 +1,23 @@
-import { ref } from 'vue'
-import { systemApi } from '@/api/system'
-import { ElLoading, ElMessage, ElMessageBox } from 'element-plus'
+import { onBeforeUnmount, ref } from 'vue'
+import { systemApi, type PanelUpdateStatus } from '@/api/system'
+import { ElMessage, ElMessageBox } from 'element-plus'
+
+type UpdateVisualStatus = 'idle' | 'running' | 'restarting' | 'failed' | 'timeout'
 
 export function useSettingsOverview() {
   const systemInfo = ref<any>({})
   const systemStats = ref<any>(null)
   const currentVersion = ref('')
   const updateInfo = ref<any>(null)
-  const updateStatus = ref<any>(null)
+  const updateStatus = ref<PanelUpdateStatus | null>(null)
   const checkingUpdate = ref(false)
   const updatingPanel = ref(false)
+  const updateProgressVisible = ref(false)
+  const updateProgressStatus = ref<UpdateVisualStatus>('idle')
+  const updateProgressError = ref('')
+  let updateStatusPollTimer: ReturnType<typeof setTimeout> | null = null
+  let updateAvailabilityDelayTimer: ReturnType<typeof setTimeout> | null = null
+  let updateAvailabilityTimer: ReturnType<typeof setTimeout> | null = null
 
   function formatBytes(bytes: number): string {
     if (!bytes) return '0 B'
@@ -104,69 +112,112 @@ export function useSettingsOverview() {
       return
     }
 
-    const loading = ElLoading.service({
-      lock: true,
-      text: '正在提交更新任务，请稍候...',
-      background: 'rgba(0, 0, 0, 0.7)'
-    }) as any
-
     updatingPanel.value = true
-    updateStatus.value = {
+    openUpdateProgress({
       status: 'running',
       phase: 'preparing',
-      message: '正在提交更新任务'
-    }
+      message: '正在提交更新任务',
+      started_at: new Date().toISOString(),
+    })
 
     try {
       const res = await systemApi.updatePanel()
-      updateStatus.value = res.data || updateStatus.value
-      syncLoadingText(loading, updateStatus.value?.message)
-      await waitForUpdateResult(loading)
+      applyUpdateSnapshot(res.data || updateStatus.value)
+      startUpdateStatusPolling()
     } catch (err: any) {
-      loading.close()
-      updatingPanel.value = false
-      const msg = err?.response?.data?.error || err?.message || '更新失败，请手动更新'
-      ElMessage.error(msg)
+      failUpdateProgress(err?.response?.data?.error || err?.message || '更新失败，请手动更新')
     }
   }
 
-  async function waitForUpdateResult(loading: any) {
-    let sawProgress = false
-    let lastStatus = updateStatus.value?.status || ''
+  function openUpdateProgress(snapshot?: PanelUpdateStatus | null) {
+    updateProgressVisible.value = true
+    updateProgressStatus.value = 'running'
+    updateProgressError.value = ''
+    updateStatus.value = snapshot || {
+      status: 'running',
+      phase: 'preparing',
+      message: '正在准备更新任务...',
+      started_at: new Date().toISOString(),
+    }
+  }
+
+  function applyUpdateSnapshot(snapshot?: PanelUpdateStatus | null) {
+    updateStatus.value = snapshot || {}
+    updateProgressVisible.value = true
+
+    if (updateStatus.value?.status === 'failed') {
+      updateProgressStatus.value = 'failed'
+      updateProgressError.value = updateStatus.value?.error || updateStatus.value?.message || '更新失败'
+      updatingPanel.value = false
+      return
+    }
+
+    if (updateStatus.value?.status === 'restarting') {
+      updateProgressStatus.value = 'restarting'
+      updateProgressError.value = ''
+      return
+    }
+
+    updateProgressStatus.value = 'running'
+    updateProgressError.value = ''
+  }
+
+  function failUpdateProgress(message: string) {
+    stopUpdateStatusPolling()
+    stopUpdateAvailabilityChecks()
+    updateProgressVisible.value = true
+    updateProgressStatus.value = 'failed'
+    updateProgressError.value = message
+    updateStatus.value = {
+      ...(updateStatus.value || {}),
+      status: 'failed',
+      phase: updateStatus.value?.phase || 'failed',
+      message,
+      error: message,
+    }
+    updatingPanel.value = false
+    ElMessage.error(message)
+  }
+
+  function startUpdateStatusPolling() {
+    stopUpdateStatusPolling()
     const startedAt = Date.now()
 
-    while (Date.now() - startedAt < 12 * 60 * 1000) {
-      await delay(2000)
-
+    const poll = async () => {
       try {
         const res = await systemApi.updateStatus()
-        updateStatus.value = res.data || {}
-        lastStatus = updateStatus.value?.status || lastStatus
-        sawProgress = true
-        syncLoadingText(loading, updateStatus.value?.message)
+        applyUpdateSnapshot(res.data || {})
 
-        if (lastStatus === 'failed') {
-          throw new Error(updateStatus.value?.error || updateStatus.value?.message || '更新失败')
-        }
-
-        if (lastStatus === 'restarting') {
-          loading.close()
-          await waitForAvailability('面板正在切换到新版本，请稍候...')
+        if (updateStatus.value?.status === 'failed') {
           return
         }
+
+        if (updateStatus.value?.status === 'restarting') {
+          stopUpdateStatusPolling()
+          waitForAvailability()
+          return
+        }
+
+        if (Date.now() - startedAt >= 12 * 60 * 1000) {
+          failUpdateProgress('更新超时，请手动刷新页面检查')
+          return
+        }
+
+        updateStatusPollTimer = setTimeout(() => {
+          void poll()
+        }, 2000)
       } catch (err: any) {
-        if (shouldTreatAsRestart(err, sawProgress, lastStatus)) {
-          loading.close()
-          await waitForAvailability('面板正在切换到新版本，请稍候...')
+        if (shouldTreatAsRestart(err)) {
+          stopUpdateStatusPolling()
+          updateProgressStatus.value = 'restarting'
+          waitForAvailability()
           return
         }
-        throw err
+        failUpdateProgress(err?.response?.data?.error || err?.message || '更新状态获取失败')
       }
     }
 
-    loading.close()
-    updatingPanel.value = false
-    ElMessage.warning('更新超时，请手动刷新页面检查')
+    void poll()
   }
 
   async function handleRestartPanel() {
@@ -184,11 +235,6 @@ export function useSettingsOverview() {
   }
 
   function waitForRestart() {
-    const loading = ElLoading.service({
-      lock: true,
-      text: '面板正在重启，请稍候...',
-      background: 'rgba(0, 0, 0, 0.7)'
-    })
     let attempts = 0
     setTimeout(() => {
       const poll = setInterval(async () => {
@@ -197,7 +243,6 @@ export function useSettingsOverview() {
           const res = await fetch('/', { method: 'HEAD' })
           if (res.ok) {
             clearInterval(poll)
-            loading.close()
             window.location.reload()
           }
         } catch {
@@ -205,47 +250,82 @@ export function useSettingsOverview() {
         }
         if (attempts >= 60) {
           clearInterval(poll)
-          loading.close()
           ElMessage.warning('重启超时，请手动刷新页面')
         }
       }, 2000)
     }, 3000)
   }
 
-  async function waitForAvailability(text: string) {
-    const loading = ElLoading.service({
-      lock: true,
-      text,
-      background: 'rgba(0, 0, 0, 0.7)'
-    })
-    let attempts = 0
+  function waitForAvailability() {
+    stopUpdateAvailabilityChecks()
+    updateProgressVisible.value = true
+    updateProgressStatus.value = 'restarting'
 
-    setTimeout(() => {
-      const poll = setInterval(async () => {
+    let attempts = 0
+    updateAvailabilityDelayTimer = setTimeout(() => {
+      updateAvailabilityDelayTimer = null
+      const probe = async () => {
         attempts++
         try {
           const res = await fetch('/', { method: 'HEAD', cache: 'no-store' })
           if (res.ok) {
-            clearInterval(poll)
-            loading.close()
+            stopUpdateAvailabilityChecks()
             window.location.reload()
+            return
           }
         } catch {
           // ignore
         }
 
         if (attempts >= 80) {
-          clearInterval(poll)
-          loading.close()
+          stopUpdateAvailabilityChecks()
+          updateProgressStatus.value = 'timeout'
+          updateProgressError.value = '等待新版本启动超时，请稍后手动刷新页面检查'
           updatingPanel.value = false
           ElMessage.warning('等待新版本启动超时，请手动刷新页面检查')
+          return
         }
-      }, 3000)
+
+        updateAvailabilityTimer = setTimeout(() => {
+          void probe()
+        }, 3000)
+      }
+
+      void probe()
     }, 2000)
   }
 
-  function shouldTreatAsRestart(err: any, sawProgress: boolean, lastStatus: string) {
-    if (!sawProgress) {
+  function stopUpdateStatusPolling() {
+    if (updateStatusPollTimer) {
+      clearTimeout(updateStatusPollTimer)
+      updateStatusPollTimer = null
+    }
+  }
+
+  function stopUpdateAvailabilityChecks() {
+    if (updateAvailabilityDelayTimer) {
+      clearTimeout(updateAvailabilityDelayTimer)
+      updateAvailabilityDelayTimer = null
+    }
+    if (updateAvailabilityTimer) {
+      clearTimeout(updateAvailabilityTimer)
+      updateAvailabilityTimer = null
+    }
+  }
+
+  function closeUpdateProgress() {
+    if (updateProgressStatus.value === 'running' || updateProgressStatus.value === 'restarting') {
+      return
+    }
+    stopUpdateStatusPolling()
+    stopUpdateAvailabilityChecks()
+    updateProgressVisible.value = false
+    updateProgressStatus.value = 'idle'
+    updateProgressError.value = ''
+  }
+
+  function shouldTreatAsRestart(err: any) {
+    if (!updateStatus.value?.status) {
       return false
     }
 
@@ -253,18 +333,7 @@ export function useSettingsOverview() {
       return false
     }
 
-    return lastStatus === 'running' || lastStatus === 'restarting'
-  }
-
-  function syncLoadingText(loading: any, text?: string) {
-    if (!text || !loading || typeof loading.setText !== 'function') {
-      return
-    }
-    loading.setText(text)
-  }
-
-  function delay(ms: number) {
-    return new Promise((resolve) => setTimeout(resolve, ms))
+    return updateStatus.value.status === 'running' || updateStatus.value.status === 'restarting'
   }
 
   function openGitHub() {
@@ -274,6 +343,11 @@ export function useSettingsOverview() {
     window.open(url, '_blank')
   }
 
+  onBeforeUnmount(() => {
+    stopUpdateStatusPolling()
+    stopUpdateAvailabilityChecks()
+  })
+
   return {
     systemInfo,
     systemStats,
@@ -282,6 +356,9 @@ export function useSettingsOverview() {
     updateStatus,
     checkingUpdate,
     updatingPanel,
+    updateProgressVisible,
+    updateProgressStatus,
+    updateProgressError,
     formatBytes,
     getUsageClass,
     loadSystemInfo,
@@ -290,6 +367,7 @@ export function useSettingsOverview() {
     handleCheckUpdate,
     handleUpdatePanel,
     handleRestartPanel,
-    openGitHub
+    openGitHub,
+    closeUpdateProgress
   }
 }

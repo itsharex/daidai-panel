@@ -26,6 +26,11 @@ func TestParseCommandExecutionPlanSupportsTaskModesAndArgs(t *testing.T) {
 		t.Fatalf("write simple script: %v", err)
 	}
 
+	goScript := filepath.Join(config.C.Data.ScriptsDir, "worker.go")
+	if err := os.WriteFile(goScript, []byte("package main\nfunc main() {}\n"), 0644); err != nil {
+		t.Fatalf("write go script: %v", err)
+	}
+
 	t.Run("parses now mode with timeout override and passthrough args", func(t *testing.T) {
 		plan, err := ParseCommandExecutionPlan(`task -m 5m demo folder/my script.py now -- -u whyour -p password`, config.C.Data.ScriptsDir)
 		if err != nil {
@@ -96,6 +101,38 @@ func TestParseCommandExecutionPlanSupportsTaskModesAndArgs(t *testing.T) {
 			t.Fatalf("expected account spec 2, got %q", plan.AccountSpec)
 		}
 	})
+
+	t.Run("parses go task script", func(t *testing.T) {
+		plan, err := ParseCommandExecutionPlan(`task worker.go now`, config.C.Data.ScriptsDir)
+		if err != nil {
+			t.Fatalf("parse go task plan: %v", err)
+		}
+
+		if plan.Interpreter != "go" {
+			t.Fatalf("expected go interpreter, got %q", plan.Interpreter)
+		}
+		if plan.Mode != commandModeNow {
+			t.Fatalf("expected now mode, got %q", plan.Mode)
+		}
+		if !plan.SkipRandomDelay {
+			t.Fatal("expected go now mode to skip random delay")
+		}
+	})
+
+	t.Run("parses direct go command", func(t *testing.T) {
+		plan, err := ParseCommandExecutionPlan(`go worker.go`, config.C.Data.ScriptsDir)
+		if err != nil {
+			t.Fatalf("parse direct go plan: %v", err)
+		}
+
+		if plan.Interpreter != "go" {
+			t.Fatalf("expected go interpreter, got %q", plan.Interpreter)
+		}
+		if filepath.Base(plan.FullPath) != "worker.go" {
+			t.Fatalf("expected worker.go path, got %q", plan.FullPath)
+		}
+	})
+
 }
 
 func TestResolveTaskAccountSelections(t *testing.T) {
@@ -115,6 +152,41 @@ func TestResolveTaskAccountSelections(t *testing.T) {
 
 	if !reflect.DeepEqual(got, []string{"a", "b", "c"}) {
 		t.Fatalf("unexpected selected values: %#v", got)
+	}
+}
+
+func TestResolveTaskAccountSelectionsSupportsDoubleAmpersandSeparator(t *testing.T) {
+	envVars := map[string]string{
+		"JD_COOKIE": "pt_key=one&a=1&&pt_key=two&b=2",
+	}
+
+	selections, err := resolveTaskAccountSelections(envVars, "JD_COOKIE", "1-2")
+	if err != nil {
+		t.Fatalf("resolve task account selections with double ampersand: %v", err)
+	}
+
+	got := make([]string, 0, len(selections))
+	for _, selection := range selections {
+		got = append(got, selection.Value)
+	}
+
+	if !reflect.DeepEqual(got, []string{"pt_key=one&a=1", "pt_key=two&b=2"}) {
+		t.Fatalf("unexpected selected values: %#v", got)
+	}
+}
+
+func TestResolveTaskAccountSelectionsSupportsEscapedAmpersands(t *testing.T) {
+	envVars := map[string]string{
+		"JD_COOKIE": `pt_key=one\&a=1&pt_key=two\&b=2`,
+	}
+
+	selections, err := resolveTaskAccountSelections(envVars, "JD_COOKIE", "2")
+	if err != nil {
+		t.Fatalf("resolve task account selections with escaped ampersands: %v", err)
+	}
+
+	if len(selections) != 1 || selections[0].Value != "pt_key=two&b=2" {
+		t.Fatalf("unexpected selected values: %#v", selections)
 	}
 }
 
@@ -140,5 +212,24 @@ func TestApplyCommandEnvOverridesForDesi(t *testing.T) {
 	}
 	if overridden["numParam"] != "2 3" {
 		t.Fatalf("expected numParam '2 3', got %q", overridden["numParam"])
+	}
+}
+
+func TestApplyCommandEnvOverridesForDesiPreservesAmpersandsInSelectedValues(t *testing.T) {
+	plan := &CommandExecutionPlan{
+		Mode:        commandModeDesi,
+		EnvName:     "JD_COOKIE",
+		AccountSpec: "1-2",
+	}
+	envVars := map[string]string{
+		"JD_COOKIE": "pt_key=one&a=1&&pt_key=two&b=2",
+	}
+
+	overridden, err := applyCommandEnvOverrides(plan, envVars)
+	if err != nil {
+		t.Fatalf("apply designated env overrides with ampersands: %v", err)
+	}
+	if overridden["JD_COOKIE"] != "pt_key=one&a=1&&pt_key=two&b=2" {
+		t.Fatalf("expected designated env values to preserve embedded ampersands, got %q", overridden["JD_COOKIE"])
 	}
 }

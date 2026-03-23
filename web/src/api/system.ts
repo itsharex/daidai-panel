@@ -10,6 +10,31 @@ export interface BackupSelection {
   dependencies: boolean
 }
 
+export interface RestoreProgressState {
+  active: boolean
+  status: 'idle' | 'running' | 'completed' | 'failed'
+  filename?: string
+  source?: string
+  selection?: Partial<BackupSelection>
+  stage?: string
+  message?: string
+  percent: number
+  error?: string
+  started_at?: string
+  updated_at?: string
+}
+
+export interface PanelUpdateStatus {
+  status?: 'idle' | 'running' | 'restarting' | 'failed'
+  phase?: string
+  message?: string
+  error?: string
+  started_at?: string
+  updated_at?: string
+  container_name?: string
+  image_name?: string
+}
+
 export const systemApi = {
   info: () => request.get('/system/info'),
   dashboard: () => request.get('/system/dashboard'),
@@ -29,8 +54,9 @@ export const systemApi = {
     request.get(`/system/backup/download/${encodeURIComponent(filename)}`, {
       responseType: 'blob',
     }) as Promise<Blob>,
+  restoreProgress: () => request.get('/system/restore/progress'),
   restore: (filename: string, password?: string) =>
-    request.post('/system/restore', { filename, password }),
+    request.post('/system/restore', { filename, password }, { timeout: 0 }),
   deleteBackup: (filename: string) =>
     request.delete('/system/backup', { params: { filename } }),
   uploadBackup: (file: File) => {

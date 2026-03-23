@@ -90,12 +90,13 @@ type BackupTaskLog struct {
 }
 
 type BackupConfigBundle struct {
-	SystemConfigs  []model.SystemConfig  `json:"system_configs,omitempty"`
-	OpenApps       []BackupOpenApp       `json:"open_apps,omitempty"`
-	NotifyChannels []BackupNotifyChannel `json:"notify_channels,omitempty"`
-	Users          []BackupUser          `json:"users,omitempty"`
-	IPWhitelists   []model.IPWhitelist   `json:"ip_whitelists,omitempty"`
-	TwoFactorAuths []BackupTwoFactorAuth `json:"two_factor_auths,omitempty"`
+	SystemConfigs     []model.SystemConfig      `json:"system_configs,omitempty"`
+	OpenApps          []BackupOpenApp           `json:"open_apps,omitempty"`
+	NotifyChannels    []BackupNotifyChannel     `json:"notify_channels,omitempty"`
+	Users             []BackupUser              `json:"users,omitempty"`
+	IPWhitelists      []model.IPWhitelist       `json:"ip_whitelists,omitempty"`
+	TwoFactorAuths    []BackupTwoFactorAuth     `json:"two_factor_auths,omitempty"`
+	DependencyMirrors *DependencyMirrorSettings `json:"dependency_mirrors,omitempty"`
 }
 
 type BackupPayload struct {

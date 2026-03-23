@@ -42,7 +42,7 @@ const nestedFolders = computed(() => props.allFolders.filter(folder => folder))
         </el-select>
       </el-form-item>
       <el-form-item label="文件名">
-        <el-input v-model="newFileName" placeholder="如: script.py" @keyup.enter="onCreateFile" />
+        <el-input v-model="newFileName" placeholder="如: script.py / main.go / task.sh" @keyup.enter="onCreateFile" />
       </el-form-item>
     </el-form>
     <template #footer>

@@ -24,6 +24,7 @@ export function useScriptWorkspaceBrowser() {
       ts: 'typescript',
       py: 'python',
       sh: 'shell',
+      go: 'go',
       json: 'json',
       yaml: 'yaml',
       yml: 'yaml',

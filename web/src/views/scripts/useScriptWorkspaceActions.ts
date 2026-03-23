@@ -258,6 +258,7 @@ export function useScriptWorkspaceActions({
     const langMap: Record<string, string> = {
       py: 'python',
       sh: 'shell',
+      go: 'go',
       json: 'json'
     }
     const ext = selectedFile.value.split('.').pop()?.toLowerCase() || ''

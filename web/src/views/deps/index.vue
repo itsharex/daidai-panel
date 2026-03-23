@@ -191,8 +191,8 @@
                 <el-button>快捷选择</el-button>
                 <template #dropdown>
                   <el-dropdown-menu>
+                    <el-dropdown-item command="https://mirrors.aliyun.com/pypi/simple">阿里云 (默认)</el-dropdown-item>
                     <el-dropdown-item command="https://pypi.tuna.tsinghua.edu.cn/simple">清华大学</el-dropdown-item>
-                    <el-dropdown-item command="https://mirrors.aliyun.com/pypi/simple">阿里云</el-dropdown-item>
                     <el-dropdown-item command="https://pypi.doubanio.com/simple">豆瓣</el-dropdown-item>
                     <el-dropdown-item command="https://mirrors.cloud.tencent.com/pypi/simple">腾讯云</el-dropdown-item>
                     <el-dropdown-item command="https://repo.huaweicloud.com/repository/pypi/simple">华为云</el-dropdown-item>
@@ -343,8 +343,8 @@ const linuxMirrorOptions = computed(() => {
 
   if (manager === 'apk') {
     return [
+      { label: '阿里云 (默认)', value: 'https://mirrors.aliyun.com/alpine' },
       { label: '清华大学', value: 'https://mirrors.tuna.tsinghua.edu.cn/alpine' },
-      { label: '阿里云', value: 'https://mirrors.aliyun.com/alpine' },
       { label: '腾讯云', value: 'https://mirrors.cloud.tencent.com/alpine' },
       { label: '华为云', value: 'https://repo.huaweicloud.com/alpine' },
       { label: '中科大', value: 'https://mirrors.ustc.edu.cn/alpine' },
@@ -354,14 +354,14 @@ const linuxMirrorOptions = computed(() => {
   if (manager === 'apt') {
     if (distro === 'debian') {
       return [
+        { label: '阿里云 Debian (默认)', value: 'https://mirrors.aliyun.com/debian' },
         { label: '清华大学 Debian', value: 'https://mirrors.tuna.tsinghua.edu.cn/debian' },
-        { label: '阿里云 Debian', value: 'https://mirrors.aliyun.com/debian' },
         { label: '腾讯云 Debian', value: 'https://mirrors.cloud.tencent.com/debian' },
       ]
     }
     return [
+      { label: '阿里云 Ubuntu (默认)', value: 'https://mirrors.aliyun.com/ubuntu' },
       { label: '清华大学 Ubuntu', value: 'https://mirrors.tuna.tsinghua.edu.cn/ubuntu' },
-      { label: '阿里云 Ubuntu', value: 'https://mirrors.aliyun.com/ubuntu' },
       { label: '腾讯云 Ubuntu', value: 'https://mirrors.cloud.tencent.com/ubuntu' },
       { label: '华为云 Ubuntu', value: 'https://repo.huaweicloud.com/ubuntu' },
     ]

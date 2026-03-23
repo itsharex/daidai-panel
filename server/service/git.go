@@ -24,10 +24,9 @@ func GitClone(url, branch, destDir string, sshKeyPath string) (string, error) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = config.C.Data.ScriptsDir
 
-	env := AppendProxyEnv(os.Environ())
-	if sshKeyPath != "" {
-		sshCmd := fmt.Sprintf("ssh -i %s -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null", sshKeyPath)
-		env = append(env, "GIT_SSH_COMMAND="+sshCmd)
+	env, err := appendGitSSHEnv(os.Environ(), sshKeyPath)
+	if err != nil {
+		return "", err
 	}
 	cmd.Env = env
 
@@ -39,10 +38,9 @@ func GitPull(repoDir string, sshKeyPath string) (string, error) {
 	cmd := exec.Command("git", "pull")
 	cmd.Dir = repoDir
 
-	env := AppendProxyEnv(os.Environ())
-	if sshKeyPath != "" {
-		sshCmd := fmt.Sprintf("ssh -i %s -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null", sshKeyPath)
-		env = append(env, "GIT_SSH_COMMAND="+sshCmd)
+	env, err := appendGitSSHEnv(os.Environ(), sshKeyPath)
+	if err != nil {
+		return "", err
 	}
 	cmd.Env = env
 

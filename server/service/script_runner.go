@@ -87,6 +87,7 @@ var extInterpreterMap = map[string]string{
 	".js": "node",
 	".ts": "ts-node",
 	".sh": "bash",
+	".go": "go",
 }
 
 var desiInterpreterMap = map[string]string{
@@ -94,6 +95,7 @@ var desiInterpreterMap = map[string]string{
 	".py": "python3",
 	".ts": "ts-node",
 	".sh": "bash",
+	".go": "go",
 }
 
 func ParseCommandExecutionPlan(command, scriptsDir string) (*CommandExecutionPlan, error) {
@@ -110,7 +112,7 @@ func ParseCommandExecutionPlan(command, scriptsDir string) (*CommandExecutionPla
 		return parseTaskCommandPlan(tokens[1:], scriptsDir, "")
 	case "desi":
 		return parseTaskCommandPlan(tokens[1:], scriptsDir, commandModeDesi)
-	case "python", "python3", "node", "ts-node", "bash":
+	case "python", "python3", "node", "ts-node", "bash", "go":
 		return parseInterpreterCommandPlan(tokens[0], tokens[1:], scriptsDir)
 	default:
 		return nil, fmt.Errorf("不支持的解释器: %s", tokens[0])
@@ -397,7 +399,7 @@ func isValidTaskRemainder(tokens []string, forcedMode commandExecutionMode) bool
 
 func isSupportedScriptExtension(path string) bool {
 	switch strings.ToLower(filepath.Ext(path)) {
-	case ".py", ".js", ".ts", ".sh":
+	case ".py", ".js", ".ts", ".sh", ".go":
 		return true
 	default:
 		return false
@@ -652,7 +654,7 @@ func resolveTaskAccountSelections(envVars map[string]string, envName, accountSpe
 		return nil, fmt.Errorf("环境变量 %s 不存在或为空", envName)
 	}
 
-	values := strings.Split(rawValue, "&")
+	values := splitTaskEnvValues(rawValue)
 	indices, err := parseTaskAccountSpec(accountSpec, len(values))
 	if err != nil {
 		return nil, err
@@ -775,7 +777,7 @@ func applyCommandEnvOverrides(plan *CommandExecutionPlan, envVars map[string]str
 		selectedIndexes = append(selectedIndexes, strconv.Itoa(selection.Index))
 	}
 
-	cloned[plan.EnvName] = strings.Join(selectedValues, "&")
+	cloned[plan.EnvName] = joinTaskEnvValues(selectedValues)
 	cloned["envParam"] = plan.EnvName
 	cloned["numParam"] = strings.Join(selectedIndexes, " ")
 	cloned["TASK_EXEC_MODE"] = string(plan.Mode)
@@ -822,6 +824,9 @@ func buildCmd(plan *CommandExecutionPlan, scriptsDir string, envVars map[string]
 	case "python", "python3":
 		args := append([]string{"-u", plan.FullPath}, plan.ScriptArgs...)
 		cmd = exec.Command(plan.Interpreter, args...)
+	case "go":
+		args := append([]string{"run", plan.FullPath}, plan.ScriptArgs...)
+		cmd = exec.Command("go", args...)
 	case "ts-node":
 		args := append([]string{"ts-node", plan.FullPath}, plan.ScriptArgs...)
 		cmd = exec.Command("npx", args...)
