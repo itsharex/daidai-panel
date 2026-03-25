@@ -55,6 +55,7 @@ type UserSession struct {
 	Username         string     `gorm:"size:64" json:"username"`
 	JTI              string     `gorm:"size:36;uniqueIndex" json:"jti"`
 	RefreshJTI       string     `gorm:"size:36" json:"-"`
+	ClientType       string     `gorm:"size:16;index;default:'web'" json:"client_type"`
 	IP               string     `gorm:"size:64" json:"ip"`
 	UserAgent        string     `gorm:"size:512" json:"user_agent"`
 	ExpiresAt        time.Time  `json:"expires_at"`
@@ -68,13 +69,14 @@ func (UserSession) TableName() string {
 
 func (s *UserSession) ToDict() map[string]interface{} {
 	return map[string]interface{}{
-		"id":         s.ID,
-		"user_id":    s.UserID,
-		"username":   s.Username,
-		"ip":         s.IP,
-		"user_agent": s.UserAgent,
-		"expires_at": s.ExpiresAt,
-		"created_at": s.CreatedAt,
+		"id":          s.ID,
+		"user_id":     s.UserID,
+		"username":    s.Username,
+		"client_type": s.ClientType,
+		"ip":          s.IP,
+		"user_agent":  s.UserAgent,
+		"expires_at":  s.ExpiresAt,
+		"created_at":  s.CreatedAt,
 	}
 }
 

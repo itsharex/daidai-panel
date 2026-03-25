@@ -37,7 +37,9 @@ export function openAuthorizedEventStream(url: string, handlers: EventStreamHand
         method: 'GET',
         headers: {
           Accept: 'text/event-stream',
-          Authorization: `Bearer ${authStore.accessToken}`
+          Authorization: `Bearer ${authStore.accessToken}`,
+          'X-Client-Type': 'web',
+          'X-Client-App': 'daidai-panel-web'
         },
         cache: 'no-store',
         signal: controller.signal

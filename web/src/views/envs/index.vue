@@ -4,6 +4,7 @@ import { envApi } from '@/api/env'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import EnvBatchCreateDialog from './components/EnvBatchCreateDialog.vue'
 import EnvBatchGroupDialog from './components/EnvBatchGroupDialog.vue'
+import EnvBatchRenameDialog from './components/EnvBatchRenameDialog.vue'
 import EnvEditDialog from './components/EnvEditDialog.vue'
 import EnvImportDialog from './components/EnvImportDialog.vue'
 import { useResponsive } from '@/composables/useResponsive'
@@ -20,7 +21,7 @@ type EnvFormModel = {
 }
 
 const envList = ref<any[]>([])
-const loading = ref(false)
+const loading = ref(true)
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
@@ -57,13 +58,23 @@ const exportScopeText = computed(() =>
   selectedIds.value.length > 0 ? `已选中的 ${selectedIds.value.length} 项环境变量` : '当前列表中的全部已启用环境变量'
 )
 
+const showBatchRenameDialog = ref(false)
 const showBatchGroupDialog = ref(false)
 
 const tableRef = ref()
+const desktopTableReady = ref(false)
+const showDesktopLoadingPlaceholder = computed(
+  () => !isMobile.value && (!desktopTableReady.value || (loading.value && envList.value.length === 0))
+)
+const showDesktopEmptyState = computed(
+  () => !isMobile.value && desktopTableReady.value && !loading.value && envList.value.length === 0
+)
 let sortableInstance: any = null
 let sortableLoader: Promise<any> | null = null
 let dragPointerY = 0
 let dragAutoScrollFrame = 0
+let sortableInitFrame = 0
+let desktopTableReadyFrame = 0
 const groupBadgeStyleCache = new Map<string, CSSProperties>()
 
 function loadSortable() {
@@ -182,6 +193,38 @@ function stopDragAutoScroll() {
   }
 }
 
+function clearQueuedSortableInit() {
+  if (sortableInitFrame) {
+    window.cancelAnimationFrame(sortableInitFrame)
+    sortableInitFrame = 0
+  }
+}
+
+function queueSortableInit() {
+  if (typeof window === 'undefined') return
+  clearQueuedSortableInit()
+  sortableInitFrame = window.requestAnimationFrame(() => {
+    sortableInitFrame = 0
+    void initSortable()
+  })
+}
+
+function clearDesktopTableReadyQueue() {
+  if (desktopTableReadyFrame) {
+    window.cancelAnimationFrame(desktopTableReadyFrame)
+    desktopTableReadyFrame = 0
+  }
+}
+
+function queueDesktopTableReady() {
+  if (typeof window === 'undefined' || isMobile.value || desktopTableReady.value) return
+  clearDesktopTableReadyQueue()
+  desktopTableReadyFrame = window.requestAnimationFrame(() => {
+    desktopTableReadyFrame = 0
+    desktopTableReady.value = true
+  })
+}
+
 async function loadData() {
   loading.value = true
   selectedIds.value = []
@@ -195,14 +238,16 @@ async function loadData() {
     })
     envList.value = res.data || []
     total.value = res.total || 0
-    await nextTick()
-    clearTableSelection()
-    void initSortable()
   } catch {
     ElMessage.error('加载环境变量失败')
   } finally {
     loading.value = false
   }
+
+  await nextTick()
+  queueDesktopTableReady()
+  clearTableSelection()
+  queueSortableInit()
 }
 
 async function loadGroups() {
@@ -215,18 +260,22 @@ async function loadGroups() {
 }
 
 onMounted(() => {
+  queueDesktopTableReady()
   void loadData()
   void loadGroups()
 })
 
 watch(isMobile, () => {
   nextTick(() => {
-    void initSortable()
+    queueDesktopTableReady()
+    queueSortableInit()
   })
 })
 
 onBeforeUnmount(() => {
   stopDragAutoScroll()
+  clearQueuedSortableInit()
+  clearDesktopTableReadyQueue()
   if (sortableInstance) {
     sortableInstance.destroy()
     sortableInstance = null
@@ -238,6 +287,7 @@ async function initSortable() {
     sortableInstance.destroy()
     sortableInstance = null
   }
+  if (loading.value || envList.value.length < 2) return
   const el = document.querySelector(
     isMobile.value
       ? '.env-mobile-list'
@@ -455,6 +505,23 @@ async function handleBatchGroup() {
   showBatchGroupDialog.value = true
 }
 
+function handleBatchRename() {
+  if (selectedIds.value.length === 0) return
+  showBatchRenameDialog.value = true
+}
+
+async function confirmBatchRename(payload: { search: string; replace: string }) {
+  try {
+    const res = await envApi.batchRename(selectedIds.value, payload.search, payload.replace)
+    ElMessage.success(res.message || '批量改名成功')
+    showBatchRenameDialog.value = false
+    clearTableSelection()
+    void loadData()
+  } catch (err: any) {
+    ElMessage.error(err?.response?.data?.error || err?.message || '批量改名失败')
+  }
+}
+
 async function confirmBatchGroup(group: string) {
   try {
     await envApi.batchSetGroup(selectedIds.value, group)
@@ -602,6 +669,9 @@ function formatDateTime(t: string | null) {
           </el-button>
         </div>
         <div class="env-toolbar-actions env-toolbar-actions--batch">
+          <el-button @click="handleBatchRename" :disabled="selectedIds.length === 0">
+            <el-icon><Edit /></el-icon>批量改名
+          </el-button>
           <el-button @click="handleBatchEnable" :disabled="selectedIds.length === 0">
             <el-icon><Check /></el-icon>批量启用
           </el-button>
@@ -721,6 +791,27 @@ function formatDateTime(t: string | null) {
 
         <el-empty v-if="!loading && envList.length === 0" description="暂无环境变量" />
       </div>
+    </div>
+
+    <div v-else-if="showDesktopLoadingPlaceholder" class="env-desktop-state env-desktop-state--loading" aria-hidden="true">
+      <div class="env-skeleton env-skeleton--title" />
+      <div class="env-skeleton env-skeleton--toolbar" />
+      <div v-for="n in 6" :key="`env-skeleton-${n}`" class="env-skeleton env-skeleton--row" />
+    </div>
+
+    <div v-else-if="showDesktopEmptyState" class="env-desktop-state">
+      <el-empty description="暂无环境变量">
+        <template #description>
+          <div class="env-empty-copy">
+            <strong>暂无环境变量</strong>
+            <span>可以直接新建变量，或导入已有的 JSON 配置。</span>
+          </div>
+        </template>
+        <div class="env-empty-actions">
+          <el-button type="primary" @click="openCreate">新建环境变量</el-button>
+          <el-button @click="showImportDialog = true">导入 JSON</el-button>
+        </div>
+      </el-empty>
     </div>
 
     <el-table
@@ -924,6 +1015,11 @@ function formatDateTime(t: string | null) {
       @create="handleBatchCreate"
     />
 
+    <EnvBatchRenameDialog
+      v-model="showBatchRenameDialog"
+      @confirm="confirmBatchRename"
+    />
+
     <EnvBatchGroupDialog
       v-model="showBatchGroupDialog"
       :groups="groups"
@@ -1027,6 +1123,86 @@ function formatDateTime(t: string | null) {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.env-desktop-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 360px;
+  padding: 28px 24px;
+  border: 1px solid color-mix(in srgb, var(--el-border-color) 70%, transparent);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--el-fill-color-lighter) 62%, white) 0%, var(--el-bg-color) 100%);
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.05);
+}
+
+.env-desktop-state--loading {
+  display: grid;
+  align-content: start;
+  justify-items: stretch;
+  gap: 16px;
+}
+
+.env-skeleton {
+  position: relative;
+  overflow: hidden;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--el-fill-color) 82%, white);
+}
+
+.env-skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.6) 48%,
+    transparent 100%
+  );
+  animation: env-skeleton-shimmer 1.35s ease-in-out infinite;
+}
+
+.env-skeleton--title {
+  width: min(320px, 32%);
+  height: 22px;
+}
+
+.env-skeleton--toolbar {
+  width: min(460px, 48%);
+  height: 40px;
+  margin-bottom: 8px;
+}
+
+.env-skeleton--row {
+  width: 100%;
+  height: 58px;
+}
+
+.env-empty-copy {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--el-text-color-secondary);
+}
+
+.env-empty-copy strong {
+  font-size: 16px;
+  color: var(--el-text-color-primary);
+}
+
+.env-empty-copy span {
+  font-size: 13px;
+}
+
+.env-empty-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .env-card__title-row {
@@ -1330,6 +1506,12 @@ function formatDateTime(t: string | null) {
 
 :deep(.env-row-pinned > td:first-child) {
   box-shadow: inset 4px 0 0 #f5a623;
+}
+
+@keyframes env-skeleton-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
 }
 
 @media (max-width: 768px) {

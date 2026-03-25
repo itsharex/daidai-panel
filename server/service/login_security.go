@@ -101,17 +101,21 @@ func CleanExpiredAttempts() {
 	database.DB.Where("expires_at < ?", time.Now()).Delete(&model.LoginAttempt{})
 }
 
-func CreateSessionWithRefresh(userID uint, username, accessJTI, refreshJTI, ip, userAgent string, accessExpiresAt, refreshExpiresAt time.Time) {
+func CreateSessionWithRefresh(userID uint, username, accessJTI, refreshJTI, clientType, ip, userAgent string, accessExpiresAt, refreshExpiresAt time.Time) {
 	var refreshExpiryPtr *time.Time
 	if !refreshExpiresAt.IsZero() {
 		refreshExpiryPtr = &refreshExpiresAt
 	}
+
+	normalizedClientType := NormalizeSessionClientType(clientType)
+	revokeUserSessionsByClientType(userID, normalizedClientType)
 
 	session := model.UserSession{
 		UserID:           userID,
 		Username:         username,
 		JTI:              accessJTI,
 		RefreshJTI:       refreshJTI,
+		ClientType:       normalizedClientType,
 		IP:               ip,
 		UserAgent:        userAgent,
 		ExpiresAt:        accessExpiresAt,
@@ -120,8 +124,35 @@ func CreateSessionWithRefresh(userID uint, username, accessJTI, refreshJTI, ip, 
 	database.DB.Create(&session)
 }
 
-func CreateSession(userID uint, username, jti, ip, userAgent string, expiresAt time.Time) {
-	CreateSessionWithRefresh(userID, username, jti, "", ip, userAgent, expiresAt, time.Time{})
+func CreateSession(userID uint, username, jti, clientType, ip, userAgent string, expiresAt time.Time) {
+	CreateSessionWithRefresh(userID, username, jti, "", clientType, ip, userAgent, expiresAt, time.Time{})
+}
+
+func effectiveSessionClientType(session model.UserSession) string {
+	return DetectSessionClientType(session.ClientType, "", session.UserAgent)
+}
+
+func revokeUserSessionsByClientType(userID uint, clientType string) int64 {
+	targetType := NormalizeSessionClientType(clientType)
+
+	var sessions []model.UserSession
+	database.DB.Where("user_id = ?", userID).Find(&sessions)
+
+	var ids []uint
+	for i := range sessions {
+		if effectiveSessionClientType(sessions[i]) != targetType {
+			continue
+		}
+		BlockSessionTokens(&sessions[i])
+		ids = append(ids, sessions[i].ID)
+	}
+
+	if len(ids) == 0 {
+		return 0
+	}
+
+	result := database.DB.Delete(&model.UserSession{}, ids)
+	return result.RowsAffected
 }
 
 func blockToken(jti, tokenType string, userID *uint, expiresAt time.Time) {

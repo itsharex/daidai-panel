@@ -1090,13 +1090,13 @@ func parseNotificationJSONTemplate(raw, title, content string) (interface{}, err
 }
 
 func parseNotificationJSONTemplateWithContext(raw, title, content string, context map[string]string) (interface{}, error) {
-	rendered := renderNotificationTemplateWithContext(raw, title, content, "", context)
-	if strings.TrimSpace(rendered) == "" {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
 		return nil, fmt.Errorf("JSON 模板为空")
 	}
 
 	var payload interface{}
-	if err := json.Unmarshal([]byte(rendered), &payload); err != nil {
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
 		return nil, err
 	}
 	return renderNotificationJSONValueWithContext(payload, title, content, context), nil

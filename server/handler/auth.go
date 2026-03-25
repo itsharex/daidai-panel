@@ -71,6 +71,11 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	ip := middleware.ResolveClientIP(c)
 	ua := c.GetHeader("User-Agent")
+	clientType := service.DetectSessionClientType(
+		c.GetHeader("X-Client-Type"),
+		c.GetHeader("X-Client-App"),
+		ua,
+	)
 
 	locked, remaining := service.CheckLoginLock(ip, req.Username)
 	if locked {
@@ -182,7 +187,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 				user.Username, time.Now().Format("2006-01-02 15:04:05"), ip),
 		)
 	}
-	service.CreateSessionWithRefresh(user.ID, user.Username, accessInfo.JTI, refreshInfo.JTI, ip, ua, accessInfo.ExpiresAt, refreshInfo.ExpiresAt)
+	service.CreateSessionWithRefresh(user.ID, user.Username, accessInfo.JTI, refreshInfo.JTI, clientType, ip, ua, accessInfo.ExpiresAt, refreshInfo.ExpiresAt)
 
 	response.Success(c, gin.H{
 		"message":       "登录成功",

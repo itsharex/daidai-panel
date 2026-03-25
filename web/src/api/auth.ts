@@ -34,7 +34,11 @@ export const authApi = {
   refresh() {
     const refreshToken = localStorage.getItem('refresh_token')
     return axios.post('/api/auth/refresh', null, {
-      headers: { Authorization: `Bearer ${refreshToken}` }
+      headers: {
+        Authorization: `Bearer ${refreshToken}`,
+        'X-Client-Type': 'web',
+        'X-Client-App': 'daidai-panel-web'
+      }
     }).then(res => res.data) as Promise<{ access_token: string }>
   },
 

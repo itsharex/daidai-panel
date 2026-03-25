@@ -63,7 +63,11 @@ func (h *SecurityHandler) Sessions(c *gin.Context) {
 
 	data := make([]map[string]interface{}, len(sessions))
 	for i, s := range sessions {
-		data[i] = s.ToDict()
+		item := s.ToDict()
+		clientType := service.DetectSessionClientType(s.ClientType, "", s.UserAgent)
+		item["client_type"] = clientType
+		item["client_type_label"] = service.SessionClientLabel(clientType)
+		data[i] = item
 	}
 
 	response.Success(c, gin.H{"data": data})

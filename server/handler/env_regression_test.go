@@ -51,6 +51,88 @@ func TestEnvBatchSetGroupUpdatesSelectedRows(t *testing.T) {
 	}
 }
 
+func TestEnvBatchRenameUpdatesSelectedRows(t *testing.T) {
+	testutil.SetupTestEnv(t)
+
+	engine := newProtectedRouter()
+	user := testutil.MustCreateUser(t, "env-rename-operator", "operator")
+	token := testutil.MustCreateAccessToken(t, user.Username, user.Role)
+
+	envs := []*model.EnvVar{
+		{Name: "JD_COOKIE_ALPHA", Value: "1", Enabled: true, Position: 1000},
+		{Name: "JD_COOKIE_BETA", Value: "2", Enabled: true, Position: 2000},
+		{Name: "JD_COOKIE_GAMMA", Value: "3", Enabled: true, Position: 3000},
+	}
+	for _, env := range envs {
+		if err := database.DB.Create(env).Error; err != nil {
+			t.Fatalf("create env %q: %v", env.Name, err)
+		}
+	}
+
+	rec := performJSONRequest(
+		engine,
+		http.MethodPut,
+		"/api/v1/envs/batch/rename",
+		fmt.Sprintf(`{"ids":[%d,%d],"search":"COOKIE","replace":"TOKEN"}`, envs[0].ID, envs[1].ID),
+		map[string]string{"Authorization": "Bearer " + token},
+		"",
+	)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d, body=%s", rec.Code, rec.Body.String())
+	}
+
+	expectedNames := map[uint]string{
+		envs[0].ID: "JD_TOKEN_ALPHA",
+		envs[1].ID: "JD_TOKEN_BETA",
+		envs[2].ID: "JD_COOKIE_GAMMA",
+	}
+	for _, env := range envs {
+		var current model.EnvVar
+		if err := database.DB.First(&current, env.ID).Error; err != nil {
+			t.Fatalf("reload env %d: %v", env.ID, err)
+		}
+		if current.Name != expectedNames[env.ID] {
+			t.Fatalf("expected env %d name %q, got %q", env.ID, expectedNames[env.ID], current.Name)
+		}
+	}
+}
+
+func TestEnvBatchRenameRejectsInvalidReplacement(t *testing.T) {
+	testutil.SetupTestEnv(t)
+
+	engine := newProtectedRouter()
+	user := testutil.MustCreateUser(t, "env-rename-invalid", "operator")
+	token := testutil.MustCreateAccessToken(t, user.Username, user.Role)
+
+	env := &model.EnvVar{Name: "VALID_NAME", Value: "1", Enabled: true, Position: 1000}
+	if err := database.DB.Create(env).Error; err != nil {
+		t.Fatalf("create env: %v", err)
+	}
+
+	rec := performJSONRequest(
+		engine,
+		http.MethodPut,
+		"/api/v1/envs/batch/rename",
+		fmt.Sprintf(`{"ids":[%d],"search":"VALID","replace":"INVALID-NAME"}`, env.ID),
+		map[string]string{"Authorization": "Bearer " + token},
+		"",
+	)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "格式无效") {
+		t.Fatalf("expected invalid format error, got %s", rec.Body.String())
+	}
+
+	var current model.EnvVar
+	if err := database.DB.First(&current, env.ID).Error; err != nil {
+		t.Fatalf("reload env: %v", err)
+	}
+	if current.Name != "VALID_NAME" {
+		t.Fatalf("expected env name to remain unchanged, got %q", current.Name)
+	}
+}
+
 func TestEnvSortToFirstKeepsItemUnpinned(t *testing.T) {
 	testutil.SetupTestEnv(t)
 

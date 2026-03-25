@@ -325,6 +325,114 @@ func TestLoginRecordsForwardedPublicIPFromTrustedProxyHop(t *testing.T) {
 	}
 }
 
+func TestLoginReplacesOnlySameClientTypeSessions(t *testing.T) {
+	testutil.SetupTestEnv(t)
+
+	password := "Password123!"
+	user := testutil.MustCreateLoginUser(t, "session-scope-user", "admin", password)
+	engine := newProtectedRouter()
+
+	login := func(remoteIP, userAgent string, headers map[string]string) string {
+		reqHeaders := map[string]string{
+			"User-Agent": userAgent,
+		}
+		for key, value := range headers {
+			reqHeaders[key] = value
+		}
+
+		rec := performJSONRequest(
+			engine,
+			http.MethodPost,
+			"/api/v1/auth/login",
+			`{"username":"`+user.Username+`","password":"`+password+`"}`,
+			reqHeaders,
+			remoteIP,
+		)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected login success for %s, got %d, body=%s", remoteIP, rec.Code, rec.Body.String())
+		}
+
+		payload := decodeJSONMap(t, rec)
+		token, _ := payload["access_token"].(string)
+		if token == "" {
+			t.Fatalf("expected access token, got %v", payload)
+		}
+		return token
+	}
+
+	assertProtectedStatus := func(token string, want int, name string) {
+		rec := performRequest(engine, http.MethodGet, "/api/v1/system/version", map[string]string{
+			"Authorization": "Bearer " + token,
+		})
+		if rec.Code != want {
+			t.Fatalf("%s: expected protected request status %d, got %d, body=%s", name, want, rec.Code, rec.Body.String())
+		}
+	}
+
+	assertSessions := func(want map[string]string) {
+		var sessions []model.UserSession
+		if err := database.DB.Where("user_id = ?", user.ID).Order("id ASC").Find(&sessions).Error; err != nil {
+			t.Fatalf("query sessions: %v", err)
+		}
+		if len(sessions) != len(want) {
+			t.Fatalf("expected %d sessions, got %d", len(want), len(sessions))
+		}
+
+		got := make(map[string]string, len(sessions))
+		for _, session := range sessions {
+			clientType := service.DetectSessionClientType(session.ClientType, "", session.UserAgent)
+			got[clientType] = session.IP
+		}
+
+		for clientType, ip := range want {
+			if got[clientType] != ip {
+				t.Fatalf("expected %s session ip %s, got %s", clientType, ip, got[clientType])
+			}
+		}
+	}
+
+	webTokenA := login("198.51.100.10", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", map[string]string{
+		"X-Client-Type": "web",
+		"X-Client-App":  "daidai-panel-web",
+	})
+	assertSessions(map[string]string{
+		service.SessionClientWeb: "198.51.100.10",
+	})
+	assertProtectedStatus(webTokenA, http.StatusOK, "web token A should be valid after first login")
+
+	appTokenA := login("198.51.100.20", "Dart/3.11 (dart:io)", nil)
+	assertSessions(map[string]string{
+		service.SessionClientWeb: "198.51.100.10",
+		service.SessionClientApp: "198.51.100.20",
+	})
+	assertProtectedStatus(webTokenA, http.StatusOK, "web token A should remain valid after app login")
+	assertProtectedStatus(appTokenA, http.StatusOK, "app token A should be valid after first app login")
+
+	webTokenB := login("198.51.100.30", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", map[string]string{
+		"X-Client-Type": "web",
+		"X-Client-App":  "daidai-panel-web",
+	})
+	assertSessions(map[string]string{
+		service.SessionClientWeb: "198.51.100.30",
+		service.SessionClientApp: "198.51.100.20",
+	})
+	assertProtectedStatus(webTokenA, http.StatusUnauthorized, "web token A should be revoked by second web login")
+	assertProtectedStatus(appTokenA, http.StatusOK, "app token A should remain valid after second web login")
+	assertProtectedStatus(webTokenB, http.StatusOK, "web token B should be valid after second web login")
+
+	appTokenB := login("198.51.100.40", "DaidaiPanelApp/1.0.1+2 (Android; Flutter)", map[string]string{
+		"X-Client-Type": "app",
+		"X-Client-App":  "daidai-panel-app",
+	})
+	assertSessions(map[string]string{
+		service.SessionClientWeb: "198.51.100.30",
+		service.SessionClientApp: "198.51.100.40",
+	})
+	assertProtectedStatus(webTokenB, http.StatusOK, "web token B should remain valid after second app login")
+	assertProtectedStatus(appTokenA, http.StatusUnauthorized, "app token A should be revoked by second app login")
+	assertProtectedStatus(appTokenB, http.StatusOK, "app token B should be valid after second app login")
+}
+
 func TestCORSAllowsConfiguredAndSameOriginAuthorizationRequests(t *testing.T) {
 	testutil.SetupTestEnv(t)
 

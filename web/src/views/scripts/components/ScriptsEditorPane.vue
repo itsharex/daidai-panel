@@ -56,7 +56,7 @@ function startEdit() {
           <el-button v-if="!isEditing" :size="isMobile ? 'small' : 'default'" type="primary" @click="startEdit" :disabled="isBinary">
             <el-icon><Edit /></el-icon><span v-if="!isMobile">编辑</span>
           </el-button>
-          <el-button v-if="isEditing" :size="isMobile ? 'small' : 'default'" type="success" @click="onDebugRun" :disabled="isBinary">
+          <el-button :size="isMobile ? 'small' : 'default'" type="success" @click="onDebugRun" :disabled="isBinary">
             <el-icon><VideoPlay /></el-icon><span v-if="!isMobile">调试</span>
           </el-button>
           <el-button v-if="!isMobile" size="default" type="primary" @click="onAddToTask" :disabled="isBinary">

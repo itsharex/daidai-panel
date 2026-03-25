@@ -29,6 +29,10 @@ export const envApi = {
     return request.delete('/envs/batch', { data: { ids } }) as Promise<{ message: string }>
   },
 
+  batchRename(ids: number[], search: string, replace: string) {
+    return request.put('/envs/batch/rename', { ids, search, replace }) as Promise<{ message: string }>
+  },
+
   batchEnable(ids: number[]) {
     return request.put('/envs/batch/enable', { ids }) as Promise<{ message: string }>
   },

@@ -427,6 +427,68 @@ func (h *EnvHandler) BatchDisable(c *gin.Context) {
 	})
 }
 
+func (h *EnvHandler) BatchRename(c *gin.Context) {
+	var req struct {
+		IDs     []uint `json:"ids" binding:"required"`
+		Search  string `json:"search"`
+		Replace string `json:"replace"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "请求参数错误")
+		return
+	}
+
+	search := strings.TrimSpace(req.Search)
+	if search == "" {
+		response.BadRequest(c, "查找内容不能为空")
+		return
+	}
+
+	var envs []model.EnvVar
+	if err := database.DB.Where("id IN ?", req.IDs).Find(&envs).Error; err != nil {
+		response.InternalError(c, "批量改名失败")
+		return
+	}
+	if len(envs) == 0 {
+		response.NotFound(c, "未找到选中的环境变量")
+		return
+	}
+
+	updates := make(map[uint]string, len(envs))
+	for _, env := range envs {
+		nextName := strings.ReplaceAll(env.Name, search, req.Replace)
+		if nextName == env.Name {
+			continue
+		}
+		if !envNamePattern.MatchString(nextName) {
+			response.BadRequest(c, fmt.Sprintf("变量名 '%s' 修改后格式无效", nextName))
+			return
+		}
+		updates[env.ID] = nextName
+	}
+
+	if len(updates) == 0 {
+		response.BadRequest(c, "选中的变量名中未找到匹配内容")
+		return
+	}
+
+	if err := database.DB.Transaction(func(tx *gorm.DB) error {
+		for envID, nextName := range updates {
+			if err := tx.Model(&model.EnvVar{}).Where("id = ?", envID).Update("name", nextName).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		response.InternalError(c, "批量改名失败")
+		return
+	}
+
+	response.Success(c, gin.H{
+		"message": fmt.Sprintf("已批量改名 %d 个环境变量", len(updates)),
+	})
+}
+
 func (h *EnvHandler) Sort(c *gin.Context) {
 	var req struct {
 		SourceID uint  `json:"source_id" binding:"required"`
@@ -821,6 +883,7 @@ func (h *EnvHandler) RegisterRoutes(r *gin.RouterGroup) {
 		envs.PUT("/:id/enable", h.Enable)
 		envs.PUT("/:id/disable", h.Disable)
 		envs.DELETE("/batch", h.BatchDelete)
+		envs.PUT("/batch/rename", h.BatchRename)
 		envs.PUT("/batch/enable", h.BatchEnable)
 		envs.PUT("/batch/disable", h.BatchDisable)
 		envs.PUT("/batch/group", h.BatchSetGroup)

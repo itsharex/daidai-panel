@@ -406,6 +406,8 @@ func TestSendWecomAppMpnews(t *testing.T) {
 		wecomAppSendURL = oldSendURL
 	}()
 
+	content := "任务执行完成\n第二行输出"
+
 	err := sendWecomApp(map[string]string{
 		"corp_id":         "ww-demo",
 		"secret":          "secret-demo",
@@ -424,7 +426,7 @@ func TestSendWecomAppMpnews(t *testing.T) {
 				"digest":"Digest description"
 			}
 		]`,
-	}, "系统通知", "任务执行完成")
+	}, "系统通知", content)
 	if err != nil {
 		t.Fatalf("send wecom app mpnews: %v", err)
 	}
@@ -456,7 +458,7 @@ func TestSendWecomAppMpnews(t *testing.T) {
 	if got := article["thumb_media_id"]; got != "MEDIA_ID" {
 		t.Fatalf("unexpected thumb_media_id: %#v", got)
 	}
-	if got := article["content"]; got != "<p>任务执行完成</p>" {
+	if got := article["content"]; got != "<p>"+content+"</p>" {
 		t.Fatalf("unexpected article content: %#v", got)
 	}
 }

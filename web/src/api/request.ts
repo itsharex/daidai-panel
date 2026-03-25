@@ -7,7 +7,9 @@ const request: AxiosInstance = axios.create({
   baseURL: '/api',
   timeout: 30000,
   headers: {
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
+    'X-Client-Type': 'web',
+    'X-Client-App': 'daidai-panel-web'
   }
 })
 

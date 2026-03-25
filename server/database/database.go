@@ -163,6 +163,7 @@ func EnsureColumns() {
 	ensureTableColumns("user_sessions", []columnDef{
 		{"refresh_jti", "VARCHAR(36)"},
 		{"refresh_expires_at", "DATETIME"},
+		{"client_type", "VARCHAR(16) DEFAULT 'web'"},
 	})
 
 	log.Printf("column check completed")

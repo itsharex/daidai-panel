@@ -33,7 +33,9 @@ defineProps<{
         <div class="dd-mobile-card__header">
           <div class="dd-mobile-card__title-wrap">
             <span class="dd-mobile-card__title">{{ row.ip }}</span>
-            <span class="dd-mobile-card__subtitle">{{ new Date(row.last_active || row.created_at).toLocaleString() }}</span>
+            <span class="dd-mobile-card__subtitle">
+              {{ row.client_type_label || '网页端' }} · {{ new Date(row.last_active || row.created_at).toLocaleString() }}
+            </span>
           </div>
         </div>
         <div class="dd-mobile-card__body">
@@ -53,6 +55,7 @@ defineProps<{
 
     <el-table v-else :data="sessions" v-loading="sessionsLoading" stripe empty-text="暂无数据">
       <el-table-column prop="ip" label="IP地址" width="140" />
+      <el-table-column prop="client_type_label" label="客户端" width="110" />
       <el-table-column prop="user_agent" label="用户代理" show-overflow-tooltip />
       <el-table-column label="最后活动" width="170">
         <template #default="{ row }">{{ new Date(row.last_active || row.created_at).toLocaleString() }}</template>
