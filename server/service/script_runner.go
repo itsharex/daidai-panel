@@ -454,15 +454,20 @@ func parseTaskTimeoutSeconds(raw string) (int, error) {
 }
 
 func runSingleCommand(plan *CommandExecutionPlan, timeout int, envVars map[string]string, maxLogSize int, onOutput OnOutputFunc, onProcessStart ...OnProcessStartFunc) (*ScriptResult, *os.Process, error) {
-	cmd := buildCmd(plan, filepath.Dir(plan.FullPath), envVars)
+	cmd, cleanup, err := buildCmd(plan, filepath.Dir(plan.FullPath), envVars)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		cleanup()
 		return nil, nil, fmt.Errorf("failed to create stdout pipe: %w", err)
 	}
 	cmd.Stderr = cmd.Stdout
 
 	if err := cmd.Start(); err != nil {
+		cleanup()
 		return nil, nil, fmt.Errorf("failed to start process: %w", err)
 	}
 
@@ -505,7 +510,9 @@ func runSingleCommand(plan *CommandExecutionPlan, timeout int, envVars map[strin
 
 	waitCh := make(chan error, 1)
 	go func() {
-		waitCh <- cmd.Wait()
+		waitErr := cmd.Wait()
+		cleanup()
+		waitCh <- waitErr
 	}()
 
 	var returnCode int
@@ -813,8 +820,7 @@ func absInt(value int) int {
 	return value
 }
 
-func buildCmd(plan *CommandExecutionPlan, workDir string, envVars map[string]string) *exec.Cmd {
-	var cmd *exec.Cmd
+func buildCmd(plan *CommandExecutionPlan, workDir string, envVars map[string]string) (*exec.Cmd, func(), error) {
 	helperBaseDir := strings.TrimSpace(envVars["DAIDAI_SCRIPTS_DIR"])
 	if helperBaseDir != "" {
 		_ = EnsureBuiltinNotifyHelpers(helperBaseDir)
@@ -824,27 +830,7 @@ func buildCmd(plan *CommandExecutionPlan, workDir string, envVars map[string]str
 		_ = NormalizeShellScriptFile(plan.FullPath)
 	}
 
-	switch plan.Interpreter {
-	case "python", "python3":
-		args := append([]string{"-u", plan.FullPath}, plan.ScriptArgs...)
-		cmd = exec.Command(plan.Interpreter, args...)
-	case "go":
-		args := append([]string{"run", plan.FullPath}, plan.ScriptArgs...)
-		cmd = exec.Command("go", args...)
-	case "ts-node":
-		args := append([]string{"ts-node", plan.FullPath}, plan.ScriptArgs...)
-		cmd = exec.Command("npx", args...)
-	default:
-		args := append([]string{plan.FullPath}, plan.ScriptArgs...)
-		cmd = exec.Command(plan.Interpreter, args...)
-	}
-
-	cmd.Dir = filepath.Dir(plan.FullPath)
-	cmd.Env = buildEnv(envVars)
-
-	setPgid(cmd)
-
-	return cmd
+	return CreateManagedCommand(plan.Interpreter, plan.FullPath, plan.ScriptArgs, filepath.Dir(plan.FullPath), envVars)
 }
 
 func buildEnv(envVars map[string]string) []string {

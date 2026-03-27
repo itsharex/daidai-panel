@@ -27,6 +27,7 @@ export function useSettingsSecurity() {
   const backups = ref<any[]>([])
   const backupsLoading = ref(false)
   const showBackupDialog = ref(false)
+  const backupName = ref('')
   const backupPassword = ref('')
   const backupSelection = ref<BackupSelection>({
     configs: true,
@@ -94,6 +95,7 @@ export function useSettingsSecurity() {
 
   async function handleCreateBackup() {
     showBackupDialog.value = true
+    backupName.value = ''
     backupPassword.value = ''
     backupSelection.value = {
       configs: true,
@@ -136,9 +138,10 @@ export function useSettingsSecurity() {
         ElMessage.warning('请至少选择一个备份项')
         return
       }
-      await systemApi.backup(backupPassword.value, backupSelection.value)
+      await systemApi.backup(backupPassword.value, backupSelection.value, backupName.value)
       ElMessage.success('备份创建成功')
       showBackupDialog.value = false
+      backupName.value = ''
       backupPassword.value = ''
       void loadBackups()
     } catch {
@@ -577,6 +580,7 @@ export function useSettingsSecurity() {
     backups,
     backupsLoading,
     showBackupDialog,
+    backupName,
     backupPassword,
     backupSelection,
     showRestoreDialog,

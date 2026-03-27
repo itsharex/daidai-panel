@@ -17,8 +17,9 @@ type BackupSelection struct {
 }
 
 type BackupCreateOptions struct {
-	Password  string
-	Selection BackupSelection
+	Password   string
+	Name       string
+	Selection  BackupSelection
 }
 
 type BackupUser struct {

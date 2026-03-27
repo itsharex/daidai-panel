@@ -2,7 +2,6 @@ package handler
 
 import (
 	"bufio"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -145,12 +144,14 @@ func (h *SystemHandler) Stats(c *gin.Context) {
 func (h *SystemHandler) Backup(c *gin.Context) {
 	var req struct {
 		Password  string                  `json:"password"`
+		Name      string                  `json:"name"`
 		Selection service.BackupSelection `json:"selection"`
 	}
 	c.ShouldBindJSON(&req)
 
 	filePath, err := service.CreateBackup(service.BackupCreateOptions{
 		Password:  req.Password,
+		Name:      req.Name,
 		Selection: req.Selection.NormalizeDefaults(),
 	})
 	if err != nil {
@@ -287,33 +288,13 @@ func (h *SystemHandler) PanelSettings(c *gin.Context) {
 func (h *SystemHandler) CheckUpdate(c *gin.Context) {
 	currentVersion := Version
 
-	client := service.NewHTTPClient(10 * time.Second)
-	resp, err := client.Get("https://api.github.com/repos/linzixuanzz/daidai-panel/releases/latest")
+	release, err := fetchLatestPanelRelease()
 	if err != nil {
-		response.InternalError(c, "检查更新失败: "+err.Error())
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		response.InternalError(c, "GitHub API 返回异常状态")
+		response.InternalError(c, err.Error())
 		return
 	}
 
-	var release struct {
-		TagName     string `json:"tag_name"`
-		Name        string `json:"name"`
-		Body        string `json:"body"`
-		HTMLURL     string `json:"html_url"`
-		PublishedAt string `json:"published_at"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		response.InternalError(c, "解析 GitHub 响应失败")
-		return
-	}
-
-	latestVersion := strings.TrimPrefix(release.TagName, "v")
+	latestVersion := release.version()
 	hasUpdate := compareVersions(currentVersion, latestVersion)
 	autoUpdateSupported := true
 	updateDisabledReason := ""
@@ -323,11 +304,12 @@ func (h *SystemHandler) CheckUpdate(c *gin.Context) {
 	if planErr != nil {
 		autoUpdateSupported = false
 		updateDisabledReason = planErr.Error()
-	} else {
+		} else {
 		updateTarget = gin.H{
 			"container_name":  plan.ContainerName,
 			"image_name":      plan.ImageName,
 			"pull_image_name": plan.PullImageName,
+			"channel":         plan.Channel,
 			"mirror_host":     plan.MirrorHost,
 			"registry_url":    plan.RegistryURL,
 		}
@@ -338,6 +320,7 @@ func (h *SystemHandler) CheckUpdate(c *gin.Context) {
 			"current":                currentVersion,
 			"latest":                 latestVersion,
 			"has_update":             hasUpdate,
+			"release_name":           release.Name,
 			"release_url":            release.HTMLURL,
 			"release_notes":          release.Body,
 			"published_at":           release.PublishedAt,

@@ -30,7 +30,7 @@ var binaryExtensions = map[string]bool{
 
 var invalidScriptPathCharsPattern = regexp.MustCompile(`[<>:"\\|?*\x00-\x1F]`)
 
-const maxUploadSize = 10 * 1024 * 1024
+const maxUploadSize = 100 * 1024 * 1024
 
 type debugRun struct {
 	Process  *os.Process

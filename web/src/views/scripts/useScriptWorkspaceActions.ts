@@ -259,6 +259,35 @@ export function useScriptWorkspaceActions({
     }
   }
 
+  async function handleClearVersions() {
+    if (!selectedFile.value) return
+
+    try {
+      await ElMessageBox.confirm(
+        `确定要清空 ${selectedFile.value} 的全部版本历史吗？\n此操作不可恢复，但不会删除当前脚本文件。`,
+        '清空版本历史',
+        {
+          type: 'warning',
+          confirmButtonText: '确认清空',
+          cancelButtonText: '取消'
+        }
+      )
+
+      const res = await scriptApi.clearVersions(selectedFile.value)
+      const clearedCount = Number(res.cleared_count || versions.value.length || 0)
+      versions.value = []
+      showVersionDiffDialog.value = false
+      versionDiffOriginalTitle.value = ''
+      versionDiffModifiedTitle.value = ''
+      versionDiffOriginalContent.value = ''
+      versionDiffModifiedContent.value = ''
+      ElMessage.success(clearedCount > 0 ? `已清空 ${clearedCount} 条版本记录` : '版本历史已清空')
+    } catch (err: any) {
+      if (isActionCancelled(err)) return
+      ElMessage.error(err?.response?.data?.error || err?.message || '清空版本历史失败')
+    }
+  }
+
   function buildVersionLabel(version: ScriptVersionRecord) {
     const message = version.message?.trim()
     return message ? `V${version.version} · ${message}` : `V${version.version}`
@@ -325,13 +354,19 @@ export function useScriptWorkspaceActions({
 
   function handleDownload() {
     if (!selectedFile.value) return
-    const blob = new Blob([fileContent.value], { type: 'text/plain' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = getFileName(selectedFile.value)
-    a.click()
-    URL.revokeObjectURL(url)
+    void (async () => {
+      try {
+        const blob = await scriptApi.download(selectedFile.value)
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = getFileName(selectedFile.value)
+        a.click()
+        URL.revokeObjectURL(url)
+      } catch (err: any) {
+        ElMessage.error(err?.response?.data?.error || err?.message || '下载失败')
+      }
+    })()
   }
 
   function handleKeyDown(e: KeyboardEvent) {
@@ -377,6 +412,7 @@ export function useScriptWorkspaceActions({
     handleAddToTask,
     loadVersions,
     handleRollback,
+    handleClearVersions,
     handleCompareVersion,
     handleFormat,
     handleDownload,

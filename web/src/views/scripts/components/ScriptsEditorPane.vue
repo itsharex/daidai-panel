@@ -86,7 +86,7 @@ function startEdit() {
                 <el-dropdown-item @click="onOpenRename">
                   <el-icon><Edit /></el-icon>重命名
                 </el-dropdown-item>
-                <el-dropdown-item @click="onDownload" :disabled="isBinary">
+                <el-dropdown-item @click="onDownload">
                   <el-icon><Download /></el-icon>下载
                 </el-dropdown-item>
                 <el-dropdown-item divided @click="onDelete">

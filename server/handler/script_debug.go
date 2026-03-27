@@ -2,56 +2,126 @@ package handler
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"daidai-panel/model"
 	"daidai-panel/pkg/response"
+	"daidai-panel/service"
 
 	"github.com/gin-gonic/gin"
 )
 
 func (h *ScriptHandler) DebugRun(c *gin.Context) {
 	var req struct {
-		Path string `json:"path" binding:"required"`
+		Path     string `json:"path"`
+		Content  string `json:"content"`
+		Language string `json:"language"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "请求参数错误")
 		return
 	}
 
-	full, err := safePath(req.Path, true)
+	req.Path = strings.TrimSpace(req.Path)
+	req.Language = strings.TrimSpace(req.Language)
+	hasInlineContent := strings.TrimSpace(req.Content) != "" && req.Language != ""
+
+	if req.Path == "" && !hasInlineContent {
+		response.BadRequest(c, "缺少脚本路径或调试内容")
+		return
+	}
+
+	var (
+		full      string
+		ext       string
+		workDir   string
+		cleanupFn = func() {}
+	)
+
+	if hasInlineContent {
+		ext = strings.ToLower(scriptLanguageExtMap[strings.ToLower(strings.TrimSpace(req.Language))])
+		if ext == "" {
+			response.BadRequest(c, "不支持的语言类型")
+			return
+		}
+
+		tmpDir := filepath.Join(os.TempDir(), "daidai-debug")
+		if err := os.MkdirAll(tmpDir, 0o755); err != nil {
+			response.InternalError(c, "创建调试目录失败")
+			return
+		}
+
+		full = filepath.Join(tmpDir, fmt.Sprintf("debug_%d%s", time.Now().UnixMilli(), ext))
+		content := req.Content
+		if ext == ".sh" {
+			content = string(service.NormalizeShellLineEndings([]byte(content)))
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			response.InternalError(c, "创建调试文件失败")
+			return
+		}
+		workDir = tmpDir
+		cleanupFn = func() {
+			_ = os.Remove(full)
+		}
+	} else {
+		resolvedPath, err := safePath(req.Path, true)
+		if err != nil {
+			response.BadRequest(c, err.Error())
+			return
+		}
+		full = resolvedPath
+		ext = strings.ToLower(filepath.Ext(full))
+		workDir = filepath.Dir(full)
+	}
+
+	if ext == ".sh" {
+		if err := service.NormalizeShellScriptFile(full); err != nil {
+			cleanupFn()
+			response.InternalError(c, fmt.Sprintf("脚本换行规范化失败: %s", err))
+			return
+		}
+	}
+	interpreter, err := scriptRuntimeInterpreter(ext)
 	if err != nil {
+		cleanupFn()
 		response.BadRequest(c, err.Error())
 		return
 	}
 
-	ext := strings.ToLower(filepath.Ext(full))
-	cmdParts, err := scriptCommandParts(ext, full)
+	envMap := buildScriptExecEnv(workDir)
+	cmd, cleanup, err := newScriptCommand(interpreter, full, nil, workDir, envMap)
 	if err != nil {
-		response.BadRequest(c, err.Error())
-		return
-	}
-
-	workDir := filepath.Dir(full)
-	env, envMap := buildScriptExecEnv(workDir)
-	cmd := newScriptCommand(cmdParts, workDir, env)
-
-	run := newDebugRun()
-	pipeWriter, scanDone, err := startTrackedCommand(cmd, run)
-	if err != nil {
+		cleanupFn()
 		response.InternalError(c, fmt.Sprintf("启动失败: %s", err))
 		return
 	}
 
-	runID := fmt.Sprintf("%d_%s", time.Now().UnixMilli(), filepath.Base(req.Path))
+	run := newDebugRun()
+	pipeWriter, scanDone, err := startTrackedCommand(cmd, run)
+	if err != nil {
+		cleanup()
+		cleanupFn()
+		response.InternalError(c, fmt.Sprintf("启动失败: %s", err))
+		return
+	}
+
+	runName := filepath.Base(full)
+	if req.Path != "" {
+		runName = filepath.Base(req.Path)
+	}
+	runID := fmt.Sprintf("%d_%s", time.Now().UnixMilli(), runName)
 	h.storeRun(runID, run)
 
 	startTime := time.Now()
 
 	go func() {
 		waitErr := waitTrackedCommand(cmd, pipeWriter, scanDone)
+		cleanup()
+		cleanupFn()
 		elapsed := time.Since(startTime).Seconds()
 		exitCode := resolveExitCode(waitErr)
 
@@ -71,16 +141,23 @@ func (h *ScriptHandler) DebugRun(c *gin.Context) {
 				if installResult.Success {
 					run.appendLog(fmt.Sprintf("[安装成功: %s，自动重试执行]", candidate.DisplayName))
 
-					retryCmd := newScriptCommand(cmdParts, workDir, env)
+					retryCmd, retryCleanup, retryPrepareErr := newScriptCommand(interpreter, full, nil, workDir, envMap)
+					if retryPrepareErr != nil {
+						run.appendLog(fmt.Sprintf("[重试启动失败: %s]", retryPrepareErr))
+						run.finish(exitCode, waitErr, elapsed)
+						return
+					}
 					retryPipeWriter, retryScanDone, startErr := startTrackedCommand(retryCmd, run)
 					if startErr == nil {
 						waitErr = waitTrackedCommand(retryCmd, retryPipeWriter, retryScanDone)
+						retryCleanup()
 						elapsed = time.Since(startTime).Seconds()
 						exitCode = resolveExitCode(waitErr)
 						if run.isStopped() {
 							return
 						}
 					} else {
+						retryCleanup()
 						run.appendLog(fmt.Sprintf("[重试启动失败: %s]", startErr))
 					}
 				} else {

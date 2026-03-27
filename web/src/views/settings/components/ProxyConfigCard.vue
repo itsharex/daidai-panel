@@ -47,6 +47,14 @@ defineProps<{
       </span>
     </div>
 
+    <div class="switch-row">
+      <div class="switch-item">
+        <span class="switch-label">静默更新</span>
+        <el-switch v-model="form.auto_update_enabled" inline-prompt active-text="开" inactive-text="关" />
+      </div>
+    </div>
+    <span class="form-hint">开启后每 24 小时自动检查一次新版本；若检测到更新，将按当前镜像渠道自动尝试更新并通过通知渠道反馈结果。</span>
+
     <div class="form-field">
       <label>可信代理 CIDR</label>
       <el-input

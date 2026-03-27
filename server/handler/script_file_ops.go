@@ -158,3 +158,14 @@ func (h *ScriptHandler) GetContent(c *gin.Context) {
 		},
 	})
 }
+
+func (h *ScriptHandler) Download(c *gin.Context) {
+	path := c.Query("path")
+	full, err := safePath(path, true)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	c.FileAttachment(full, filepath.Base(full))
+}

@@ -1,5 +1,5 @@
 import { onBeforeUnmount, ref } from 'vue'
-import { systemApi, type PanelUpdateStatus } from '@/api/system'
+import { configApi, systemApi, type PanelUpdateStatus } from '@/api/system'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 type UpdateVisualStatus = 'idle' | 'running' | 'restarting' | 'failed' | 'timeout'
@@ -12,6 +12,9 @@ export function useSettingsOverview() {
   const updateStatus = ref<PanelUpdateStatus | null>(null)
   const checkingUpdate = ref(false)
   const updatingPanel = ref(false)
+  const autoUpdateEnabled = ref(false)
+  const savingAutoUpdate = ref(false)
+  const releaseNotesVisible = ref(false)
   const updateProgressVisible = ref(false)
   const updateProgressStatus = ref<UpdateVisualStatus>('idle')
   const updateProgressError = ref('')
@@ -52,6 +55,16 @@ export function useSettingsOverview() {
     }
   }
 
+  async function loadUpdatePreferences() {
+    try {
+      const res = await configApi.get('auto_update_enabled')
+      const value = String(res.data?.value ?? res.data?.config?.value ?? 'false').trim().toLowerCase()
+      autoUpdateEnabled.value = ['1', 'true', 'yes', 'on'].includes(value)
+    } catch {
+      autoUpdateEnabled.value = false
+    }
+  }
+
   async function loadVersion() {
     try {
       const res = await systemApi.version()
@@ -67,8 +80,9 @@ export function useSettingsOverview() {
       const res = await systemApi.checkUpdate()
       updateInfo.value = res.data
       if (res.data.has_update) {
+        releaseNotesVisible.value = true
         if (res.data.auto_update_supported) {
-          ElMessage.success(`发现新版本 v${res.data.latest}，可在下方直接点击“立即更新”`)
+          ElMessage.success(`发现新版本 v${res.data.latest}`)
         } else {
           ElMessage.warning(res.data.update_disabled_reason || '当前部署暂不支持面板内一键更新')
         }
@@ -80,6 +94,31 @@ export function useSettingsOverview() {
       ElMessage.error(msg)
     } finally {
       checkingUpdate.value = false
+    }
+  }
+
+  async function handleToggleAutoUpdate(value: boolean) {
+    const previous = autoUpdateEnabled.value
+    autoUpdateEnabled.value = value
+    savingAutoUpdate.value = true
+    try {
+      await configApi.set({ key: 'auto_update_enabled', value: value ? 'true' : 'false' })
+      ElMessage.success(value ? '静默更新已开启' : '静默更新已关闭')
+    } catch {
+      autoUpdateEnabled.value = previous
+      ElMessage.error('保存静默更新设置失败')
+    } finally {
+      savingAutoUpdate.value = false
+    }
+  }
+
+  function closeReleaseNotes() {
+    releaseNotesVisible.value = false
+  }
+
+  function openReleaseNotes() {
+    if (updateInfo.value?.has_update) {
+      releaseNotesVisible.value = true
     }
   }
 
@@ -362,6 +401,9 @@ export function useSettingsOverview() {
     updateStatus,
     checkingUpdate,
     updatingPanel,
+    autoUpdateEnabled,
+    savingAutoUpdate,
+    releaseNotesVisible,
     updateProgressVisible,
     updateProgressStatus,
     updateProgressError,
@@ -370,9 +412,13 @@ export function useSettingsOverview() {
     loadSystemInfo,
     loadSystemStats,
     loadVersion,
+    loadUpdatePreferences,
     handleCheckUpdate,
     handleUpdatePanel,
     handleRestartPanel,
+    handleToggleAutoUpdate,
+    openReleaseNotes,
+    closeReleaseNotes,
     openGitHub,
     closeUpdateProgress
   }

@@ -150,22 +150,15 @@ export function useScriptExecution({ selectedFile, fileContent }: UseScriptExecu
 
   async function handleDebugStart() {
     if (!selectedFile.value) return
-    if (debugCodeChanged.value) {
-      try {
-        await scriptApi.saveContent(selectedFile.value, debugCode.value)
-        fileContent.value = debugCode.value
-        debugCodeChanged.value = false
-      } catch {
-        ElMessage.error('保存代码失败')
-        return
-      }
-    }
     debugLogs.value = []
     debugError.value = ''
     debugExitCode.value = null
     debugRunning.value = true
     try {
-      const res = await scriptApi.debugRun({ path: selectedFile.value })
+      const shouldRunTempContent = debugCodeChanged.value || debugCode.value !== fileContent.value
+      const res = shouldRunTempContent
+        ? await scriptApi.debugRun({ content: debugCode.value, language: runnerLanguageForFile(selectedFile.value) })
+        : await scriptApi.debugRun({ path: selectedFile.value })
       debugRunId.value = res.run_id
       pollDebugLogs()
     } catch (err: any) {
@@ -173,6 +166,16 @@ export function useScriptExecution({ selectedFile, fileContent }: UseScriptExecu
       ElMessage.error(debugError.value)
       debugRunning.value = false
     }
+  }
+
+  function runnerLanguageForFile(path: string) {
+    const lower = path.toLowerCase()
+    if (lower.endsWith('.py')) return 'python'
+    if (lower.endsWith('.js')) return 'javascript'
+    if (lower.endsWith('.ts')) return 'typescript'
+    if (lower.endsWith('.sh')) return 'shell'
+    if (lower.endsWith('.go')) return 'go'
+    return 'python'
   }
 
   function pollDebugLogs() {

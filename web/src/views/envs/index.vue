@@ -384,6 +384,18 @@ function openCreate() {
   showEditDialog.value = true
 }
 
+function openDuplicate(row: any) {
+  editDialogMode.value = 'create'
+  currentEditEnv.value = {
+    id: 0,
+    name: row.name || '',
+    value: '',
+    remarks: row.remarks || '',
+    group: row.group || ''
+  }
+  showEditDialog.value = true
+}
+
 function openEdit(row: any) {
   editDialogMode.value = 'edit'
   currentEditEnv.value = {
@@ -777,6 +789,7 @@ function formatDateTime(t: string | null) {
 
             <div class="dd-mobile-card__actions env-card__actions">
               <el-button size="small" type="primary" @click="openEdit(row)">编辑</el-button>
+              <el-button size="small" @click="openDuplicate(row)">复制</el-button>
               <el-button
                 size="small"
                 :type="isTopPinned(row) ? 'info' : 'warning'"
@@ -921,12 +934,17 @@ function formatDateTime(t: string | null) {
           <span class="time-text">{{ formatDateTime(row.updated_at) }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="136" align="center">
+      <el-table-column label="操作" width="176" align="center">
         <template #default="{ row }">
           <div class="action-group">
             <el-tooltip content="编辑" placement="top">
               <el-button size="small" type="primary" plain circle @click="openEdit(row)">
                 <el-icon><Edit /></el-icon>
+              </el-button>
+            </el-tooltip>
+            <el-tooltip content="复制同名变量" placement="top">
+              <el-button size="small" plain circle @click="openDuplicate(row)">
+                <el-icon><CopyDocument /></el-icon>
               </el-button>
             </el-tooltip>
             <el-tooltip :content="isTopPinned(row) ? '取消置顶' : '置顶'" placement="top">

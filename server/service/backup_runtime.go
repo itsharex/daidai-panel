@@ -66,10 +66,10 @@ func createBackupArchive(options BackupCreateOptions) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("failed to encrypt backup: %w", err)
 		}
-		filename = fmt.Sprintf("backup_%s.enc", time.Now().Format("20060102_150405"))
+		filename = normalizeBackupArchiveName(options.Name, true)
 	} else {
 		finalData = archiveData
-		filename = fmt.Sprintf("backup_%s.tgz", time.Now().Format("20060102_150405"))
+		filename = normalizeBackupArchiveName(options.Name, false)
 	}
 
 	filePath := filepath.Join(backupDir, filename)
@@ -78,6 +78,40 @@ func createBackupArchive(options BackupCreateOptions) (string, error) {
 	}
 
 	return filePath, nil
+}
+
+func normalizeBackupArchiveName(raw string, encrypted bool) string {
+	fallback := fmt.Sprintf("backup_%s", time.Now().Format("20060102_150405"))
+	name := strings.TrimSpace(raw)
+	for _, suffix := range []string{".tar.gz", ".tgz", ".enc", ".json"} {
+		if strings.HasSuffix(strings.ToLower(name), suffix) {
+			name = name[:len(name)-len(suffix)]
+			break
+		}
+	}
+	if name == "" {
+		name = fallback
+	}
+
+	name = strings.Map(func(r rune) rune {
+		switch {
+		case r < 32:
+			return -1
+		case strings.ContainsRune(`<>:"/\|?*`, r):
+			return '_'
+		default:
+			return r
+		}
+	}, name)
+	name = strings.Trim(name, " .")
+	if name == "" {
+		name = fallback
+	}
+
+	if encrypted {
+		return name + ".enc"
+	}
+	return name + ".tgz"
 }
 
 func buildBackupManifest(selection BackupSelection) (BackupManifest, error) {

@@ -48,6 +48,27 @@ func TestResolveUpdateImageTargetKeepsCustomRegistryDirect(t *testing.T) {
 	}
 }
 
+func TestNormalizePanelUpdateImageNameUsesRollingDebianTag(t *testing.T) {
+	got := normalizePanelUpdateImageName("linzixuanzz/daidai-panel:1.9.8-debian")
+	if got != "linzixuanzz/daidai-panel:debian" {
+		t.Fatalf("expected debian rolling tag, got %q", got)
+	}
+}
+
+func TestNormalizePanelUpdateImageNameUsesRollingLatestTag(t *testing.T) {
+	got := normalizePanelUpdateImageName("docker.io/linzixuanzz/daidai-panel:1.9.8")
+	if got != "docker.io/linzixuanzz/daidai-panel:latest" {
+		t.Fatalf("expected latest rolling tag, got %q", got)
+	}
+}
+
+func TestNormalizePanelUpdateImageNameKeepsCustomRepo(t *testing.T) {
+	got := normalizePanelUpdateImageName("ghcr.io/acme/panel:1.0.0")
+	if got != "ghcr.io/acme/panel:1.0.0" {
+		t.Fatalf("expected custom repo to stay unchanged, got %q", got)
+	}
+}
+
 func TestFormatPanelUpdatePullErrorAddsNetworkHint(t *testing.T) {
 	plan := &panelUpdatePlan{
 		ImageName:     "linzixuanzz/daidai-panel:latest",

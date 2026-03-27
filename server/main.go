@@ -12,6 +12,7 @@ import (
 
 	"daidai-panel/config"
 	"daidai-panel/database"
+	"daidai-panel/handler"
 	"daidai-panel/middleware"
 	"daidai-panel/model"
 	"daidai-panel/router"
@@ -196,6 +197,7 @@ func main() {
 	}
 
 	verifyInstalledDeps()
+	handler.FinalizePendingAutoUpdateOnStartup()
 	if err := service.EnsureBuiltinNotifyHelpers(cfg.Data.ScriptsDir); err != nil {
 		log.Printf("prepare builtin notify helpers failed: %v", err)
 	}
@@ -211,6 +213,9 @@ func main() {
 
 	service.StartResourceWatcher()
 	defer service.StopResourceWatcher()
+
+	handler.StartPanelAutoUpdateWatcher()
+	defer handler.StopPanelAutoUpdateWatcher()
 
 	if cfg.Server.Mode == "release" {
 		gin.SetMode(gin.ReleaseMode)

@@ -89,7 +89,7 @@ func (h *ScriptHandler) SaveContent(c *gin.Context) {
 	}
 
 	if len(req.Content) > maxUploadSize {
-		response.BadRequest(c, "内容过大（最大 10MB）")
+		response.BadRequest(c, fmt.Sprintf("内容过大（最大 %dMB）", maxUploadSize/(1024*1024)))
 		return
 	}
 
@@ -131,7 +131,7 @@ func (h *ScriptHandler) Upload(c *gin.Context) {
 	targets := make([]scriptUploadTarget, 0, len(headers))
 	for _, header := range headers {
 		if header.Size > maxUploadSize {
-			response.BadRequest(c, fmt.Sprintf("文件 %s 过大（最大 10MB）", header.Filename))
+			response.BadRequest(c, fmt.Sprintf("文件 %s 过大（最大 %dMB）", header.Filename, maxUploadSize/(1024*1024)))
 			return
 		}
 

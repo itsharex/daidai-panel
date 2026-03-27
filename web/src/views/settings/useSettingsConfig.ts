@@ -28,6 +28,7 @@ export function useSettingsConfig() {
     notify_on_login: false,
     proxy_url: '',
     update_image_mirror: '',
+    auto_update_enabled: false,
     trusted_proxy_cidrs: '',
     captcha_enabled: false,
     captcha_id: '',
@@ -70,7 +71,7 @@ export function useSettingsConfig() {
         max_concurrent_tasks: readConfigNumber(cfgs, 'max_concurrent_tasks', 5),
         command_timeout: readConfigNumber(cfgs, 'command_timeout', 86400),
         log_retention_days: readConfigNumber(cfgs, 'log_retention_days', 7),
-        max_log_content_size: readConfigNumber(cfgs, 'max_log_content_size', 102400),
+        max_log_content_size: readConfigNumber(cfgs, 'max_log_content_size', 102400000),
         random_delay: readConfigString(cfgs, 'random_delay', ''),
         random_delay_extensions: readConfigString(cfgs, 'random_delay_extensions', ''),
         auto_install_deps: readConfigBool(cfgs, 'auto_install_deps', true),
@@ -85,6 +86,7 @@ export function useSettingsConfig() {
         notify_on_login: readConfigBool(cfgs, 'notify_on_login', false),
         proxy_url: readConfigString(cfgs, 'proxy_url', ''),
         update_image_mirror: readConfigString(cfgs, 'update_image_mirror', ''),
+        auto_update_enabled: readConfigBool(cfgs, 'auto_update_enabled', false),
         trusted_proxy_cidrs: readConfigString(cfgs, 'trusted_proxy_cidrs', ''),
         captcha_enabled: readConfigBool(cfgs, 'captcha_enabled', false),
         captcha_id: readConfigString(cfgs, 'captcha_id', ''),
@@ -172,7 +174,7 @@ export function useSettingsConfig() {
   }
 
   function handleSaveProxy() {
-    void saveConfigKeys(['proxy_url', 'update_image_mirror', 'trusted_proxy_cidrs'])
+    void saveConfigKeys(['proxy_url', 'update_image_mirror', 'auto_update_enabled', 'trusted_proxy_cidrs'])
   }
 
   function handleSaveCaptcha() {

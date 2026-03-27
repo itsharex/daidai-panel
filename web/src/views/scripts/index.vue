@@ -63,6 +63,7 @@ const {
   handleAddToTask,
   loadVersions,
   handleRollback,
+  handleClearVersions,
   handleCompareVersion,
   handleFormat,
   handleDownload,
@@ -170,6 +171,7 @@ function handleDeleteSelectedFile() {
       v-model:version-diff-original-content="versionDiffOriginalContent"
       v-model:version-diff-modified-content="versionDiffModifiedContent"
       :is-mobile="isMobile"
+      :selected-file="selectedFile"
       :all-folders="allFolders"
       :editor-language="editorLanguage"
       :versions="versions"
@@ -180,6 +182,7 @@ function handleDeleteSelectedFile() {
       :on-rename="handleRename"
       :on-compare-version="handleCompareVersion"
       :on-rollback="handleRollback"
+      :on-clear-versions="handleClearVersions"
       :on-upload-file-change="handleUploadFileChange"
       :on-upload-submit="handleUploadSubmit"
     />

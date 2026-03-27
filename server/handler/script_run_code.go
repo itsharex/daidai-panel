@@ -44,13 +44,24 @@ func (h *ScriptHandler) RunCode(c *gin.Context) {
 		return
 	}
 
-	cmdParts, _ := scriptCommandParts(ext, tmpFile)
-	env, _ := buildScriptExecEnv(tmpDir)
-	cmd := newScriptCommand(cmdParts, tmpDir, env)
+	interpreter, err := scriptRuntimeInterpreter(ext)
+	if err != nil {
+		os.Remove(tmpFile)
+		response.BadRequest(c, err.Error())
+		return
+	}
+	envMap := buildScriptExecEnv(tmpDir)
+	cmd, cleanup, err := newScriptCommand(interpreter, tmpFile, nil, tmpDir, envMap)
+	if err != nil {
+		os.Remove(tmpFile)
+		response.InternalError(c, fmt.Sprintf("启动失败: %s", err))
+		return
+	}
 
 	run := newDebugRun()
 	pipeWriter, scanDone, err := startTrackedCommand(cmd, run)
 	if err != nil {
+		cleanup()
 		os.Remove(tmpFile)
 		response.InternalError(c, fmt.Sprintf("启动失败: %s", err))
 		return
@@ -63,6 +74,7 @@ func (h *ScriptHandler) RunCode(c *gin.Context) {
 
 	go func() {
 		waitErr := waitTrackedCommand(cmd, pipeWriter, scanDone)
+		cleanup()
 		os.Remove(tmpFile)
 		run.finish(resolveExitCode(waitErr), waitErr, time.Since(startTime).Seconds())
 	}()

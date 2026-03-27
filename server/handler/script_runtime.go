@@ -6,13 +6,10 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"daidai-panel/config"
-	"daidai-panel/database"
-	"daidai-panel/model"
 	"daidai-panel/service"
 )
 
@@ -30,10 +27,6 @@ var scriptLanguageExtMap = map[string]string{
 	"typescript": ".ts",
 	"shell":      ".sh",
 	"go":         ".go",
-}
-
-var scriptEnvPassthroughKeys = []string{
-	"PATH", "HOME", "USER", "LANG", "SYSTEMROOT", "PATHEXT", "TEMP", "TMP",
 }
 
 func newDebugRun() *debugRun {
@@ -176,74 +169,33 @@ func scriptCommandParts(ext, target string) ([]string, error) {
 	return cmdParts, nil
 }
 
-func buildScriptExecEnv(workDir string) ([]string, map[string]string) {
-	envMap := buildManagedScriptEnvMap(workDir)
-	return buildProcessEnv(envMap), envMap
+func scriptRuntimeInterpreter(ext string) (string, error) {
+	switch ext {
+	case ".py":
+		return "python3", nil
+	case ".js":
+		return "node", nil
+	case ".ts":
+		return "ts-node", nil
+	case ".sh":
+		return "bash", nil
+	case ".go":
+		return "go", nil
+	default:
+		return "", fmt.Errorf("不支持执行此文件类型")
+	}
 }
 
-func buildManagedScriptEnvMap(workDir string) map[string]string {
-	var envVars []model.EnvVar
-	database.DB.Where("enabled = ?", true).Find(&envVars)
-
-	envMap := make(map[string]string)
-	for _, e := range envVars {
-		if existing, ok := envMap[e.Name]; ok {
-			envMap[e.Name] = existing + "&" + e.Value
-		} else {
-			envMap[e.Name] = e.Value
-		}
+func buildScriptExecEnv(workDir string) map[string]string {
+	envMap, err := service.BuildManagedRuntimeEnvMap(workDir, config.C.Data.ScriptsDir, nil, 2*time.Hour)
+	if err != nil {
+		return envMap
 	}
-
-	depsDir := filepath.Join(config.C.Data.Dir, "deps")
-	nodeBin := filepath.Join(depsDir, "nodejs", "node_modules", ".bin")
-	nodeModules := filepath.Join(depsDir, "nodejs", "node_modules")
-	venvBin := filepath.Join(depsDir, "python", "venv", "bin")
-
-	envMap["NODE_PATH"] = nodeModules
-	if currentPath := os.Getenv("PATH"); currentPath != "" {
-		envMap["PATH"] = strings.Join([]string{nodeBin, venvBin, currentPath}, string(os.PathListSeparator))
-	}
-
-	venvLib := filepath.Join(depsDir, "python", "venv", "lib")
-	if entries, dirErr := os.ReadDir(venvLib); dirErr == nil {
-		for _, entry := range entries {
-			if entry.IsDir() && strings.HasPrefix(entry.Name(), "python") {
-				envMap["PYTHONPATH"] = filepath.Join(venvLib, entry.Name(), "site-packages")
-				break
-			}
-		}
-	}
-	service.AppendScriptHelperPaths(envMap, config.C.Data.ScriptsDir)
-	if helperEnv, err := service.BuildNotifyHelperEnv(config.C.Data.ScriptsDir, workDir, config.C.Server.Port, nil, 2*time.Hour); err == nil {
-		for key, value := range helperEnv {
-			envMap[key] = value
-		}
-	}
-
 	return envMap
 }
 
-func buildProcessEnv(envMap map[string]string) []string {
-	env := []string{}
-	for _, key := range scriptEnvPassthroughKeys {
-		if value := os.Getenv(key); value != "" {
-			env = append(env, key+"="+value)
-		}
-	}
-
-	for key, value := range envMap {
-		env = append(env, key+"="+value)
-	}
-
-	return env
-}
-
-func newScriptCommand(cmdParts []string, workDir string, env []string) *exec.Cmd {
-	cmd := exec.Command(cmdParts[0], cmdParts[1:]...)
-	cmd.Dir = workDir
-	cmd.Env = env
-	service.SetPgid(cmd)
-	return cmd
+func newScriptCommand(interpreter string, target string, scriptArgs []string, workDir string, envMap map[string]string) (*exec.Cmd, func(), error) {
+	return service.CreateManagedCommand(interpreter, target, scriptArgs, workDir, envMap)
 }
 
 func startTrackedCommand(cmd *exec.Cmd, run *debugRun) (*io.PipeWriter, chan struct{}, error) {

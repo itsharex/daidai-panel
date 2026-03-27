@@ -19,6 +19,7 @@ export interface SettingsConfigForm {
   notify_on_login: boolean
   proxy_url: string
   update_image_mirror: string
+  auto_update_enabled: boolean
   trusted_proxy_cidrs: string
   captcha_enabled: boolean
   captcha_id: string

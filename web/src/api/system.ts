@@ -51,7 +51,7 @@ export const systemApi = {
   restart: () => request.post('/system/restart'),
   panelLog: (params?: { lines?: number; keyword?: string }) =>
     request.get('/system/panel-log', { params }),
-  backup: (password?: string, selection?: Partial<BackupSelection>) => request.post('/system/backup', { password, selection }),
+  backup: (password?: string, selection?: Partial<BackupSelection>, name?: string) => request.post('/system/backup', { password, selection, name }),
   backupList: () => request.get('/system/backups'),
   downloadBackup: (filename: string) =>
     request.get(`/system/backup/download/${encodeURIComponent(filename)}`, {
@@ -67,6 +67,7 @@ export const systemApi = {
     formData.append('file', file)
     return request.post('/system/backup/upload', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 0,
     })
   },
 }

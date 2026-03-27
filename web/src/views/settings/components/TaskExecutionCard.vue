@@ -43,7 +43,7 @@ defineProps<{
     <div class="form-field">
       <label>日志内容上限</label>
       <el-input v-model.number="form.max_log_content_size" />
-      <span class="form-hint">单次任务在数据库中保留的日志字节数，默认 102400</span>
+      <span class="form-hint">单次任务在数据库中保留的日志字节数，默认 102400000</span>
     </div>
     <div class="form-field">
       <label>随机延迟最大秒数</label>

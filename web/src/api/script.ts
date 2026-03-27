@@ -29,6 +29,13 @@ export const scriptApi = {
     return request.get('/scripts/content', { params: { path } }) as Promise<{ data: { content: string; binary?: boolean; is_binary?: boolean; size: number } }>
   },
 
+  download(path: string) {
+    return request.get('/scripts/download', {
+      params: { path },
+      responseType: 'blob'
+    }) as Promise<Blob>
+  },
+
   saveContent(path: string, content: string, message?: string) {
     return request.put('/scripts/content', { path, content, message }) as Promise<{ message: string }>
   },
@@ -65,6 +72,10 @@ export const scriptApi = {
 
   listVersions(path: string) {
     return request.get('/scripts/versions', { params: { path } }) as Promise<{ data: any[] }>
+  },
+
+  clearVersions(path: string) {
+    return request.delete('/scripts/versions', { params: { path } }) as Promise<{ message: string; cleared_count: number }>
   },
 
   getVersion(id: number) {

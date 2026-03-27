@@ -46,6 +46,7 @@ type panelUpdatePlan struct {
 	ContainerName string
 	ImageName     string
 	PullImageName string
+	Channel       string
 	MirrorHost    string
 	RegistryURL   string
 	RunArgs       []string
@@ -205,6 +206,7 @@ func buildPanelUpdatePlan() (*panelUpdatePlan, error) {
 	if imageName == "" {
 		return nil, fmt.Errorf("无法识别当前容器镜像，请设置环境变量 IMAGE_NAME")
 	}
+	imageName = normalizePanelUpdateImageName(imageName)
 
 	pullImageName, mirrorHost, registryURL := resolveUpdateImageTarget(
 		imageName,
@@ -215,6 +217,7 @@ func buildPanelUpdatePlan() (*panelUpdatePlan, error) {
 		ContainerName: containerName,
 		ImageName:     imageName,
 		PullImageName: pullImageName,
+		Channel:       resolvePanelUpdateChannel(imageName),
 		MirrorHost:    mirrorHost,
 		RegistryURL:   registryURL,
 		RunArgs:       buildContainerRunArgs(containerName, imageName, info),
@@ -404,9 +407,16 @@ func filterContainerEnv(envList []string) []string {
 }
 
 func executePanelUpdate(plan *panelUpdatePlan) {
+	executePanelUpdateWithOptions(plan, panelUpdateExecutionOptions{})
+}
+
+func executePanelUpdateWithOptions(plan *panelUpdatePlan, options panelUpdateExecutionOptions) {
 	panelUpdater.setRunning("preparing", fmt.Sprintf("正在检查镜像仓库连通性 %s", plan.RegistryURL))
 	if err := preflightUpdateRegistry(plan); err != nil {
 		panelUpdater.fail(err)
+		if options.AutoUpdate {
+			notifyAutoUpdateFailure(options.TargetVersion, err)
+		}
 		return
 	}
 
@@ -416,7 +426,11 @@ func executePanelUpdate(plan *panelUpdatePlan) {
 	pullOutput, err := dockerCommandOutput(pullCtx, "pull", plan.PullImageName)
 	pullCancel()
 	if err != nil {
-		panelUpdater.fail(formatPanelUpdatePullError(plan, err, pullOutput))
+		formatted := formatPanelUpdatePullError(plan, err, pullOutput)
+		panelUpdater.fail(formatted)
+		if options.AutoUpdate {
+			notifyAutoUpdateFailure(options.TargetVersion, formatted)
+		}
 		return
 	}
 
@@ -427,7 +441,11 @@ func executePanelUpdate(plan *panelUpdatePlan) {
 		tagOutput, tagErr := dockerCommandOutput(tagCtx, "tag", plan.PullImageName, plan.ImageName)
 		tagCancel()
 		if tagErr != nil {
-			panelUpdater.fail(formatDockerCommandError("同步更新镜像标签失败", tagErr, tagOutput))
+			formatted := formatDockerCommandError("同步更新镜像标签失败", tagErr, tagOutput)
+			panelUpdater.fail(formatted)
+			if options.AutoUpdate {
+				notifyAutoUpdateFailure(options.TargetVersion, formatted)
+			}
 			return
 		}
 	}
@@ -447,7 +465,11 @@ func executePanelUpdate(plan *panelUpdatePlan) {
 	helperOutput, err := dockerCommandOutput(helperCtx, helperArgs...)
 	helperCancel()
 	if err != nil {
-		panelUpdater.fail(formatDockerCommandError("启动更新辅助容器失败", err, helperOutput))
+		formatted := formatDockerCommandError("启动更新辅助容器失败", err, helperOutput)
+		panelUpdater.fail(formatted)
+		if options.AutoUpdate {
+			notifyAutoUpdateFailure(options.TargetVersion, formatted)
+		}
 		return
 	}
 
@@ -639,4 +661,47 @@ func mustHostname() string {
 
 func respondUpdateConflict(c *gin.Context, message string) {
 	response.Error(c, http.StatusConflict, message)
+}
+
+func normalizePanelUpdateImageName(imageName string) string {
+	baseImage, tag, _ := splitImageTag(strings.TrimSpace(imageName))
+	_, repoRef := splitImageRegistry(baseImage)
+	if repoRef != "linzixuanzz/daidai-panel" {
+		return strings.TrimSpace(imageName)
+	}
+
+	channel := resolvePanelUpdateChannelFromTag(tag)
+	return baseImage + ":" + channel
+}
+
+func resolvePanelUpdateChannel(imageName string) string {
+	_, tag, _ := splitImageTag(strings.TrimSpace(imageName))
+	return resolvePanelUpdateChannelFromTag(tag)
+}
+
+func resolvePanelUpdateChannelFromTag(tag string) string {
+	tag = strings.ToLower(strings.TrimSpace(tag))
+	if tag == "debian" || strings.HasSuffix(tag, "-debian") {
+		return "debian"
+	}
+	return "latest"
+}
+
+func splitImageTag(imageName string) (base string, tag string, hasTag bool) {
+	imageName = strings.TrimSpace(imageName)
+	if imageName == "" {
+		return "", "", false
+	}
+
+	if digestIdx := strings.Index(imageName, "@"); digestIdx >= 0 {
+		imageName = imageName[:digestIdx]
+	}
+
+	lastSlash := strings.LastIndex(imageName, "/")
+	lastColon := strings.LastIndex(imageName, ":")
+	if lastColon > lastSlash {
+		return imageName[:lastColon], imageName[lastColon+1:], true
+	}
+
+	return imageName, "", false
 }

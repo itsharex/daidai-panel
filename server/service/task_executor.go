@@ -158,40 +158,6 @@ func (e *TaskExecutor) runTask(req *ExecutionRequest, taskLog *model.TaskLog, ti
 	success := false
 	lastFailureOutput := ""
 
-	var envVarRecords []model.EnvVar
-	database.DB.Where("enabled = ?", true).Find(&envVarRecords)
-	envVars := make(map[string]string)
-	for _, ev := range envVarRecords {
-		if existing, ok := envVars[ev.Name]; ok {
-			envVars[ev.Name] = existing + "&" + ev.Value
-		} else {
-			envVars[ev.Name] = ev.Value
-		}
-	}
-
-	depsDir := filepath.Join(config.C.Data.Dir, "deps")
-	nodeBin := filepath.Join(depsDir, "nodejs", "node_modules", ".bin")
-	nodeModules := filepath.Join(depsDir, "nodejs", "node_modules")
-	venvBin := filepath.Join(depsDir, "python", "venv", "bin")
-
-	envVars["NODE_PATH"] = nodeModules
-	if currentPath := os.Getenv("PATH"); currentPath != "" {
-		envVars["PATH"] = strings.Join([]string{nodeBin, venvBin, currentPath}, string(os.PathListSeparator))
-	} else {
-		envVars["PATH"] = strings.Join([]string{nodeBin, venvBin}, string(os.PathListSeparator))
-	}
-
-	venvLib := filepath.Join(depsDir, "python", "venv", "lib")
-	if entries, err := os.ReadDir(venvLib); err == nil {
-		for _, entry := range entries {
-			if entry.IsDir() && strings.HasPrefix(entry.Name(), "python") {
-				envVars["PYTHONPATH"] = filepath.Join(venvLib, entry.Name(), "site-packages")
-				break
-			}
-		}
-	}
-	AppendScriptHelperPaths(envVars, e.scriptsDir)
-
 	commandTimeout := model.GetRegisteredConfigInt("command_timeout")
 	maxLogSize := model.GetRegisteredConfigInt("max_log_content_size")
 
@@ -199,12 +165,9 @@ func (e *TaskExecutor) runTask(req *ExecutionRequest, taskLog *model.TaskLog, ti
 	if timeout <= 0 {
 		timeout = commandTimeout
 	}
-	if helperEnv, err := BuildNotifyHelperEnv(e.scriptsDir, e.scriptsDir, config.C.Server.Port, task.NotificationChannelID, time.Duration(timeout)*time.Second+time.Hour); err == nil {
-		for key, value := range helperEnv {
-			envVars[key] = value
-		}
-	} else {
-		log.Printf("prepare notify helper env failed: %v", err)
+	envVars, envErr := BuildManagedRuntimeEnvMap(e.scriptsDir, e.scriptsDir, task.NotificationChannelID, time.Duration(timeout)*time.Second+time.Hour)
+	if envErr != nil {
+		log.Printf("prepare task runtime env failed: %v", envErr)
 	}
 
 	defer func() {

@@ -6,6 +6,7 @@ import { useResponsive } from '@/composables/useResponsive'
 import RestoreProgressDialog from './RestoreProgressDialog.vue'
 
 const showBackupDialog = defineModel<boolean>('showBackupDialog', { required: true })
+const backupName = defineModel<string>('backupName', { required: true })
 const backupPassword = defineModel<string>('backupPassword', { required: true })
 const backupSelection = defineModel<BackupSelection>('backupSelection', { required: true })
 const showRestoreDialog = defineModel<boolean>('showRestoreDialog', { required: true })
@@ -181,8 +182,11 @@ function triggerUploadBackup() {
       <el-form-item label="备份密码">
         <el-input v-model="backupPassword" type="password" placeholder="可选，留空则不加密" show-password />
       </el-form-item>
+      <el-form-item label="备份文件名">
+        <el-input v-model="backupName" placeholder="可选，例如：周五全量备份" />
+      </el-form-item>
       <el-alert type="info" :closable="false" show-icon>
-        创建的备份默认导出为 `.tgz`，设置密码后会加密为 `.enc`
+        创建的备份默认导出为 `.tgz`，设置密码后会加密为 `.enc`；如果填写名称，系统会自动补全正确扩展名。
       </el-alert>
     </el-form>
     <template #footer>

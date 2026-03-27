@@ -122,6 +122,9 @@ func InitDefaultConfigs() {
 		if strings.TrimSpace(existing.Description) != def.Description {
 			updates["description"] = def.Description
 		}
+		if def.Key == "max_log_content_size" && strings.TrimSpace(existing.Value) == "102400" {
+			normalizedValue = def.DefaultValue
+		}
 		if normalizedValue != existing.Value {
 			updates["value"] = normalizedValue
 		}

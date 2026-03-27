@@ -36,6 +36,9 @@ const {
   updateStatus,
   checkingUpdate,
   updatingPanel,
+  autoUpdateEnabled,
+  savingAutoUpdate,
+  releaseNotesVisible,
   updateProgressVisible,
   updateProgressStatus,
   updateProgressError,
@@ -44,9 +47,13 @@ const {
   loadSystemInfo,
   loadSystemStats,
   loadVersion,
+  loadUpdatePreferences,
   handleCheckUpdate,
   handleUpdatePanel,
   handleRestartPanel,
+  handleToggleAutoUpdate,
+  openReleaseNotes,
+  closeReleaseNotes,
   openGitHub,
   closeUpdateProgress
 } = overview
@@ -70,6 +77,7 @@ const {
   backups,
   backupsLoading,
   showBackupDialog,
+  backupName,
   backupPassword,
   backupSelection,
   showRestoreDialog,
@@ -139,6 +147,7 @@ function handleTabChange(tab: string) {
     void loadVersion()
     void loadSystemStats()
     void loadSystemInfo()
+    void loadUpdatePreferences()
   } else if (tab === 'config' || tab === 'task-exec' || tab === 'proxy' || tab === 'captcha') {
     void loadSystemConfigs()
   } else if (tab === 'backup') {
@@ -152,6 +161,7 @@ onMounted(() => {
   void loadVersion()
   void loadSystemStats()
   void loadSystemInfo()
+  void loadUpdatePreferences()
   if (!isAdmin.value) {
     securityTab.value = 'password-2fa'
   }
@@ -179,12 +189,18 @@ onMounted(() => {
           :update-status="updateStatus"
           :checking-update="checkingUpdate"
           :updating-panel="updatingPanel"
+          :auto-update-enabled="autoUpdateEnabled"
+          :saving-auto-update="savingAutoUpdate"
+          :release-notes-visible="releaseNotesVisible"
           :update-progress-visible="updateProgressVisible"
           :update-progress-status="updateProgressStatus"
           :update-progress-error="updateProgressError"
           :on-check-update="handleCheckUpdate"
           :on-start-update="handleUpdatePanel"
           :on-restart-panel="handleRestartPanel"
+          :on-toggle-auto-update="handleToggleAutoUpdate"
+          :on-open-release-notes="openReleaseNotes"
+          :on-close-release-notes="closeReleaseNotes"
           :on-open-git-hub="openGitHub"
           :on-close-update-progress="closeUpdateProgress"
         />
@@ -238,6 +254,7 @@ onMounted(() => {
       <el-tab-pane v-if="isAdmin" label="数据备份" name="backup">
         <BackupManagementCard
           v-model:show-backup-dialog="showBackupDialog"
+          v-model:backup-name="backupName"
           v-model:backup-password="backupPassword"
           v-model:backup-selection="backupSelection"
           v-model:show-restore-dialog="showRestoreDialog"

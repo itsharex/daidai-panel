@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import type * as MonacoType from 'monaco-editor'
 import { loadMonacoEditor } from '@/utils/monaco'
 
@@ -9,10 +9,12 @@ const props = withDefaults(defineProps<{
   language?: string
   readonly?: boolean
   renderSideBySide?: boolean
+  ignoreTrimWhitespace?: boolean
 }>(), {
   language: 'plaintext',
   readonly: true,
-  renderSideBySide: true
+  renderSideBySide: true,
+  ignoreTrimWhitespace: false,
 })
 
 const editorRef = ref<HTMLElement>()
@@ -22,6 +24,8 @@ let editor: MonacoType.editor.IStandaloneDiffEditor | null = null
 let monacoInstance: typeof MonacoType | null = null
 let originalModel: MonacoType.editor.ITextModel | null = null
 let modifiedModel: MonacoType.editor.ITextModel | null = null
+let resizeObserver: ResizeObserver | null = null
+let layoutTimer: ReturnType<typeof setTimeout> | null = null
 
 const DEFAULT_EDITOR_BACKGROUND = '#111827'
 const DEFAULT_EDITOR_FOREGROUND = '#e5e7eb'
@@ -113,6 +117,24 @@ function createModels() {
   })
 }
 
+function clearLayoutTimer() {
+  if (layoutTimer) {
+    clearTimeout(layoutTimer)
+    layoutTimer = null
+  }
+}
+
+function scheduleEditorLayout(delay = 0) {
+  clearLayoutTimer()
+  layoutTimer = setTimeout(() => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        editor?.layout()
+      })
+    })
+  }, delay)
+}
+
 onMounted(async () => {
   if (!editorRef.value) return
 
@@ -121,6 +143,8 @@ onMounted(async () => {
     const { monaco, source } = await loadMonacoEditor()
     monacoInstance = monaco as typeof MonacoType
     if (!editorRef.value) return
+    isLoading.value = false
+    await nextTick()
 
     const theme = resolveEditorTheme()
     monacoInstance.editor.defineTheme(theme.themeName, {
@@ -143,6 +167,7 @@ onMounted(async () => {
       readOnly: props.readonly,
       originalEditable: false,
       renderSideBySide: props.renderSideBySide,
+      ignoreTrimWhitespace: props.ignoreTrimWhitespace,
       enableSplitViewResizing: true,
       scrollBeyondLastLine: false,
       fontSize: 14,
@@ -152,6 +177,14 @@ onMounted(async () => {
     })
 
     createModels()
+    scheduleEditorLayout(30)
+
+    if (typeof ResizeObserver !== 'undefined' && editorRef.value) {
+      resizeObserver = new ResizeObserver(() => {
+        scheduleEditorLayout()
+      })
+      resizeObserver.observe(editorRef.value)
+    }
 
     if (source === 'cdn') {
       console.warn('Monaco Diff 编辑器当前已回退到 CDN 资源。')
@@ -160,19 +193,23 @@ onMounted(async () => {
     console.error('Monaco Diff 编辑器初始化失败', error)
     loadError.value = '对比编辑器加载失败，请检查网络或稍后重试。'
   } finally {
-    isLoading.value = false
+    if (loadError.value) {
+      isLoading.value = false
+    }
   }
 })
 
 watch(() => props.originalValue, (newValue) => {
   if (originalModel && newValue !== originalModel.getValue()) {
     originalModel.setValue(newValue)
+    scheduleEditorLayout()
   }
 })
 
 watch(() => props.modifiedValue, (newValue) => {
   if (modifiedModel && newValue !== modifiedModel.getValue()) {
     modifiedModel.setValue(newValue)
+    scheduleEditorLayout()
   }
 })
 
@@ -184,17 +221,28 @@ watch(() => props.language, (newLanguage) => {
   if (modifiedModel) {
     monacoInstance.editor.setModelLanguage(modifiedModel, newLanguage || 'plaintext')
   }
+  scheduleEditorLayout()
 })
 
 watch(() => props.readonly, (newReadonly) => {
   editor?.updateOptions({ readOnly: newReadonly })
+  scheduleEditorLayout()
 })
 
 watch(() => props.renderSideBySide, (newValue) => {
   editor?.updateOptions({ renderSideBySide: newValue })
+  scheduleEditorLayout(20)
+})
+
+watch(() => props.ignoreTrimWhitespace, (newValue) => {
+  editor?.updateOptions({ ignoreTrimWhitespace: newValue })
+  scheduleEditorLayout(20)
 })
 
 onBeforeUnmount(() => {
+  clearLayoutTimer()
+  resizeObserver?.disconnect()
+  resizeObserver = null
   editor?.setModel(null)
   editor?.dispose()
   editor = null
@@ -204,14 +252,14 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="monaco-diff-wrapper">
-    <div v-if="isLoading" class="monaco-diff-loading">
+    <div ref="editorRef" class="monaco-diff-container"></div>
+    <div v-if="isLoading" class="monaco-diff-loading monaco-diff-overlay">
       <div class="loading-spinner"></div>
       <span>对比编辑器加载中...</span>
     </div>
-    <div v-else-if="loadError" class="monaco-diff-loading monaco-diff-error">
+    <div v-else-if="loadError" class="monaco-diff-loading monaco-diff-error monaco-diff-overlay">
       <span>{{ loadError }}</span>
     </div>
-    <div ref="editorRef" class="monaco-diff-container" v-show="!isLoading && !loadError"></div>
   </div>
 </template>
 
@@ -221,6 +269,7 @@ onBeforeUnmount(() => {
   height: 100%;
   min-height: 420px;
   position: relative;
+  overflow: hidden;
 }
 
 .monaco-diff-container {
@@ -240,6 +289,11 @@ onBeforeUnmount(() => {
   color: var(--dd-editor-fg-color, #e5e7eb);
   border-radius: 4px;
   font-size: 14px;
+}
+
+.monaco-diff-overlay {
+  position: absolute;
+  inset: 0;
 }
 
 .monaco-diff-error {
