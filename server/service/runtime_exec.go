@@ -44,54 +44,61 @@ except Exception:
     _dd_aliases = {}
 if not isinstance(_dd_aliases, dict):
     _dd_aliases = {}
-_dd_original_import = builtins.__import__
-_dd_installing = set()
-_dd_failed = set()
+if _dd_auto_install_enabled:
+    import ast as _dd_ast, tokenize as _dd_tok, io as _dd_io
+    _dd_stdlib_names = set(sys.stdlib_module_names) if hasattr(sys, "stdlib_module_names") else set(sys.builtin_module_names)
+    _dd_stdlib_names |= set(sys.builtin_module_names)
 
-def _dd_install_package(request_name, package_name):
-    display_name = request_name if not package_name or package_name == request_name else f"{request_name} -> {package_name}"
-    print(f"[检测到缺失依赖: {display_name}，正在自动安装...]", flush=True)
-    proc = subprocess.run(
-        [sys.executable, "-m", "pip", "install", package_name],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
-    output = (proc.stdout or "").strip()
-    if output:
-        print(output, flush=True)
-    if proc.returncode != 0:
-        print(f"[安装失败: {display_name}]", flush=True)
-        return False
-    print(f"[安装成功: {display_name}]", flush=True)
-    return True
-
-def _dd_auto_install_import(name, globals=None, locals=None, fromlist=(), level=0):
-    try:
-        return _dd_original_import(name, globals, locals, fromlist, level)
-    except ModuleNotFoundError as exc:
-        if not _dd_auto_install_enabled or level:
-            raise
-        requested_top = (name or "").split(".", 1)[0].strip()
-        missing_name = str(getattr(exc, "name", "") or "").split(".", 1)[0].strip()
-        if not requested_top:
-            raise
-        if missing_name and missing_name != requested_top:
-            raise
-        package_name = str(_dd_aliases.get(requested_top.lower(), requested_top)).strip()
-        if not package_name or requested_top in _dd_installing or requested_top in _dd_failed:
-            raise
-        _dd_installing.add(requested_top)
+    def _dd_scan_imports(path):
         try:
-            if not _dd_install_package(requested_top, package_name):
-                _dd_failed.add(requested_top)
-                raise exc
-            importlib.invalidate_caches()
-            return _dd_original_import(name, globals, locals, fromlist, level)
-        finally:
-            _dd_installing.discard(requested_top)
+            with open(path, "r", encoding="utf-8") as fh:
+                tree = _dd_ast.parse(fh.read(), filename=path)
+        except Exception:
+            return []
+        names = []
+        for node in _dd_ast.walk(tree):
+            if isinstance(node, _dd_ast.Import):
+                for alias in node.names:
+                    names.append(alias.name.split(".")[0])
+            elif isinstance(node, _dd_ast.ImportFrom):
+                if node.module and node.level == 0:
+                    names.append(node.module.split(".")[0])
+        return names
 
-builtins.__import__ = _dd_auto_install_import
+    def _dd_install_package(request_name, package_name):
+        display_name = request_name if not package_name or package_name == request_name else f"{request_name} -> {package_name}"
+        print(f"[检测到缺失依赖: {display_name}，正在自动安装...]", flush=True)
+        proc = subprocess.run(
+            [sys.executable, "-m", "pip", "install", package_name],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        output = (proc.stdout or "").strip()
+        if output:
+            print(output, flush=True)
+        if proc.returncode != 0:
+            print(f"[安装失败: {display_name}]", flush=True)
+            return False
+        print(f"[安装成功: {display_name}]", flush=True)
+        return True
+
+    _dd_imported_names = _dd_scan_imports(script_path)
+    _dd_missing = []
+    for _dd_name in dict.fromkeys(_dd_imported_names):
+        if _dd_name.startswith("_") or _dd_name in _dd_stdlib_names:
+            continue
+        try:
+            importlib.import_module(_dd_name)
+        except ImportError:
+            _dd_missing.append(_dd_name)
+
+    for _dd_name in _dd_missing:
+        package_name = str(_dd_aliases.get(_dd_name.lower(), _dd_name)).strip()
+        _dd_install_package(_dd_name, package_name)
+
+    del _dd_ast, _dd_tok, _dd_io, _dd_imported_names, _dd_missing
+
 sys.argv = [script_path] + script_args
 runpy.run_path(script_path, run_name="__main__")
 `
