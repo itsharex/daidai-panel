@@ -220,7 +220,7 @@ func (h *NotificationHandler) Types(c *gin.Context) {
 		{"type": "discord", "name": "Discord"},
 		{"type": "slack", "name": "Slack"},
 		{"type": "ntfy", "name": "ntfy"},
-		{"type": "wxpusher", "name": "WxPusher"},
+		{"type": "wxpusher", "name": "WxPusher / ClawBot(iLink)"},
 		{"type": "custom", "name": "自定义"},
 	}
 	response.Success(c, gin.H{"data": types})

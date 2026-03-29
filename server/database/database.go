@@ -147,7 +147,7 @@ func EnsureColumns() {
 	})
 
 	ensureTableColumns("open_apps", []columnDef{
-		{"rate_limit", "INTEGER DEFAULT 100"},
+		{"rate_limit", "INTEGER DEFAULT 0"},
 		{"call_count", "INTEGER DEFAULT 0"},
 	})
 

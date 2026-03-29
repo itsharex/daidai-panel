@@ -313,6 +313,25 @@ async function handlePull(row: any) {
   }
 }
 
+async function handleStopPull() {
+  if (!pullingSubId.value) {
+    return
+  }
+
+  try {
+    await ElMessageBox.confirm('确认停止当前拉库任务吗？', '停止拉库', {
+      type: 'warning',
+      confirmButtonText: '停止',
+      cancelButtonText: '取消'
+    })
+    await subscriptionApi.stopPull(pullingSubId.value)
+    ElMessage.success('已发送停止请求')
+  } catch (err: any) {
+    if (err === 'cancel' || err?.toString?.() === 'cancel') return
+    ElMessage.error(err?.response?.data?.error || '停止失败')
+  }
+}
+
 function connectPullStream(id: number) {
   closePullStream()
   const base = import.meta.env.VITE_API_BASE || '/api/v1'
@@ -339,6 +358,7 @@ function connectPullStream(id: number) {
     },
     onError() {
       pullRunning.value = false
+      pullingSubId.value = null
       closePullStream()
     }
   })
@@ -691,6 +711,7 @@ function viewLogDetail(log: any) {
       <template #footer>
         <el-tag v-if="pullRunning" type="warning" effect="plain" size="small" style="margin-right: auto">运行中</el-tag>
         <el-tag v-else-if="pullLogLines.length > 0" type="success" effect="plain" size="small" style="margin-right: auto">已完成</el-tag>
+        <el-button v-if="pullRunning" type="danger" @click="handleStopPull">停止</el-button>
         <el-button @click="showPullLog = false">关闭</el-button>
       </template>
     </el-dialog>

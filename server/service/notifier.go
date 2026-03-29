@@ -187,6 +187,10 @@ func sendToChannel(ch model.NotifyChannel, title, content string, context map[st
 }
 
 func httpPost(url string, body interface{}, headers map[string]string) error {
+	return httpPostWithClient(NewHTTPClient(10*time.Second), url, body, headers)
+}
+
+func httpPostWithClient(client *http.Client, url string, body interface{}, headers map[string]string) error {
 	data, err := json.Marshal(body)
 	if err != nil {
 		return err
@@ -201,7 +205,6 @@ func httpPost(url string, body interface{}, headers map[string]string) error {
 		req.Header.Set(k, v)
 	}
 
-	client := NewHTTPClient(10 * time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
@@ -253,10 +256,9 @@ func sendTelegram(cfg map[string]string, title, content string) error {
 	apiHost := "https://api.telegram.org"
 	if v := cfg["api_host"]; v != "" {
 		apiHost = strings.TrimRight(v, "/")
-	} else if v := cfg["proxy"]; v != "" {
-		apiHost = strings.TrimRight(v, "/")
 	}
 	apiURL := fmt.Sprintf("%s/bot%s/sendMessage", apiHost, token)
+	client := NewHTTPClientWithProxy(10*time.Second, strings.TrimSpace(cfg["proxy"]))
 
 	messages := buildTelegramMessages(title, content)
 	for _, message := range messages {
@@ -264,7 +266,7 @@ func sendTelegram(cfg map[string]string, title, content string) error {
 			"chat_id": chatID,
 			"text":    message,
 		}
-		if err := httpPost(apiURL, body, nil); err != nil {
+		if err := httpPostWithClient(client, apiURL, body, nil); err != nil {
 			return err
 		}
 	}
@@ -386,7 +388,12 @@ func sendWecomAppWithContext(cfg map[string]string, title, content string, conte
 		return fmt.Errorf("企业微信应用 agent_id 无效")
 	}
 
-	tokenURL := fmt.Sprintf("%s?corpid=%s&corpsecret=%s", wecomAppTokenURL, url.QueryEscape(corpID), url.QueryEscape(secret))
+	tokenURL := fmt.Sprintf(
+		"%s?corpid=%s&corpsecret=%s",
+		resolveWecomAppEndpoint(cfg, wecomAppTokenURL, "/cgi-bin/gettoken"),
+		url.QueryEscape(corpID),
+		url.QueryEscape(secret),
+	)
 	client := NewHTTPClient(10 * time.Second)
 	tokenResp, err := client.Get(tokenURL)
 	if err != nil {
@@ -414,7 +421,11 @@ func sendWecomAppWithContext(cfg map[string]string, title, content string, conte
 		return fmt.Errorf("企业微信应用 access_token 为空")
 	}
 
-	sendURL := fmt.Sprintf("%s?access_token=%s", wecomAppSendURL, url.QueryEscape(tokenPayload.AccessToken))
+	sendURL := fmt.Sprintf(
+		"%s?access_token=%s",
+		resolveWecomAppEndpoint(cfg, wecomAppSendURL, "/cgi-bin/message/send"),
+		url.QueryEscape(tokenPayload.AccessToken),
+	)
 	msgType := strings.ToLower(strings.TrimSpace(cfg["msg_type"]))
 	if msgType == "" {
 		msgType = "text"
@@ -914,6 +925,14 @@ func sendWxPusher(cfg map[string]string, title, content string) error {
 		"summary":     title,
 		"contentType": contentType,
 	}
+	if jumpURL := strings.TrimSpace(cfg["url"]); jumpURL != "" {
+		body["url"] = jumpURL
+	}
+	if verifyPayType := strings.TrimSpace(cfg["verify_pay_type"]); verifyPayType != "" {
+		if parsed, err := strconv.Atoi(verifyPayType); err == nil {
+			body["verifyPayType"] = parsed
+		}
+	}
 	if len(uids) > 0 {
 		body["uids"] = uids
 	}
@@ -961,6 +980,19 @@ func sendWxPusher(cfg map[string]string, title, content string) error {
 	}
 
 	return nil
+}
+
+func resolveWecomAppEndpoint(cfg map[string]string, fallbackURL, path string) string {
+	baseURL := strings.TrimSpace(cfg["base_url"])
+	if baseURL == "" {
+		return fallbackURL
+	}
+
+	baseURL = strings.TrimRight(baseURL, "/")
+	if strings.HasSuffix(baseURL, "/cgi-bin") {
+		return baseURL + strings.TrimPrefix(path, "/cgi-bin")
+	}
+	return baseURL + path
 }
 
 func splitNotificationTargets(raw string) []string {

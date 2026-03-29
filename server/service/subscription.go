@@ -2,6 +2,7 @@ package service
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -25,6 +26,13 @@ func PullSubscription(sub *model.Subscription) (string, error) {
 }
 
 func PullSubscriptionWithCallback(sub *model.Subscription, onOutput PullCallback) (string, error) {
+	return PullSubscriptionWithContext(context.Background(), sub, onOutput)
+}
+
+func PullSubscriptionWithContext(ctx context.Context, sub *model.Subscription, onOutput PullCallback) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	startTime := time.Now()
 
 	var sshKeyPath string
@@ -56,13 +64,19 @@ func PullSubscriptionWithCallback(sub *model.Subscription, onOutput PullCallback
 
 	switch sub.Type {
 	case model.SubTypeSingleFile:
-		output, pullErr = pullSingleFileWithCallback(sub, sshKeyPath, emit)
+		output, pullErr = pullSingleFileWithCallback(ctx, sub, sshKeyPath, emit)
 	default:
-		output, pullErr = pullGitRepoWithCallback(sub, sshKeyPath, emit)
+		output, pullErr = pullGitRepoWithCallback(ctx, sub, sshKeyPath, emit)
 	}
 
+	if pullErr == nil && ctx.Err() != nil {
+		pullErr = fmt.Errorf("拉取已停止")
+	}
 	if pullErr == nil {
 		pullErr = runSubscriptionHookIfConfigured(sub, emit)
+	}
+	if pullErr == nil && ctx.Err() != nil {
+		pullErr = fmt.Errorf("拉取已停止")
 	}
 	if pullErr == nil {
 		syncSubscriptionTasks(sub, emit)
@@ -95,7 +109,7 @@ func PullSubscriptionWithCallback(sub *model.Subscription, onOutput PullCallback
 	return output, pullErr
 }
 
-func runCmdWithCallback(cmd *exec.Cmd, emit PullCallback) (string, error) {
+func runCmdWithCallback(ctx context.Context, cmd *exec.Cmd, emit PullCallback) (string, error) {
 	pipe, err := cmd.StdoutPipe()
 	if err != nil {
 		return "", err
@@ -115,12 +129,21 @@ func runCmdWithCallback(cmd *exec.Cmd, emit PullCallback) (string, error) {
 		buf.WriteString("\n")
 		emit(line)
 	}
+	if scanErr := scanner.Err(); scanErr != nil {
+		if ctx != nil && ctx.Err() != nil {
+			return buf.String(), fmt.Errorf("拉取已停止")
+		}
+		return buf.String(), scanErr
+	}
 
 	err = cmd.Wait()
+	if ctx != nil && ctx.Err() != nil {
+		return buf.String(), fmt.Errorf("拉取已停止")
+	}
 	return buf.String(), err
 }
 
-func pullGitRepoWithCallback(sub *model.Subscription, sshKeyPath string, emit PullCallback) (string, error) {
+func pullGitRepoWithCallback(ctx context.Context, sub *model.Subscription, sshKeyPath string, emit PullCallback) (string, error) {
 	saveDir := sub.SaveDir
 	if saveDir == "" {
 		saveDir = sub.Alias
@@ -139,12 +162,14 @@ func pullGitRepoWithCallback(sub *model.Subscription, sshKeyPath string, emit Pu
 
 	if IsGitRepo(destDir) {
 		var fullOutput strings.Builder
+		branchLabel := "默认分支"
+		if strings.TrimSpace(sub.Branch) != "" {
+			branchLabel = strings.TrimSpace(sub.Branch)
+		}
 
-		emit("[git remote set-url origin]")
-		cmd := exec.Command("git", "remote", "set-url", "origin", sub.URL)
-		cmd.Dir = destDir
-		cmd.Env = env
-		output, err := runCmdWithCallback(cmd, emit)
+		emit(fmt.Sprintf("[检测到已有仓库] %s 已存在 Git 仓库，接下来会同步远端并覆盖更新本地文件", saveDir))
+		emit(fmt.Sprintf("[同步远端地址] 正在校正订阅地址 -> %s", sub.URL))
+		output, err := syncGitRemoteWithCallback(ctx, destDir, sub.URL, env, emit)
 		fullOutput.WriteString(output)
 		if err != nil {
 			return fullOutput.String(), err
@@ -154,33 +179,108 @@ func pullGitRepoWithCallback(sub *model.Subscription, sshKeyPath string, emit Pu
 		if strings.TrimSpace(sub.Branch) != "" {
 			fetchArgs = append(fetchArgs, strings.TrimSpace(sub.Branch))
 		}
-		emit("[git fetch]")
-		cmd = exec.Command("git", fetchArgs...)
+		emit(fmt.Sprintf("[拉取远端更新] 正在获取分支 %s 的最新提交", branchLabel))
+		cmd := exec.CommandContext(ctx, "git", fetchArgs...)
 		cmd.Dir = destDir
 		cmd.Env = env
-		output, err = runCmdWithCallback(cmd, emit)
+		output, err = runCmdWithCallback(ctx, cmd, emit)
 		fullOutput.WriteString(output)
 		if err != nil {
 			return fullOutput.String(), err
 		}
 
-		emit("[git reset --hard FETCH_HEAD]")
-		cmd = exec.Command("git", "reset", "--hard", "FETCH_HEAD")
+		emit("[覆盖更新本地文件] 正在用远端最新提交覆盖当前订阅目录中的仓库内容")
+		cmd = exec.CommandContext(ctx, "git", "reset", "--hard", "FETCH_HEAD")
 		cmd.Dir = destDir
 		cmd.Env = env
-		output, err = runCmdWithCallback(cmd, emit)
+		output, err = runCmdWithCallback(ctx, cmd, emit)
 		fullOutput.WriteString(output)
 		if err != nil {
 			return fullOutput.String(), err
 		}
 
-		emit("[git clean -fd]")
-		cmd = exec.Command("git", "clean", "-fd")
+		emit("[清理旧文件] 正在删除远端仓库已移除、但本地仍残留的文件和目录")
+		cmd = exec.CommandContext(ctx, "git", "clean", "-fd")
 		cmd.Dir = destDir
 		cmd.Env = env
-		output, err = runCmdWithCallback(cmd, emit)
+		output, err = runCmdWithCallback(ctx, cmd, emit)
 		fullOutput.WriteString(output)
 		return fullOutput.String(), err
+	}
+
+	if destInfo, err := os.Stat(destDir); err == nil {
+		if !destInfo.IsDir() {
+			return "", fmt.Errorf("保存目录已被文件占用: %s", saveDir)
+		}
+
+		entries, readErr := os.ReadDir(destDir)
+		if readErr != nil {
+			return "", fmt.Errorf("读取保存目录失败: %w", readErr)
+		}
+		if len(entries) > 0 {
+			var fullOutput strings.Builder
+			branchLabel := "默认分支"
+			if strings.TrimSpace(sub.Branch) != "" {
+				branchLabel = strings.TrimSpace(sub.Branch)
+			}
+
+			emit(fmt.Sprintf("[检测到已存在脚本目录] %s 当前不是 Git 仓库，接下来会原地初始化仓库并覆盖本地文件", saveDir))
+			emit("[git init] 正在初始化本地仓库")
+			cmd := exec.CommandContext(ctx, "git", "init")
+			cmd.Dir = destDir
+			cmd.Env = env
+			output, err := runCmdWithCallback(ctx, cmd, emit)
+			fullOutput.WriteString(output)
+			if err != nil {
+				return fullOutput.String(), err
+			}
+
+			emit(fmt.Sprintf("[同步远端地址] 正在校正订阅地址 -> %s", sub.URL))
+			output, err = syncGitRemoteWithCallback(ctx, destDir, sub.URL, env, emit)
+			fullOutput.WriteString(output)
+			if err != nil {
+				return fullOutput.String(), err
+			}
+
+			fetchArgs := []string{"fetch", "--depth", "1", "--prune", "origin"}
+			if strings.TrimSpace(sub.Branch) != "" {
+				fetchArgs = append(fetchArgs, strings.TrimSpace(sub.Branch))
+			}
+			emit(fmt.Sprintf("[拉取远端更新] 正在获取分支 %s 的最新提交", branchLabel))
+			cmd = exec.CommandContext(ctx, "git", fetchArgs...)
+			cmd.Dir = destDir
+			cmd.Env = env
+			output, err = runCmdWithCallback(ctx, cmd, emit)
+			if err != nil {
+				fullOutput.WriteString(output)
+				return fullOutput.String(), err
+			}
+			fullOutput.WriteString(output)
+			if ctx.Err() != nil {
+				return fullOutput.String(), fmt.Errorf("拉取已停止")
+			}
+
+			emit("[覆盖更新本地文件] 正在用远端最新提交覆盖当前脚本目录内容")
+			cmd = exec.CommandContext(ctx, "git", "reset", "--hard", "FETCH_HEAD")
+			cmd.Dir = destDir
+			cmd.Env = env
+			output, err = runCmdWithCallback(ctx, cmd, emit)
+			fullOutput.WriteString(output)
+			if err != nil {
+				return fullOutput.String(), err
+			}
+
+			emit("[清理旧文件] 正在删除远端仓库已移除、但本地仍残留的文件和目录")
+			cmd = exec.CommandContext(ctx, "git", "clean", "-fd")
+			cmd.Dir = destDir
+			cmd.Env = env
+			output, err = runCmdWithCallback(ctx, cmd, emit)
+			fullOutput.WriteString(output)
+			if err != nil {
+				return fullOutput.String(), err
+			}
+			return fullOutput.String(), nil
+		}
 	}
 
 	emit(fmt.Sprintf("[git clone] %s -> %s", sub.URL, saveDir))
@@ -190,13 +290,13 @@ func pullGitRepoWithCallback(sub *model.Subscription, sshKeyPath string, emit Pu
 		args = append(args, "-b", sub.Branch)
 	}
 	args = append(args, sub.URL, destDir)
-	cmd := exec.Command("git", args...)
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = config.C.Data.ScriptsDir
 	cmd.Env = env
-	return runCmdWithCallback(cmd, emit)
+	return runCmdWithCallback(ctx, cmd, emit)
 }
 
-func pullSingleFileWithCallback(sub *model.Subscription, _ string, emit PullCallback) (string, error) {
+func pullSingleFileWithCallback(ctx context.Context, sub *model.Subscription, _ string, emit PullCallback) (string, error) {
 	saveDir := sub.SaveDir
 	if saveDir == "" {
 		saveDir = "downloads"
@@ -210,11 +310,35 @@ func pullSingleFileWithCallback(sub *model.Subscription, _ string, emit PullCall
 
 	destPath := filepath.Join(config.C.Data.ScriptsDir, saveDir, filename)
 	emit(fmt.Sprintf("[下载] %s -> %s/%s", sub.URL, saveDir, filename))
-	output, err := DownloadFile(sub.URL, destPath)
+	output, err := DownloadFileWithContext(ctx, sub.URL, destPath)
 	if output != "" {
 		emit(output)
 	}
 	return output, err
+}
+
+func syncGitRemoteWithCallback(ctx context.Context, repoDir, remoteURL string, env []string, emit PullCallback) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", "remote")
+	cmd.Dir = repoDir
+	cmd.Env = env
+
+	remoteOutput, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+
+	args := []string{"remote", "add", "origin", remoteURL}
+	for _, name := range strings.Fields(string(remoteOutput)) {
+		if name == "origin" {
+			args = []string{"remote", "set-url", "origin", remoteURL}
+			break
+		}
+	}
+
+	cmd = exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = repoDir
+	cmd.Env = env
+	return runCmdWithCallback(ctx, cmd, emit)
 }
 
 func writeTempSSHKey(privateKey string) (string, error) {

@@ -15,8 +15,10 @@ const props = withDefaults(defineProps<{
   modelValue: boolean
   mode: 'create' | 'edit'
   initialData?: EnvFormModel | null
+  groups?: string[]
 }>(), {
-  initialData: null
+  initialData: null,
+  groups: () => []
 })
 
 const emit = defineEmits<{
@@ -43,6 +45,15 @@ function syncForm() {
 
 function closeDialog() {
   emit('update:modelValue', false)
+}
+
+function queryGroupSuggestions(queryString: string, cb: (items: Array<{ value: string }>) => void) {
+  const keyword = queryString.trim().toLowerCase()
+  const suggestions = props.groups
+    .filter(group => group.trim() !== '')
+    .filter(group => keyword === '' || group.toLowerCase().includes(keyword))
+    .map(group => ({ value: group }))
+  cb(suggestions)
 }
 
 function handleSave() {
@@ -92,7 +103,14 @@ watch(
         <el-input v-model="form.remarks" placeholder="备注说明" />
       </el-form-item>
       <el-form-item label="分组">
-        <el-input v-model="form.group" placeholder="分组 (可选)" />
+        <el-autocomplete
+          v-model="form.group"
+          :fetch-suggestions="queryGroupSuggestions"
+          trigger-on-focus
+          clearable
+          placeholder="可直接输入，或点击选择已有分组"
+          style="width: 100%"
+        />
       </el-form-item>
     </el-form>
     <template #footer>

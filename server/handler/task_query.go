@@ -91,7 +91,7 @@ func (h *TaskHandler) List(c *gin.Context) {
 			}
 		}
 		if task.Status != model.TaskStatusDisabled && task.UsesCronSchedule() && task.CronExpression != "" {
-			nextTimes := panelcron.NextRunTimes(task.CronExpression, 1)
+			nextTimes := panelcron.NextRunTimesForExpressions(task.CronExpression, 1)
 			if len(nextTimes) > 0 {
 				item["next_run_at"] = nextTimes[0]
 			}

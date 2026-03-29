@@ -26,6 +26,7 @@ FROM alpine:3.19
 
 RUN apk add --no-cache \
     ca-certificates tzdata bash curl \
+    gcompat libc6-compat libstdc++ \
     nginx \
     python3 py3-pip \
     nodejs npm \

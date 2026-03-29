@@ -325,18 +325,20 @@ func collectPortMappings(portBindings map[string][]struct {
 }
 
 func collectVolumeMappings(info *dockerInspectInfo) []string {
-	if len(info.HostConfig.Binds) > 0 {
-		result := make([]string, 0, len(info.HostConfig.Binds))
-		for _, bind := range info.HostConfig.Binds {
-			bind = strings.TrimSpace(bind)
-			if bind != "" {
-				result = append(result, bind)
-			}
+	seen := make(map[string]struct{})
+	result := make([]string, 0, len(info.HostConfig.Binds)+len(info.Mounts))
+	for _, bind := range info.HostConfig.Binds {
+		bind = strings.TrimSpace(bind)
+		if bind == "" {
+			continue
 		}
-		return result
+		if _, exists := seen[bind]; exists {
+			continue
+		}
+		seen[bind] = struct{}{}
+		result = append(result, bind)
 	}
 
-	var result []string
 	for _, mount := range info.Mounts {
 		destination := strings.TrimSpace(mount.Destination)
 		if destination == "" {
@@ -364,6 +366,10 @@ func collectVolumeMappings(info *dockerInspectInfo) []string {
 		if !mount.RW {
 			mapping += ":ro"
 		}
+		if _, exists := seen[mapping]; exists {
+			continue
+		}
+		seen[mapping] = struct{}{}
 		result = append(result, mapping)
 	}
 

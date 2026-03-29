@@ -9,7 +9,6 @@ import (
 	"daidai-panel/model"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 )
 
 func isAppToken(username, role string) bool {
@@ -112,6 +111,5 @@ func OpenAPIAccess(scope string) gin.HandlerFunc {
 			Duration: float64(time.Since(start).Milliseconds()),
 			IP:       ResolveClientIP(c),
 		})
-		database.DB.Model(app).UpdateColumn("call_count", gorm.Expr("call_count + ?", 1))
 	}
 }

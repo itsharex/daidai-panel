@@ -156,6 +156,46 @@ func TestRestoreBackupManifestPreservesCurrentPanelUsers(t *testing.T) {
 	}
 }
 
+func TestRestoreBackupManifestIgnoresLegacyOpenAppCallCount(t *testing.T) {
+	testutil.SetupTestEnv(t)
+
+	manifest := BackupManifest{
+		Format:  "daidai-panel-backup",
+		Version: "0.4.0",
+		Source:  "daidai-panel",
+		Selection: BackupSelection{
+			Configs: true,
+		},
+		Data: BackupPayload{
+			Configs: BackupConfigBundle{
+				OpenApps: []BackupOpenApp{
+					{
+						Name:      "legacy-app",
+						AppKey:    "legacy-key",
+						AppSecret: "legacy-secret",
+						Scopes:    "tasks",
+						Enabled:   true,
+						RateLimit: 0,
+						CallCount: 123,
+					},
+				},
+			},
+		},
+	}
+
+	if err := restoreBackupManifest(manifest, t.TempDir()); err != nil {
+		t.Fatalf("restore backup manifest: %v", err)
+	}
+
+	var app model.OpenApp
+	if err := database.DB.Where("app_key = ?", "legacy-key").First(&app).Error; err != nil {
+		t.Fatalf("load restored app: %v", err)
+	}
+	if app.CallCount != 0 {
+		t.Fatalf("expected restored app call_count to reset to 0, got %d", app.CallCount)
+	}
+}
+
 func TestSnapshotConfigBundleIncludesDependencyMirrors(t *testing.T) {
 	root := testutil.SetupTestEnv(t)
 	home := filepath.Join(root, "home")

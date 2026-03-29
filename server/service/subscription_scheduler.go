@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"strings"
@@ -23,6 +24,7 @@ var (
 	globalSubscriptionScheduler *SubscriptionScheduler
 	subscriptionPullStateMu     sync.Mutex
 	subscriptionPullRunning     = make(map[uint]bool)
+	subscriptionPullCancels     = make(map[uint]context.CancelFunc)
 )
 
 func InitSubscriptionScheduler() {
@@ -64,32 +66,51 @@ func IsSubscriptionPullRunning(subID uint) bool {
 	return subscriptionPullRunning[subID]
 }
 
-func beginSubscriptionPull(subID uint) bool {
+func beginSubscriptionPull(subID uint) (context.Context, bool) {
 	subscriptionPullStateMu.Lock()
 	defer subscriptionPullStateMu.Unlock()
 	if subscriptionPullRunning[subID] {
-		return false
+		return nil, false
 	}
+	ctx, cancel := context.WithCancel(context.Background())
 	subscriptionPullRunning[subID] = true
-	return true
+	subscriptionPullCancels[subID] = cancel
+	return ctx, true
 }
 
 func finishSubscriptionPull(subID uint) {
 	subscriptionPullStateMu.Lock()
 	defer subscriptionPullStateMu.Unlock()
+	if cancel, exists := subscriptionPullCancels[subID]; exists {
+		cancel()
+		delete(subscriptionPullCancels, subID)
+	}
 	delete(subscriptionPullRunning, subID)
+}
+
+func StopSubscriptionPull(subID uint) bool {
+	subscriptionPullStateMu.Lock()
+	defer subscriptionPullStateMu.Unlock()
+
+	cancel, exists := subscriptionPullCancels[subID]
+	if !exists {
+		return false
+	}
+	cancel()
+	return true
 }
 
 func ExecuteSubscriptionPull(sub *model.Subscription, onOutput PullCallback) (string, error) {
 	if sub == nil {
 		return "", fmt.Errorf("订阅不存在")
 	}
-	if !beginSubscriptionPull(sub.ID) {
+	ctx, ok := beginSubscriptionPull(sub.ID)
+	if !ok {
 		return "", fmt.Errorf("该订阅正在拉取中")
 	}
 	defer finishSubscriptionPull(sub.ID)
 
-	return PullSubscriptionWithCallback(sub, onOutput)
+	return PullSubscriptionWithContext(ctx, sub, onOutput)
 }
 
 func (s *SubscriptionScheduler) AddOrUpdateJob(sub *model.Subscription) error {

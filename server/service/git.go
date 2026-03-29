@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -70,18 +71,22 @@ func IsGitRepo(dir string) bool {
 }
 
 func DownloadFile(url, destPath string) (string, error) {
+	return DownloadFileWithContext(context.Background(), url, destPath)
+}
+
+func DownloadFileWithContext(ctx context.Context, url, destPath string) (string, error) {
 	dir := filepath.Dir(destPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", fmt.Errorf("创建目录失败: %w", err)
 	}
 
 	args := []string{"-fsSL", "-o", destPath, url}
-	cmd := exec.Command("curl", args...)
+	cmd := exec.CommandContext(ctx, "curl", args...)
 	cmd.Env = AppendProxyEnv(os.Environ())
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		args = []string{"-q", "-O", destPath, url}
-		cmd = exec.Command("wget", args...)
+		cmd = exec.CommandContext(ctx, "wget", args...)
 		cmd.Env = AppendProxyEnv(os.Environ())
 		output, err = cmd.CombinedOutput()
 	}

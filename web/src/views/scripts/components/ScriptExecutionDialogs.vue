@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Edit, RefreshRight, Tickets, VideoPause, VideoPlay } from '@element-plus/icons-vue'
+import { Edit, RefreshRight, Select, Tickets, VideoPause, VideoPlay } from '@element-plus/icons-vue'
 import { defineAsyncComponent } from 'vue'
 
 const MonacoEditor = defineAsyncComponent(() => import('@/components/MonacoEditor.vue'))
@@ -17,12 +17,14 @@ defineProps<{
   debugFileName: string
   debugLogs: string[]
   debugRunning: boolean
+  debugSaving: boolean
   debugError: string
   debugExitCode: number | null
   runnerLogs: string[]
   runnerRunning: boolean
   runnerExitCode: number | null
   onDebugStart: () => void | Promise<void>
+  onDebugSave: () => void | Promise<void>
   onDebugStop: () => void | Promise<void>
   onRunCode: () => void | Promise<void>
   onStopRunner: () => void | Promise<void>
@@ -120,6 +122,9 @@ function markDebugCodeChanged() {
     <template #footer>
       <el-button v-if="!debugRunning && !debugLogs.length && !debugError" type="primary" @click="onDebugStart">
         <el-icon><VideoPlay /></el-icon>运行
+      </el-button>
+      <el-button :disabled="!debugCodeChanged || debugRunning || debugSaving" @click="onDebugSave">
+        <el-icon><Select /></el-icon>{{ debugSaving ? '保存中' : '保存' }}
       </el-button>
       <el-button v-if="debugRunning" type="danger" @click="onDebugStop">
         <el-icon><VideoPause /></el-icon>停止

@@ -20,7 +20,7 @@ const done = ref(false)
 const error = ref<string | null>(null)
 const loading = ref(false)
 const logContainerRef = ref<HTMLElement>()
-const autoScroll = ref(true)
+const autoScroll = ref(false)
 const { dialogFullscreen } = useResponsive()
 let eventSource: EventStreamConnection | null = null
 let logBuffer: string[] = []
@@ -63,6 +63,8 @@ async function startStream() {
   done.value = false
   error.value = null
   loading.value = true
+  autoScroll.value = false
+  scheduleScrollToTop()
 
   if (!props.taskId) {
     loading.value = false
@@ -122,7 +124,7 @@ async function fetchLatestLog(retryCount = 0) {
     if (res.content) {
       resetLogOutput()
       appendLogChunk(String(res.content))
-      scheduleScrollToBottom()
+      scheduleScrollToTop()
     } else {
       error.value = '日志已过期，文件已被清理'
     }
@@ -220,9 +222,21 @@ function scheduleScrollToBottom() {
   })
 }
 
+function scheduleScrollToTop() {
+  void nextTick(() => {
+    scrollToTop()
+  })
+}
+
 function scrollToBottom() {
   if (logContainerRef.value) {
     logContainerRef.value.scrollTop = logContainerRef.value.scrollHeight
+  }
+}
+
+function scrollToTop() {
+  if (logContainerRef.value) {
+    logContainerRef.value.scrollTop = 0
   }
 }
 

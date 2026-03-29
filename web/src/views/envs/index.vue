@@ -1020,6 +1020,7 @@ function formatDateTime(t: string | null) {
       v-model="showEditDialog"
       :mode="editDialogMode"
       :initial-data="currentEditEnv"
+      :groups="groups"
       @save="handleSave"
     />
 

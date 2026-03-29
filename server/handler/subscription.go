@@ -313,6 +313,28 @@ func (h *SubscriptionHandler) Pull(c *gin.Context) {
 	response.Success(c, gin.H{"message": "拉取任务已启动"})
 }
 
+func (h *SubscriptionHandler) StopPull(c *gin.Context) {
+	subID, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	if !service.IsSubscriptionPullRunning(uint(subID)) {
+		response.BadRequest(c, "当前没有进行中的拉取任务")
+		return
+	}
+
+	subPullStreamsMu.RLock()
+	broadcaster, exists := subPullStreams[uint(subID)]
+	subPullStreamsMu.RUnlock()
+	if exists {
+		broadcaster.broadcast("[停止请求] 正在终止当前拉取任务...")
+	}
+
+	if !service.StopSubscriptionPull(uint(subID)) {
+		response.BadRequest(c, "拉取任务停止失败")
+		return
+	}
+
+	response.Success(c, gin.H{"message": "已发送停止请求"})
+}
+
 func (h *SubscriptionHandler) PullStream(c *gin.Context) {
 	subID, _ := strconv.ParseUint(c.Param("id"), 10, 32)
 
@@ -429,6 +451,7 @@ func (h *SubscriptionHandler) RegisterRoutes(r *gin.RouterGroup) {
 		subs.PUT("/:id/enable", h.Enable)
 		subs.PUT("/:id/disable", h.Disable)
 		subs.PUT("/:id/pull", h.Pull)
+		subs.PUT("/:id/pull/stop", h.StopPull)
 		subs.GET("/:id/pull-stream", h.PullStream)
 		subs.GET("/:id/logs", h.Logs)
 		subs.DELETE("/batch", h.BatchDelete)

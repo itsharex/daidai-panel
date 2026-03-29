@@ -23,7 +23,7 @@ type Task struct {
 	ID                     uint       `gorm:"primarykey" json:"id"`
 	Name                   string     `gorm:"size:128;not null" json:"name"`
 	Command                string     `gorm:"type:text;not null" json:"command"`
-	CronExpression         string     `gorm:"size:64;not null" json:"cron_expression"`
+	CronExpression         string     `gorm:"type:text;not null" json:"cron_expression"`
 	TaskType               string     `gorm:"size:16;not null;default:'cron'" json:"task_type"`
 	Status                 float64    `gorm:"not null" json:"status"`
 	Labels                 string     `gorm:"size:256;default:''" json:"-"`
@@ -58,12 +58,14 @@ func (t *Task) ToDict() map[string]interface{} {
 	if t.Labels != "" {
 		labels = strings.Split(t.Labels, ",")
 	}
+	cronExpressions := splitTaskCronExpressions(t.CronExpression)
 
 	return map[string]interface{}{
 		"id":                       t.ID,
 		"name":                     t.Name,
 		"command":                  t.Command,
 		"cron_expression":          t.CronExpression,
+		"cron_expressions":         cronExpressions,
 		"task_type":                t.GetTaskType(),
 		"status":                   t.Status,
 		"labels":                   labels,
@@ -88,6 +90,20 @@ func (t *Task) ToDict() map[string]interface{} {
 		"created_at":               t.CreatedAt,
 		"updated_at":               t.UpdatedAt,
 	}
+}
+
+func splitTaskCronExpressions(raw string) []string {
+	lines := strings.FieldsFunc(raw, func(r rune) bool {
+		return r == '\n' || r == '\r'
+	})
+	result := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			result = append(result, line)
+		}
+	}
+	return result
 }
 
 func NormalizeTaskType(taskType string) string {

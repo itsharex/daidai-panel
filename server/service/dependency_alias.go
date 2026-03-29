@@ -1,6 +1,9 @@
 package service
 
-import "strings"
+import (
+	"encoding/json"
+	"strings"
+)
 
 var pythonModulePackageAliases = map[string]string{
 	"crypto": "pycryptodome",
@@ -18,4 +21,20 @@ func ResolvePythonAutoInstallPackage(moduleName string) string {
 	}
 
 	return moduleName
+}
+
+func PythonAutoInstallAliases() map[string]string {
+	aliases := make(map[string]string, len(pythonModulePackageAliases))
+	for key, value := range pythonModulePackageAliases {
+		aliases[key] = value
+	}
+	return aliases
+}
+
+func EncodePythonAutoInstallAliases() string {
+	data, err := json.Marshal(PythonAutoInstallAliases())
+	if err != nil {
+		return "{}"
+	}
+	return string(data)
 }

@@ -43,6 +43,16 @@ function getTaskTypeLabel(taskType: string | null | undefined) {
   return '常规定时'
 }
 
+function getCronExpressions(task: any) {
+  if (Array.isArray(task?.cron_expressions) && task.cron_expressions.length > 0) {
+    return task.cron_expressions
+  }
+  return String(task?.cron_expression || '')
+    .split(/\r?\n/)
+    .map((item: string) => item.trim())
+    .filter(Boolean)
+}
+
 const hasRunningTasks = computed(() => tasks.value.some(t => t.status === 2))
 
 function startStatusPolling() {
@@ -597,7 +607,15 @@ async function handleImport(event: Event) {
               <span class="dd-mobile-card__label">定时规则</span>
               <div class="dd-mobile-card__value">
                 <template v-if="row.task_type === 'cron'">
-                  <code class="cron-text">{{ row.cron_expression }}</code>
+                  <div class="cron-text-list">
+                    <code
+                      v-for="expression in getCronExpressions(row)"
+                      :key="expression"
+                      class="cron-text cron-text--stacked"
+                    >
+                      {{ expression }}
+                    </code>
+                  </div>
                 </template>
                 <span v-else class="text-muted">{{ getTaskTypeLabel(row.task_type) }}</span>
               </div>
@@ -699,7 +717,15 @@ async function handleImport(event: Event) {
       <el-table-column label="定时规则" min-width="130" show-overflow-tooltip>
         <template #default="{ row }">
           <template v-if="row.task_type === 'cron'">
-            <code class="cron-text">{{ row.cron_expression }}</code>
+            <div class="cron-text-list">
+              <code
+                v-for="expression in getCronExpressions(row)"
+                :key="expression"
+                class="cron-text cron-text--stacked"
+              >
+                {{ expression }}
+              </code>
+            </div>
           </template>
           <span v-else class="text-muted">{{ getTaskTypeLabel(row.task_type) }}</span>
         </template>
@@ -884,6 +910,17 @@ async function handleImport(event: Event) {
   font-size: 13px;
   color: var(--el-text-color-secondary);
   white-space: nowrap;
+}
+
+.cron-text-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cron-text--stacked {
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
 .time-text {

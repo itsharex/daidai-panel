@@ -32,7 +32,7 @@ func TestResolveTaskInactiveStatus(t *testing.T) {
 
 	t.Run("running task without scheduled job falls back to disabled", func(t *testing.T) {
 		globalScheduler = &SchedulerV2{
-			entryMap: make(map[uint]cron.EntryID),
+			entryMap: make(map[uint][]cron.EntryID),
 		}
 		task := &model.Task{ID: 3, Status: model.TaskStatusRunning}
 		if got := ResolveTaskInactiveStatus(task); got != model.TaskStatusDisabled {
@@ -42,7 +42,7 @@ func TestResolveTaskInactiveStatus(t *testing.T) {
 
 	t.Run("running task with scheduled job falls back to enabled", func(t *testing.T) {
 		globalScheduler = &SchedulerV2{
-			entryMap: map[uint]cron.EntryID{4: 1},
+			entryMap: map[uint][]cron.EntryID{4: {1}},
 		}
 		task := &model.Task{ID: 4, Status: model.TaskStatusRunning}
 		if got := ResolveTaskInactiveStatus(task); got != model.TaskStatusEnabled {
@@ -52,7 +52,7 @@ func TestResolveTaskInactiveStatus(t *testing.T) {
 
 	t.Run("running enabled manual task falls back to enabled when registered", func(t *testing.T) {
 		globalScheduler = &SchedulerV2{
-			entryMap: map[uint]cron.EntryID{5: 0},
+			entryMap: map[uint][]cron.EntryID{5: {}},
 		}
 		task := &model.Task{ID: 5, Status: model.TaskStatusRunning, TaskType: model.TaskTypeManual}
 		if got := ResolveTaskInactiveStatus(task); got != model.TaskStatusEnabled {
@@ -62,7 +62,7 @@ func TestResolveTaskInactiveStatus(t *testing.T) {
 
 	t.Run("running disabled manual task falls back to disabled when unregistered", func(t *testing.T) {
 		globalScheduler = &SchedulerV2{
-			entryMap: make(map[uint]cron.EntryID),
+			entryMap: make(map[uint][]cron.EntryID),
 		}
 		task := &model.Task{ID: 6, Status: model.TaskStatusRunning, TaskType: model.TaskTypeManual}
 		if got := ResolveTaskInactiveStatus(task); got != model.TaskStatusDisabled {

@@ -18,6 +18,7 @@ const {
   fileTree,
   selectedFile,
   fileContent,
+  originalContent,
   isBinary,
   loading,
   saving,
@@ -92,6 +93,16 @@ const {
   handleRunCode,
   handleStopRunner
 } = execution
+
+async function handleDebugSave() {
+  if (!selectedFile.value || isBinary.value) {
+    return
+  }
+  fileContent.value = debugCode.value
+  isEditing.value = true
+  await handleSave()
+  debugCodeChanged.value = debugCode.value !== originalContent.value
+}
 
 function openCreateFileDialog() {
   showCreateFileDialog.value = true
@@ -204,7 +215,9 @@ function handleDeleteSelectedFile() {
       :runner-logs="runnerLogs"
       :runner-running="runnerRunning"
       :runner-exit-code="runnerExitCode"
+      :debug-saving="saving"
       :on-debug-start="handleDebugStart"
+      :on-debug-save="handleDebugSave"
       :on-debug-stop="handleDebugStop"
       :on-run-code="handleRunCode"
       :on-stop-runner="handleStopRunner"

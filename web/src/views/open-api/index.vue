@@ -66,10 +66,10 @@
             </div>
             <div class="dd-mobile-card__field">
               <span class="dd-mobile-card__label">速率限制</span>
-              <span class="dd-mobile-card__value">{{ row.rate_limit }}</span>
+              <span class="dd-mobile-card__value">{{ formatRateLimit(row.rate_limit) }}</span>
             </div>
             <div class="dd-mobile-card__field">
-              <span class="dd-mobile-card__label">调用次数</span>
+              <span class="dd-mobile-card__label">今日调用</span>
               <span class="dd-mobile-card__value">{{ row.call_count }}</span>
             </div>
           </div>
@@ -130,8 +130,12 @@
           <span v-if="!row.scopes" style="color: var(--el-text-color-secondary)">未授权任何范围</span>
         </template>
       </el-table-column>
-      <el-table-column prop="rate_limit" label="速率限制" width="100" align="center" />
-      <el-table-column prop="call_count" label="调用次数" width="100" align="center" />
+      <el-table-column label="速率限制" width="120" align="center">
+        <template #default="{ row }">
+          {{ formatRateLimit(row.rate_limit) }}
+        </template>
+      </el-table-column>
+      <el-table-column prop="call_count" label="今日调用" width="100" align="center" />
       <el-table-column label="状态" width="80" align="center">
         <template #default="{ row }">
           <el-switch
@@ -171,8 +175,11 @@
           </div>
         </el-form-item>
         <el-form-item label="速率限制">
-          <el-input-number v-model="form.rate_limit" :min="1" :max="10000" />
-          <span style="margin-left: 8px; color: var(--el-text-color-secondary)">次/小时</span>
+          <el-input-number v-model="form.rate_limit" :min="0" :max="10000" />
+          <span style="margin-left: 8px; color: var(--el-text-color-secondary)">次/小时，填 0 表示无限制</span>
+          <div style="margin-top: 6px; color: var(--el-text-color-secondary); font-size: 12px">
+            调用次数按当天统计展示，每日会重新从 0 开始累计。
+          </div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -253,7 +260,7 @@ const currentLogAppId = ref(0)
 const revealedSecrets = reactive<Record<number, string>>({})
 const { isMobile, dialogFullscreen } = useResponsive()
 
-const form = ref({ name: '', scopesList: [] as string[], rate_limit: 100 })
+const form = ref({ name: '', scopesList: [] as string[], rate_limit: 0 })
 
 const scopeOptions = [
   { label: '任务管理', value: 'tasks' },
@@ -275,6 +282,10 @@ const scopesToString = (list: string[]): string => list.join(',')
 const stringToScopes = (str: string): string[] => {
   if (!str) return []
   return str.split(',').map(s => s.trim()).filter(Boolean)
+}
+
+const formatRateLimit = (value: number | null | undefined) => {
+  return Number(value || 0) > 0 ? `${value} / 小时` : '无限制'
 }
 
 const copyText = async (text: string) => {
@@ -307,13 +318,13 @@ const loadApps = async () => {
 
 const showCreateDialog = () => {
   editingApp.value = null
-  form.value = { name: '', scopesList: [], rate_limit: 100 }
+  form.value = { name: '', scopesList: [], rate_limit: 0 }
   dialogVisible.value = true
 }
 
 const editApp = (app: any) => {
   editingApp.value = app
-  form.value = { name: app.name, scopesList: stringToScopes(app.scopes || ''), rate_limit: app.rate_limit || 100 }
+  form.value = { name: app.name, scopesList: stringToScopes(app.scopes || ''), rate_limit: Number(app.rate_limit || 0) }
   dialogVisible.value = true
 }
 

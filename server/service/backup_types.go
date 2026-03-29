@@ -17,9 +17,9 @@ type BackupSelection struct {
 }
 
 type BackupCreateOptions struct {
-	Password   string
-	Name       string
-	Selection  BackupSelection
+	Password  string
+	Name      string
+	Selection BackupSelection
 }
 
 type BackupUser struct {
@@ -41,7 +41,7 @@ type BackupOpenApp struct {
 	Scopes    string    `json:"scopes"`
 	Enabled   bool      `json:"enabled"`
 	RateLimit int       `json:"rate_limit"`
-	CallCount int64     `json:"call_count"`
+	CallCount int64     `json:"call_count,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }

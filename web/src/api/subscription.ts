@@ -29,6 +29,10 @@ export const subscriptionApi = {
     return request.put(`/subscriptions/${id}/pull`) as Promise<{ message: string }>
   },
 
+  stopPull(id: number) {
+    return request.put(`/subscriptions/${id}/pull/stop`) as Promise<{ message: string }>
+  },
+
   logs(id: number, params?: { page?: number; page_size?: number }) {
     return request.get(`/subscriptions/${id}/logs`, { params }) as Promise<{ data: any[]; total: number; page: number; page_size: number }>
   },

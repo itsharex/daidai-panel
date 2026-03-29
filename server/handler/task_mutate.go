@@ -70,9 +70,9 @@ func (h *TaskHandler) Create(c *gin.Context) {
 		return
 	}
 	if taskType == model.TaskTypeCron {
-		result := panelcron.Parse(req.CronExpression)
-		if !result.Valid {
-			response.BadRequest(c, "无效的 cron 表达式")
+		req.CronExpression = panelcron.NormalizeExpressions(req.CronExpression)
+		if err := panelcron.ValidateExpressions(req.CronExpression); err != nil {
+			response.BadRequest(c, err.Error())
 			return
 		}
 	} else {
@@ -195,11 +195,11 @@ func (h *TaskHandler) Update(c *gin.Context) {
 	if resolvedTaskType == model.TaskTypeCron {
 		cronExpr := task.CronExpression
 		if value, ok := req["cron_expression"].(string); ok {
-			cronExpr = value
+			cronExpr = panelcron.NormalizeExpressions(value)
+			req["cron_expression"] = cronExpr
 		}
-		result := panelcron.Parse(cronExpr)
-		if !result.Valid {
-			response.BadRequest(c, "无效的 cron 表达式")
+		if err := panelcron.ValidateExpressions(cronExpr); err != nil {
+			response.BadRequest(c, err.Error())
 			return
 		}
 	} else {

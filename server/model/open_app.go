@@ -11,7 +11,7 @@ type OpenApp struct {
 	AppSecret string    `gorm:"size:128;not null" json:"-"`
 	Scopes    string    `gorm:"size:512;default:''" json:"scopes"`
 	Enabled   bool      `gorm:"default:true" json:"enabled"`
-	RateLimit int       `gorm:"default:100" json:"rate_limit"`
+	RateLimit int       `gorm:"default:0" json:"rate_limit"`
 	CallCount int64     `gorm:"default:0" json:"call_count"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`

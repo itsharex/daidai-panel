@@ -44,6 +44,16 @@ const taskTypeText = computed(() => {
   return '常规定时'
 })
 
+const cronExpressions = computed(() => {
+  if (Array.isArray(props.task?.cron_expressions) && props.task.cron_expressions.length > 0) {
+    return props.task.cron_expressions
+  }
+  return String(props.task?.cron_expression || '')
+    .split(/\r?\n/)
+    .map(item => item.trim())
+    .filter(Boolean)
+})
+
 function handleClose() {
   emit('update:visible', false)
 }
@@ -72,7 +82,11 @@ function handleClose() {
         {{ taskTypeText }}
       </el-descriptions-item>
       <el-descriptions-item label="定时规则">
-        <code v-if="task.task_type === 'cron'">{{ task.cron_expression }}</code>
+        <div v-if="task.task_type === 'cron'" style="display: flex; flex-direction: column; gap: 6px">
+          <code v-for="expression in cronExpressions" :key="expression" style="white-space: pre-wrap; word-break: break-all">
+            {{ expression }}
+          </code>
+        </div>
         <span v-else style="color: var(--el-text-color-placeholder)">不使用 Cron</span>
       </el-descriptions-item>
       <el-descriptions-item label="执行命令" :span="2">

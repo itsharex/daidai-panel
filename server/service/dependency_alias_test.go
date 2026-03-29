@@ -1,6 +1,9 @@
 package service
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func TestResolvePythonAutoInstallPackage(t *testing.T) {
 	tests := []struct {
@@ -20,5 +23,18 @@ func TestResolvePythonAutoInstallPackage(t *testing.T) {
 				t.Fatalf("expected %q, got %q", tc.expect, got)
 			}
 		})
+	}
+}
+
+func TestEncodePythonAutoInstallAliases(t *testing.T) {
+	var decoded map[string]string
+	if err := json.Unmarshal([]byte(EncodePythonAutoInstallAliases()), &decoded); err != nil {
+		t.Fatalf("decode aliases json: %v", err)
+	}
+	if got := decoded["crypto"]; got != "pycryptodome" {
+		t.Fatalf("expected crypto alias to be pycryptodome, got %q", got)
+	}
+	if got := decoded["execjs"]; got != "pyexecjs" {
+		t.Fatalf("expected execjs alias to be pyexecjs, got %q", got)
 	}
 }

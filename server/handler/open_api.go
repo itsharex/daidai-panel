@@ -31,16 +31,66 @@ func generateRandomKey(length int) string {
 	return hex.EncodeToString(bytes)
 }
 
+type openAppDailyCountRow struct {
+	AppID uint
+	Total int64
+}
+
+func startOfToday(now time.Time) time.Time {
+	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+}
+
+func loadOpenAppDailyCounts(appIDs []uint) map[uint]int64 {
+	counts := make(map[uint]int64, len(appIDs))
+	if len(appIDs) == 0 {
+		return counts
+	}
+
+	var rows []openAppDailyCountRow
+	database.DB.
+		Model(&model.ApiCallLog{}).
+		Select("app_id, COUNT(*) AS total").
+		Where("app_id IN ? AND created_at >= ?", appIDs, startOfToday(time.Now())).
+		Group("app_id").
+		Scan(&rows)
+
+	for _, row := range rows {
+		counts[row.AppID] = row.Total
+	}
+	return counts
+}
+
+func loadOpenAppDailyCount(appID uint) int64 {
+	return loadOpenAppDailyCounts([]uint{appID})[appID]
+}
+
+func buildOpenAppResponse(app *model.OpenApp, dailyCount int64, includeSecret bool) map[string]interface{} {
+	item := app.ToDict()
+	item["call_count"] = dailyCount
+	if includeSecret {
+		item["app_secret"] = app.AppSecret
+	}
+	return item
+}
+
+func buildOpenAppListResponse(apps []model.OpenApp) []map[string]interface{} {
+	appIDs := make([]uint, 0, len(apps))
+	for _, app := range apps {
+		appIDs = append(appIDs, app.ID)
+	}
+
+	dailyCounts := loadOpenAppDailyCounts(appIDs)
+	data := make([]map[string]interface{}, len(apps))
+	for i := range apps {
+		data[i] = buildOpenAppResponse(&apps[i], dailyCounts[apps[i].ID], false)
+	}
+	return data
+}
+
 func (h *OpenAPIHandler) List(c *gin.Context) {
 	var apps []model.OpenApp
 	database.DB.Order("created_at DESC").Find(&apps)
-
-	data := make([]map[string]interface{}, len(apps))
-	for i, a := range apps {
-		data[i] = a.ToDict()
-	}
-
-	response.Success(c, gin.H{"data": data})
+	response.Success(c, gin.H{"data": buildOpenAppListResponse(apps)})
 }
 
 func (h *OpenAPIHandler) Create(c *gin.Context) {
@@ -54,8 +104,9 @@ func (h *OpenAPIHandler) Create(c *gin.Context) {
 		return
 	}
 
-	if req.RateLimit <= 0 {
-		req.RateLimit = 100
+	if req.RateLimit < 0 {
+		response.BadRequest(c, "速率限制不能小于 0")
+		return
 	}
 
 	app := model.OpenApp{
@@ -72,7 +123,7 @@ func (h *OpenAPIHandler) Create(c *gin.Context) {
 		return
 	}
 
-	response.Created(c, gin.H{"message": "创建成功", "data": app.ToDictWithSecret()})
+	response.Created(c, gin.H{"message": "创建成功", "data": buildOpenAppResponse(&app, 0, true)})
 }
 
 func (h *OpenAPIHandler) Update(c *gin.Context) {
@@ -93,6 +144,20 @@ func (h *OpenAPIHandler) Update(c *gin.Context) {
 	allowed := map[string]bool{"name": true, "scopes": true, "rate_limit": true}
 	updates := make(map[string]interface{})
 	for k, v := range req {
+		if k == "rate_limit" {
+			switch value := v.(type) {
+			case float64:
+				if value < 0 {
+					response.BadRequest(c, "速率限制不能小于 0")
+					return
+				}
+			case int:
+				if value < 0 {
+					response.BadRequest(c, "速率限制不能小于 0")
+					return
+				}
+			}
+		}
 		if allowed[k] {
 			updates[k] = v
 		}
@@ -103,7 +168,7 @@ func (h *OpenAPIHandler) Update(c *gin.Context) {
 	}
 
 	database.DB.First(&app, appID)
-	response.Success(c, gin.H{"message": "更新成功", "data": app.ToDict()})
+	response.Success(c, gin.H{"message": "更新成功", "data": buildOpenAppResponse(&app, loadOpenAppDailyCount(app.ID), false)})
 }
 
 func (h *OpenAPIHandler) Delete(c *gin.Context) {
@@ -137,7 +202,7 @@ func (h *OpenAPIHandler) ResetSecret(c *gin.Context) {
 	database.DB.Model(&app).Update("app_secret", newSecret)
 	app.AppSecret = newSecret
 
-	response.Success(c, gin.H{"message": "密钥已重置", "data": app.ToDictWithSecret()})
+	response.Success(c, gin.H{"message": "密钥已重置", "data": buildOpenAppResponse(&app, loadOpenAppDailyCount(app.ID), true)})
 }
 
 func (h *OpenAPIHandler) ViewSecret(c *gin.Context) {

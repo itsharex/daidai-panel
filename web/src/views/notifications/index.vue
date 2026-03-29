@@ -81,6 +81,7 @@ const configFields = computed(() => {
       { key: 'corp_id', label: '企业 ID', type: 'input', placeholder: '企业微信 CorpID' },
       { key: 'secret', label: '应用 Secret', type: 'password', placeholder: '应用 Secret' },
       { key: 'agent_id', label: 'Agent ID', type: 'input', placeholder: '应用 AgentId' },
+      { key: 'base_url', label: '反代基础地址 (可选)', type: 'input', placeholder: '留空使用 https://qyapi.weixin.qq.com，也可填你的 Nginx 反代地址' },
       { key: 'to_user', label: '成员账号 (可选)', type: 'input', placeholder: '多个成员用 | 分隔，留空默认 @all' },
       { key: 'to_party', label: '部门 ID (可选)', type: 'input', placeholder: '多个部门用 | 分隔' },
       { key: 'to_tag', label: '标签 ID (可选)', type: 'input', placeholder: '多个标签用 | 分隔' },
@@ -213,6 +214,12 @@ const configFields = computed(() => {
         { label: '文本 (1)', value: '1' },
         { label: 'HTML (2)', value: '2' },
         { label: 'Markdown (3)', value: '3' },
+      ]},
+      { key: 'url', label: '原文链接 (可选)', type: 'input', placeholder: '消息详情页跳转地址' },
+      { key: 'verify_pay_type', label: '付费校验 (可选)', type: 'select', placeholder: '默认不校验', options: [
+        { label: '不校验 (0)', value: '0' },
+        { label: '仅付费用户 (1)', value: '1' },
+        { label: '仅未订阅/已过期 (2)', value: '2' },
       ]},
       { key: 'server', label: '接口地址 (可选)', type: 'input', placeholder: '默认 https://wxpusher.zjiecode.com/api/send/message' },
     ]

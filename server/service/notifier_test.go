@@ -463,6 +463,81 @@ func TestSendWecomAppMpnews(t *testing.T) {
 	}
 }
 
+func TestSendWecomAppUsesReverseProxyBaseURL(t *testing.T) {
+	testutil.SetupTestEnv(t)
+
+	var (
+		tokenRequested bool
+		sendRequested  bool
+	)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/proxy-qyapi/cgi-bin/gettoken":
+			tokenRequested = true
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"errcode":0,"errmsg":"ok","access_token":"token-demo"}`))
+		case "/proxy-qyapi/cgi-bin/message/send":
+			sendRequested = true
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"errcode":0,"errmsg":"ok"}`))
+		default:
+			t.Fatalf("unexpected reverse proxy path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	err := sendWecomApp(map[string]string{
+		"corp_id":  "ww-demo",
+		"secret":   "secret-demo",
+		"agent_id": "1000001",
+		"to_user":  "@all",
+		"msg_type": "text",
+		"base_url": server.URL + "/proxy-qyapi",
+	}, "标题", "正文")
+	if err != nil {
+		t.Fatalf("send wecom app via reverse proxy: %v", err)
+	}
+	if !tokenRequested || !sendRequested {
+		t.Fatalf("expected both reverse proxy endpoints to be used, token=%v send=%v", tokenRequested, sendRequested)
+	}
+}
+
+func TestSendWxPusherIncludesOptionalFields(t *testing.T) {
+	testutil.SetupTestEnv(t)
+
+	var payload map[string]interface{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"code":1000,"msg":"处理成功","success":true}`))
+	}))
+	defer server.Close()
+
+	err := sendWxPusher(map[string]string{
+		"app_token":       "AT_demo",
+		"uids":            "UID_demo",
+		"content_type":    "3",
+		"url":             "https://example.com/detail",
+		"verify_pay_type": "2",
+		"server":          server.URL,
+	}, "标题", "正文")
+	if err != nil {
+		t.Fatalf("send wxpusher: %v", err)
+	}
+
+	if got := payload["url"]; got != "https://example.com/detail" {
+		t.Fatalf("unexpected wxpusher url: %#v", got)
+	}
+	if got := payload["verifyPayType"]; got != float64(2) {
+		t.Fatalf("unexpected verifyPayType: %#v", got)
+	}
+	if got := payload["contentType"]; got != float64(3) {
+		t.Fatalf("unexpected contentType: %#v", got)
+	}
+}
+
 func TestSendWecomAppReturnsEnterpriseError(t *testing.T) {
 	testutil.SetupTestEnv(t)
 

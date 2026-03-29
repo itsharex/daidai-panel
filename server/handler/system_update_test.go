@@ -92,4 +92,29 @@ func TestFormatPanelUpdatePullErrorAddsNetworkHint(t *testing.T) {
 	}
 }
 
+func TestCollectVolumeMappingsKeepsCustomBindPath(t *testing.T) {
+	info := &dockerInspectInfo{
+		HostConfig: dockerInspectHostConfig{
+			Binds: []string{
+				"/srv/panel-data:/app/Dumb-Panel",
+			},
+		},
+		Mounts: []dockerInspectMount{
+			{Type: "bind", Source: "/srv/panel-data", Destination: "/app/Dumb-Panel", RW: true},
+			{Type: "bind", Source: "/var/run/docker.sock", Destination: "/var/run/docker.sock", RW: true},
+		},
+	}
+
+	got := collectVolumeMappings(info)
+	if len(got) != 2 {
+		t.Fatalf("expected two distinct volume mappings, got %v", got)
+	}
+	if got[0] != "/srv/panel-data:/app/Dumb-Panel" {
+		t.Fatalf("expected custom data bind to be preserved, got %v", got)
+	}
+	if got[1] != "/var/run/docker.sock:/var/run/docker.sock" {
+		t.Fatalf("expected docker socket bind to be preserved, got %v", got)
+	}
+}
+
 var errContextDeadlineExceeded = errors.New("context deadline exceeded")

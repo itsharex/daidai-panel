@@ -226,7 +226,6 @@ func snapshotConfigBundle() (BackupConfigBundle, error) {
 			Scopes:    app.Scopes,
 			Enabled:   app.Enabled,
 			RateLimit: app.RateLimit,
-			CallCount: app.CallCount,
 			CreatedAt: app.CreatedAt,
 			UpdatedAt: app.UpdatedAt,
 		})
@@ -845,7 +844,6 @@ func restoreOpenApps(tx *gorm.DB, apps []BackupOpenApp) error {
 			Scopes:    item.Scopes,
 			Enabled:   item.Enabled,
 			RateLimit: item.RateLimit,
-			CallCount: item.CallCount,
 			CreatedAt: item.CreatedAt,
 			UpdatedAt: item.UpdatedAt,
 		}

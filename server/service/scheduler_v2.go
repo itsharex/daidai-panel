@@ -8,6 +8,7 @@ import (
 
 	"daidai-panel/database"
 	"daidai-panel/model"
+	panelcron "daidai-panel/pkg/cron"
 
 	"github.com/robfig/cron/v3"
 )
@@ -47,7 +48,7 @@ type SchedulerEventHandler interface {
 type SchedulerV2 struct {
 	config       SchedulerConfig
 	cron         *cron.Cron
-	entryMap     map[uint]cron.EntryID
+	entryMap     map[uint][]cron.EntryID
 	entryLock    sync.RWMutex
 	taskQueue    chan *ExecutionRequest
 	rateLimiter  <-chan time.Time
@@ -72,7 +73,7 @@ func NewSchedulerV2(config SchedulerConfig, handler SchedulerEventHandler) *Sche
 	s := &SchedulerV2{
 		config:       config,
 		cron:         cron.New(cron.WithSeconds(), cron.WithChain(cron.Recover(cron.DefaultLogger))),
-		entryMap:     make(map[uint]cron.EntryID),
+		entryMap:     make(map[uint][]cron.EntryID),
 		taskQueue:    make(chan *ExecutionRequest, config.QueueSize),
 		rateLimiter:  time.Tick(config.RateInterval),
 		stopCh:       make(chan struct{}),
@@ -206,9 +207,11 @@ func (s *SchedulerV2) AddJob(task *model.Task) error {
 	s.entryLock.Lock()
 	defer s.entryLock.Unlock()
 
-	if oldID, exists := s.entryMap[task.ID]; exists {
-		if oldID != 0 {
-			s.cron.Remove(oldID)
+	if oldIDs, exists := s.entryMap[task.ID]; exists {
+		for _, oldID := range oldIDs {
+			if oldID != 0 {
+				s.cron.Remove(oldID)
+			}
 		}
 		delete(s.entryMap, task.ID)
 	}
@@ -217,37 +220,51 @@ func (s *SchedulerV2) AddJob(task *model.Task) error {
 		return nil
 	}
 	if !task.UsesCronSchedule() {
-		s.entryMap[task.ID] = 0
+		s.entryMap[task.ID] = []cron.EntryID{}
 		return nil
 	}
 
-	cronExpr := toCronV3(task.CronExpression)
-	if cronExpr == "" {
+	expressions := panelcron.SplitExpressions(task.CronExpression)
+	if len(expressions) == 0 {
 		return fmt.Errorf("invalid cron expression")
 	}
 
 	taskID := task.ID
-	entryID, err := s.cron.AddFunc(cronExpr, func() {
-		var t model.Task
-		database.DB.First(&t, taskID)
-		req := &ExecutionRequest{
-			TaskID:      taskID,
-			Task:        &t,
-			TriggerType: "cron",
-			RetryIndex:  0,
+	entryIDs := make([]cron.EntryID, 0, len(expressions))
+	for _, expression := range expressions {
+		cronExpr := toCronV3(expression)
+		if cronExpr == "" {
+			for _, entryID := range entryIDs {
+				s.cron.Remove(entryID)
+			}
+			return fmt.Errorf("invalid cron expression")
 		}
-		if err := s.Enqueue(req); err != nil {
-			log.Printf("task %d enqueue failed: %v", taskID, err)
-			return
-		}
-		database.DB.Model(&model.Task{}).Where("id = ? AND status != ?", taskID, model.TaskStatusRunning).Update("status", model.TaskStatusQueued)
-	})
 
-	if err != nil {
-		return err
+		entryID, err := s.cron.AddFunc(cronExpr, func() {
+			var t model.Task
+			database.DB.First(&t, taskID)
+			req := &ExecutionRequest{
+				TaskID:      taskID,
+				Task:        &t,
+				TriggerType: "cron",
+				RetryIndex:  0,
+			}
+			if err := s.Enqueue(req); err != nil {
+				log.Printf("task %d enqueue failed: %v", taskID, err)
+				return
+			}
+			database.DB.Model(&model.Task{}).Where("id = ? AND status != ?", taskID, model.TaskStatusRunning).Update("status", model.TaskStatusQueued)
+		})
+		if err != nil {
+			for _, existingID := range entryIDs {
+				s.cron.Remove(existingID)
+			}
+			return err
+		}
+		entryIDs = append(entryIDs, entryID)
 	}
 
-	s.entryMap[task.ID] = entryID
+	s.entryMap[task.ID] = entryIDs
 	return nil
 }
 
@@ -259,9 +276,11 @@ func (s *SchedulerV2) RemoveJob(taskID uint) {
 	s.entryLock.Lock()
 	defer s.entryLock.Unlock()
 
-	if entryID, exists := s.entryMap[taskID]; exists {
-		if entryID != 0 {
-			s.cron.Remove(entryID)
+	if entryIDs, exists := s.entryMap[taskID]; exists {
+		for _, entryID := range entryIDs {
+			if entryID != 0 {
+				s.cron.Remove(entryID)
+			}
 		}
 		delete(s.entryMap, taskID)
 	}
@@ -352,8 +371,12 @@ func (s *SchedulerV2) EnqueueStartupTasks() int {
 
 func (s *SchedulerV2) ReloadAllJobs() {
 	s.entryLock.Lock()
-	for taskID, entryID := range s.entryMap {
-		s.cron.Remove(entryID)
+	for taskID, entryIDs := range s.entryMap {
+		for _, entryID := range entryIDs {
+			if entryID != 0 {
+				s.cron.Remove(entryID)
+			}
+		}
 		delete(s.entryMap, taskID)
 	}
 	s.entryLock.Unlock()

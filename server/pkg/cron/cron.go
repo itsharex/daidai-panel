@@ -1,6 +1,8 @@
 package cron
 
 import (
+	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -13,6 +15,39 @@ type ParseResult struct {
 	Fields      map[string]string
 	Description string
 	Error       string
+}
+
+func SplitExpressions(raw string) []string {
+	lines := strings.FieldsFunc(raw, func(r rune) bool {
+		return r == '\n' || r == '\r'
+	})
+	result := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			result = append(result, line)
+		}
+	}
+	return result
+}
+
+func NormalizeExpressions(raw string) string {
+	return strings.Join(SplitExpressions(raw), "\n")
+}
+
+func ValidateExpressions(raw string) error {
+	expressions := SplitExpressions(raw)
+	if len(expressions) == 0 {
+		return fmt.Errorf("请至少填写一条定时规则")
+	}
+
+	for index, expression := range expressions {
+		result := Parse(expression)
+		if !result.Valid {
+			return fmt.Errorf("第 %d 条定时规则无效: %s", index+1, result.Error)
+		}
+	}
+	return nil
 }
 
 func Parse(expression string) ParseResult {
@@ -55,6 +90,31 @@ func NextRunTimes(expression string, count int) []time.Time {
 			break
 		}
 		times = append(times, next)
+	}
+	return times
+}
+
+func NextRunTimesForExpressions(raw string, count int) []time.Time {
+	if count <= 0 {
+		return nil
+	}
+
+	expressions := SplitExpressions(raw)
+	if len(expressions) == 0 {
+		return nil
+	}
+
+	times := make([]time.Time, 0, len(expressions)*count)
+	for _, expression := range expressions {
+		times = append(times, NextRunTimes(expression, count)...)
+	}
+
+	sort.Slice(times, func(i, j int) bool {
+		return times[i].Before(times[j])
+	})
+
+	if len(times) > count {
+		times = times[:count]
 	}
 	return times
 }
