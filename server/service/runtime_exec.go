@@ -406,6 +406,13 @@ if (mergedNodePaths.length > 0) {
   Module._initPaths();
 }
 const _origResolve = Module._resolveFilename;
+function _resolveExportsEntry(exp) {
+  if (typeof exp === 'string') return exp;
+  if (exp && typeof exp === 'object') {
+    return exp.require || exp.default || exp.node || exp.import || '';
+  }
+  return '';
+}
 Module._resolveFilename = function(request, parent, isMain, options) {
   try {
     return _origResolve.call(this, request, parent, isMain, options);
@@ -413,19 +420,34 @@ Module._resolveFilename = function(request, parent, isMain, options) {
     if (err.code === 'ERR_PACKAGE_PATH_NOT_EXPORTED') {
       const parts = request.split('/');
       const pkgName = parts[0].startsWith('@') ? parts.slice(0, 2).join('/') : parts[0];
+      const subPath = parts.slice(pkgName.startsWith('@') ? 2 : 1).join('/');
       for (const np of (process.env.NODE_PATH || '').split(path.delimiter)) {
         if (!np) continue;
         try {
-          const pkgJsonPath = path.join(np, pkgName, 'package.json');
-          const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
-          const mainFile = pkgJson.main || 'index.js';
-          const subPath = parts.slice(pkgName.startsWith('@') ? 2 : 1).join('/');
-          const resolved = subPath
-            ? path.join(np, pkgName, subPath)
-            : path.join(np, pkgName, mainFile);
-          if (fs.existsSync(resolved)) return resolved;
-          if (fs.existsSync(resolved + '.js')) return resolved + '.js';
-          if (!subPath) return resolved;
+          const pkgDir = path.join(np, pkgName);
+          const pkgJson = JSON.parse(fs.readFileSync(path.join(pkgDir, 'package.json'), 'utf8'));
+          let target = '';
+          if (subPath) {
+            const exportKey = './' + subPath;
+            if (pkgJson.exports && pkgJson.exports[exportKey]) {
+              target = _resolveExportsEntry(pkgJson.exports[exportKey]);
+            }
+            if (!target) target = subPath;
+          } else {
+            if (pkgJson.exports && pkgJson.exports['.']) {
+              target = _resolveExportsEntry(pkgJson.exports['.']);
+            }
+            if (!target) target = pkgJson.main || '';
+            if (!target) target = 'index.js';
+          }
+          const candidates = [
+            path.join(pkgDir, target),
+            path.join(pkgDir, target + '.js'),
+            path.join(pkgDir, target, 'index.js')
+          ];
+          for (const c of candidates) {
+            if (fs.existsSync(c)) return c;
+          }
         } catch (_) {}
       }
     }
