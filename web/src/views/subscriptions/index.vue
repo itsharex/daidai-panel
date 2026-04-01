@@ -38,7 +38,8 @@ const editForm = ref({
   auto_del_task: false,
   save_dir: '',
   ssh_key_id: null as number | null,
-  alias: ''
+  alias: '',
+  force_overwrite: true
 })
 
 const sshKeys = ref<any[]>([])
@@ -108,7 +109,8 @@ function openCreate() {
   editForm.value = {
     id: 0, name: '', type: 'git-repo', url: '', branch: '', schedule: '',
     whitelist: '', blacklist: '', depend_on: '', hook_script: '', auto_add_task: false,
-    auto_del_task: false, save_dir: '', ssh_key_id: null, alias: ''
+    auto_del_task: false, save_dir: '', ssh_key_id: null, alias: '',
+    force_overwrite: true
   }
   showEditDialog.value = true
 }
@@ -209,7 +211,8 @@ function openEdit(row: any) {
     whitelist: row.whitelist || '', blacklist: row.blacklist || '',
     depend_on: row.depend_on || '', hook_script: row.hook_script || '', auto_add_task: row.auto_add_task,
     auto_del_task: row.auto_del_task, save_dir: row.save_dir || '',
-    ssh_key_id: row.ssh_key_id, alias: row.alias || ''
+    ssh_key_id: row.ssh_key_id, alias: row.alias || '',
+    force_overwrite: row.force_overwrite !== false
   }
   showEditDialog.value = true
 }
@@ -278,15 +281,16 @@ async function handleToggle(row: any) {
   }
 }
 
-async function handlePull(row: any) {
+async function handlePullWithMode(row: any, mode: string) {
   if (pullingSubId.value === row.id && pullRunning.value) {
     showPullLog.value = true
     return
   }
 
+  const modeLabels: Record<string, string> = { default: '按订阅设置', force: '覆盖', keep: '保留本地修改' }
   try {
     await ElMessageBox.confirm(
-      `确认立即拉取订阅「${row.name}」吗？`,
+      `确认以「${modeLabels[mode] || '默认'}」模式拉取订阅「${row.name}」吗？`,
       '拉取确认',
       { type: 'warning', confirmButtonText: '立即拉取', cancelButtonText: '取消' }
     )
@@ -295,7 +299,10 @@ async function handlePull(row: any) {
   }
 
   try {
-    await subscriptionApi.pull(row.id)
+    const params: Record<string, string> = {}
+    if (mode === 'force') params.force_overwrite = 'true'
+    else if (mode === 'keep') params.force_overwrite = 'false'
+    await subscriptionApi.pull(row.id, params)
     pullLogLines.value = []
     pullRunning.value = true
     pullingSubId.value = row.id
@@ -311,6 +318,10 @@ async function handlePull(row: any) {
     }
     ElMessage.error(err?.response?.data?.error || '拉取失败')
   }
+}
+
+async function handlePull(row: any) {
+  await handlePullWithMode(row, 'default')
 }
 
 async function handleStopPull() {
@@ -513,7 +524,16 @@ function viewLogDetail(log: any) {
           </div>
 
           <div class="dd-mobile-card__actions subscription-card__actions">
-            <el-button size="small" type="success" @click="handlePull(row)">拉取</el-button>
+            <el-dropdown trigger="click" @command="(cmd: string) => handlePullWithMode(row, cmd)">
+              <el-button size="small" type="success">拉取</el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="default">按订阅设置拉取</el-dropdown-item>
+                  <el-dropdown-item command="force">覆盖拉取</el-dropdown-item>
+                  <el-dropdown-item command="keep">保留本地修改拉取</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
             <el-button size="small" @click="openLogs(row.id)">日志</el-button>
             <el-button size="small" type="primary" plain @click="openEdit(row)">编辑</el-button>
             <el-button size="small" type="danger" plain @click="handleDelete(row.id)">删除</el-button>
@@ -565,11 +585,18 @@ function viewLogDetail(log: any) {
       <el-table-column label="操作" width="200" fixed="right">
         <template #default="{ row }">
           <div class="action-group">
-            <el-tooltip content="拉取" placement="top">
-              <el-button size="small" type="success" plain circle @click="handlePull(row)">
+            <el-dropdown trigger="click" @command="(cmd: string) => handlePullWithMode(row, cmd)">
+              <el-button size="small" type="success" plain circle>
                 <el-icon><Download /></el-icon>
               </el-button>
-            </el-tooltip>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="default">按订阅设置拉取</el-dropdown-item>
+                  <el-dropdown-item command="force">覆盖拉取</el-dropdown-item>
+                  <el-dropdown-item command="keep">保留本地修改拉取</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
             <el-tooltip content="日志" placement="top">
               <el-button size="small" type="info" plain circle @click="openLogs(row.id)">
                 <el-icon><Tickets /></el-icon>
@@ -647,6 +674,12 @@ function viewLogDetail(log: any) {
         </el-form-item>
         <el-form-item label="依赖说明">
           <el-input v-model="editForm.depend_on" placeholder="用于记录订阅依赖、过滤说明或迁移信息" />
+        </el-form-item>
+        <el-form-item v-if="editForm.type === 'git-repo'" label="覆盖本地修改">
+          <el-switch v-model="editForm.force_overwrite" />
+          <span style="margin-left: 8px; color: var(--el-text-color-secondary); font-size: 12px">
+            {{ editForm.force_overwrite ? '拉取时覆盖本地修改并清理多余文件' : '拉取时保留本地修改的文件' }}
+          </span>
         </el-form-item>
         <el-form-item label="拉取后钩子">
           <el-input

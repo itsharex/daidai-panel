@@ -122,6 +122,19 @@ func (h *LogHandler) Stream(c *gin.Context) {
 	var task model.Task
 	database.DB.First(&task, taskID)
 	if task.Status != model.TaskStatusRunning {
+		time.Sleep(1500 * time.Millisecond)
+		tl = mgr.FindByTaskID(uint(taskID))
+		if tl != nil {
+			history, _ := tl.ReadAll()
+			if len(history) > 0 {
+				for _, line := range strings.Split(string(history), "\n") {
+					if line != "" {
+						fmt.Fprintf(c.Writer, "data: %s\n\n", line)
+					}
+				}
+				c.Writer.Flush()
+			}
+		}
 		fmt.Fprintf(c.Writer, "event: done\ndata: finished\n\n")
 		c.Writer.Flush()
 	} else {

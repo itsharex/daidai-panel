@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { DocumentAdd, FolderAdd, Refresh, Upload, VideoPlay } from '@element-plus/icons-vue'
+import { ref, watch } from 'vue'
+import { DocumentAdd, FolderAdd, Refresh, Search, Upload, VideoPlay } from '@element-plus/icons-vue'
 import ScriptTreeNode from './ScriptTreeNode.vue'
 import type { TreeNode } from '../types'
 
@@ -20,6 +21,18 @@ defineProps<{
   onOpenRename: (path: string) => void
   onDelete: (path: string, isDir: boolean) => void | Promise<void>
 }>()
+
+const treeRef = ref()
+const searchKeyword = ref('')
+
+function filterNode(value: string, data: TreeNode) {
+  if (!value) return true
+  return (data.title || '').toLowerCase().includes(value.toLowerCase())
+}
+
+watch(searchKeyword, (val) => {
+  treeRef.value?.filter(val)
+})
 </script>
 
 <template>
@@ -54,13 +67,24 @@ defineProps<{
         </el-tooltip>
       </div>
     </div>
+    <div class="sidebar-search">
+      <el-input
+        v-model="searchKeyword"
+        placeholder="搜索文件或目录..."
+        clearable
+        size="small"
+        :prefix-icon="Search"
+      />
+    </div>
     <div class="sidebar-tree" v-loading="treeLoading">
       <el-tree
+        ref="treeRef"
         :data="fileTree"
         node-key="key"
         :props="{ children: 'children', label: 'title' }"
         :highlight-current="true"
         :expand-on-click-node="true"
+        :filter-node-method="filterNode"
         draggable
         :allow-drag="allowDrag"
         :allow-drop="allowDrop"
@@ -128,6 +152,11 @@ defineProps<{
       }
     }
   }
+}
+
+.sidebar-search {
+  padding: 8px 12px 0;
+  flex-shrink: 0;
 }
 
 .sidebar-tree {

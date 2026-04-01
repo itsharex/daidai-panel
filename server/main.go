@@ -187,6 +187,7 @@ func main() {
 		&model.PlatformToken{},
 		&model.PlatformTokenLog{},
 		&model.Dependency{},
+		&model.TaskView{},
 	)
 
 	database.EnsureColumns()

@@ -7,8 +7,10 @@ import TaskForm from './components/TaskForm.vue'
 import LogViewer from './components/LogViewer.vue'
 import TaskDetail from './components/TaskDetail.vue'
 import LogFileBrowser from './components/LogFileBrowser.vue'
+import ViewManager from './components/ViewManager.vue'
 import { getDisplayTaskLabels } from './taskLabels'
 import { useResponsive } from '@/composables/useResponsive'
+import type { TaskViewFilter, TaskViewSortRule } from '@/api/taskView'
 
 const route = useRoute()
 const router = useRouter()
@@ -36,6 +38,40 @@ const detailTask = ref<any>(null)
 const logFilesVisible = ref(false)
 const logFilesTaskId = ref<number | null>(null)
 const logFilesTaskName = ref('')
+const viewFilters = ref<TaskViewFilter[]>([])
+const viewSortRules = ref<TaskViewSortRule[]>([])
+
+const filteredTasks = computed(() => {
+  if (viewFilters.value.length === 0) return tasks.value
+  return tasks.value.filter(task => {
+    return viewFilters.value.every(filter => {
+      let fieldValue = ''
+      switch (filter.field) {
+        case 'command': fieldValue = task.command || ''; break
+        case 'name': fieldValue = task.name || ''; break
+        case 'cron_expression': fieldValue = task.cron_expression || ''; break
+        case 'status': fieldValue = String(task.status ?? ''); break
+        case 'labels': fieldValue = (task.labels || []).join(','); break
+        case 'subscription': fieldValue = (task.labels || []).filter((l: string) => l.startsWith('subscription:')).join(','); break
+        default: fieldValue = ''
+      }
+      const val = fieldValue.toLowerCase()
+      const target = filter.value.toLowerCase()
+      switch (filter.operator) {
+        case 'contains': return val.includes(target)
+        case 'not_contains': return !val.includes(target)
+        case 'equals': return val === target
+        case 'not_equals': return val !== target
+        default: return true
+      }
+    })
+  })
+})
+
+function handleViewChange(filters: TaskViewFilter[], sortRules: TaskViewSortRule[]) {
+  viewFilters.value = filters
+  viewSortRules.value = sortRules
+}
 
 function getTaskTypeLabel(taskType: string | null | undefined) {
   if (taskType === 'manual') return '手动运行'
@@ -531,6 +567,8 @@ async function handleImport(event: Event) {
       </div>
     </div>
 
+    <ViewManager @view-change="handleViewChange" />
+
     <div class="filter-bar">
       <el-input v-model="keyword" placeholder="搜索任务名称/命令" clearable style="width: 260px" @keyup.enter="handleSearch" @clear="handleSearch">
         <template #prefix><el-icon><Search /></el-icon></template>
@@ -552,7 +590,7 @@ async function handleImport(event: Event) {
 
     <div v-if="isMobile" class="dd-mobile-list">
       <div
-        v-for="row in tasks"
+        v-for="row in filteredTasks"
         :key="row.id"
         class="dd-mobile-card task-card"
       >
@@ -677,7 +715,7 @@ async function handleImport(event: Event) {
     <el-table
       v-else
       v-loading="loading"
-      :data="tasks"
+      :data="filteredTasks"
       @selection-change="handleSelectionChange"
       stripe
       style="width: 100%"

@@ -290,11 +290,12 @@ func sendDingtalk(cfg map[string]string, title, content string) error {
 		}
 		webhook = webhook + sep + "timestamp=" + timestamp + "&sign=" + sign
 	}
+	mdContent := strings.ReplaceAll(content, "\n", "  \n")
 	body := map[string]interface{}{
 		"msgtype": "markdown",
 		"markdown": map[string]string{
 			"title": title,
-			"text":  fmt.Sprintf("### %s\n%s", title, content),
+			"text":  fmt.Sprintf("### %s  \n%s", title, mdContent),
 		},
 	}
 	return httpPost(webhook, body, nil)
@@ -844,7 +845,7 @@ func sendDiscord(cfg map[string]string, title, content string) error {
 func sendSlack(cfg map[string]string, title, content string) error {
 	webhook := cfg["webhook"]
 	body := map[string]interface{}{
-		"text": fmt.Sprintf("*%s*\n%s", title, content),
+		"text": fmt.Sprintf("*%s*\n\n%s", title, content),
 	}
 	return httpPost(webhook, body, nil)
 }

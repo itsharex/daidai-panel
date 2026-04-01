@@ -430,11 +430,26 @@ func (h *EnvHandler) BatchDisable(c *gin.Context) {
 func (h *EnvHandler) BatchRename(c *gin.Context) {
 	var req struct {
 		IDs     []uint `json:"ids" binding:"required"`
+		Name    string `json:"name"`
 		Search  string `json:"search"`
 		Replace string `json:"replace"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "请求参数错误")
+		return
+	}
+
+	directName := strings.TrimSpace(req.Name)
+	if directName != "" {
+		if !envNamePattern.MatchString(directName) {
+			response.BadRequest(c, fmt.Sprintf("变量名 '%s' 格式无效", directName))
+			return
+		}
+		if err := database.DB.Model(&model.EnvVar{}).Where("id IN ?", req.IDs).Update("name", directName).Error; err != nil {
+			response.InternalError(c, "批量改名失败")
+			return
+		}
+		response.Success(c, gin.H{"message": fmt.Sprintf("已将 %d 个变量重命名为 %s", len(req.IDs), directName)})
 		return
 	}
 

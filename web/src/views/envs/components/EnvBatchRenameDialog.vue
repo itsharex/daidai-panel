@@ -8,11 +8,10 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
-  confirm: [payload: { search: string; replace: string }]
+  confirm: [payload: { name: string }]
 }>()
 
-const searchText = ref('')
-const replaceText = ref('')
+const newName = ref('')
 const { dialogFullscreen } = useResponsive()
 
 function closeDialog() {
@@ -20,18 +19,14 @@ function closeDialog() {
 }
 
 function handleConfirm() {
-  emit('confirm', {
-    search: searchText.value,
-    replace: replaceText.value
-  })
+  emit('confirm', { name: newName.value })
 }
 
 watch(
   () => props.modelValue,
   (visible) => {
     if (!visible) {
-      searchText.value = ''
-      replaceText.value = ''
+      newName.value = ''
     }
   }
 )
@@ -47,19 +42,11 @@ watch(
     @update:model-value="emit('update:modelValue', $event)"
   >
     <el-form :label-width="dialogFullscreen ? 'auto' : '80px'" :label-position="dialogFullscreen ? 'top' : 'right'">
-      <el-form-item label="查找内容">
+      <el-form-item label="新变量名">
         <el-input
-          v-model="searchText"
+          v-model="newName"
           clearable
-          placeholder="例如 COOKIE"
-          @keyup.enter="handleConfirm"
-        />
-      </el-form-item>
-      <el-form-item label="替换为">
-        <el-input
-          v-model="replaceText"
-          clearable
-          placeholder="例如 TOKEN，留空则删除匹配内容"
+          placeholder="请输入新的变量名"
           @keyup.enter="handleConfirm"
         />
       </el-form-item>
@@ -67,7 +54,7 @@ watch(
         type="info"
         :closable="false"
         show-icon
-        title="仅会修改已勾选环境变量的名称，变量值和备注不会变化。"
+        title="所有选中的环境变量将统一改为此名称，变量值和备注不会变化。"
       />
     </el-form>
     <template #footer>

@@ -522,9 +522,9 @@ function handleBatchRename() {
   showBatchRenameDialog.value = true
 }
 
-async function confirmBatchRename(payload: { search: string; replace: string }) {
+async function confirmBatchRename(payload: { name: string }) {
   try {
-    const res = await envApi.batchRename(selectedIds.value, payload.search, payload.replace)
+    const res = await envApi.batchRename(selectedIds.value, payload.name)
     ElMessage.success(res.message || '批量改名成功')
     showBatchRenameDialog.value = false
     clearTableSelection()
@@ -631,6 +631,11 @@ async function refreshExport() {
 
 function copyExport() {
   navigator.clipboard.writeText(exportContent.value)
+  ElMessage.success('已复制到剪贴板')
+}
+
+function copyEnvValue(value: string) {
+  navigator.clipboard.writeText(value)
   ElMessage.success('已复制到剪贴板')
 }
 
@@ -766,7 +771,12 @@ function formatDateTime(t: string | null) {
             <div class="dd-mobile-card__grid">
               <div class="dd-mobile-card__field dd-mobile-card__field--full">
                 <span class="dd-mobile-card__label">值</span>
-                <span class="dd-mobile-card__value env-value-text">{{ row.value || '-' }}</span>
+                <div class="dd-mobile-card__value env-value-cell">
+                  <span class="env-value-text">{{ row.value || '-' }}</span>
+                  <el-button v-if="row.value" size="small" link @click.stop="copyEnvValue(row.value)">
+                    <el-icon :size="14"><CopyDocument /></el-icon>
+                  </el-button>
+                </div>
               </div>
               <div class="dd-mobile-card__field dd-mobile-card__field--full">
                 <span class="dd-mobile-card__label">备注</span>
@@ -874,7 +884,14 @@ function formatDateTime(t: string | null) {
           </div>
         </template>
         <template #default="{ row }">
-          <span class="env-value-text" :title="row.value || ''">{{ row.value || '-' }}</span>
+          <div class="env-value-cell">
+            <span class="env-value-text" :title="row.value || ''">{{ row.value || '-' }}</span>
+            <el-tooltip v-if="row.value" content="复制" placement="top">
+              <el-button class="env-copy-btn" size="small" link @click.stop="copyEnvValue(row.value)">
+                <el-icon :size="14"><CopyDocument /></el-icon>
+              </el-button>
+            </el-tooltip>
+          </div>
         </template>
       </el-table-column>
       <el-table-column prop="remarks" label="备注" min-width="180">
@@ -1327,9 +1344,28 @@ function formatDateTime(t: string | null) {
   white-space: nowrap;
 }
 
+.env-value-cell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
 .env-value-text {
   font-family: var(--dd-font-mono);
   color: var(--el-text-color-primary);
+}
+
+.env-copy-btn {
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.2s;
+  color: var(--el-text-color-secondary);
+  padding: 2px;
+}
+
+:deep(.el-table__row:hover) .env-copy-btn {
+  opacity: 1;
 }
 
 .env-remarks-text {

@@ -48,6 +48,7 @@ if _dd_auto_install_enabled:
     import ast as _dd_ast, tokenize as _dd_tok, io as _dd_io
     _dd_stdlib_names = set(sys.stdlib_module_names) if hasattr(sys, "stdlib_module_names") else set(sys.builtin_module_names)
     _dd_stdlib_names |= set(sys.builtin_module_names)
+    _dd_stdlib_names |= {"sendNotify", "notify", "CryptoJS", "ql", "qlApi", "jdCookie"}
 
     def _dd_scan_imports(path):
         try:
@@ -404,6 +405,33 @@ if (mergedNodePaths.length > 0) {
   process.env.NODE_PATH = mergedNodePaths.join(path.delimiter);
   Module._initPaths();
 }
+const _origResolve = Module._resolveFilename;
+Module._resolveFilename = function(request, parent, isMain, options) {
+  try {
+    return _origResolve.call(this, request, parent, isMain, options);
+  } catch (err) {
+    if (err.code === 'ERR_PACKAGE_PATH_NOT_EXPORTED') {
+      const parts = request.split('/');
+      const pkgName = parts[0].startsWith('@') ? parts.slice(0, 2).join('/') : parts[0];
+      for (const np of (process.env.NODE_PATH || '').split(path.delimiter)) {
+        if (!np) continue;
+        try {
+          const pkgJsonPath = path.join(np, pkgName, 'package.json');
+          const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
+          const mainFile = pkgJson.main || 'index.js';
+          const subPath = parts.slice(pkgName.startsWith('@') ? 2 : 1).join('/');
+          const resolved = subPath
+            ? path.join(np, pkgName, subPath)
+            : path.join(np, pkgName, mainFile);
+          if (fs.existsSync(resolved)) return resolved;
+          if (fs.existsSync(resolved + '.js')) return resolved + '.js';
+          if (!subPath) return resolved;
+        } catch (_) {}
+      }
+    }
+    throw err;
+  }
+};
 const helperPath = %s;
 if (helperPath) {
   require(helperPath);

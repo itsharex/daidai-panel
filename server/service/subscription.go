@@ -189,22 +189,53 @@ func pullGitRepoWithCallback(ctx context.Context, sub *model.Subscription, sshKe
 			return fullOutput.String(), err
 		}
 
-		emit("[覆盖更新本地文件] 正在用远端最新提交覆盖当前订阅目录中的仓库内容")
-		cmd = exec.CommandContext(ctx, "git", "reset", "--hard", "FETCH_HEAD")
-		cmd.Dir = destDir
-		cmd.Env = env
-		output, err = runCmdWithCallback(ctx, cmd, emit)
-		fullOutput.WriteString(output)
-		if err != nil {
-			return fullOutput.String(), err
-		}
+		forceOverwrite := sub.ForceOverwrite == nil || *sub.ForceOverwrite
+		if forceOverwrite {
+			emit("[覆盖更新本地文件] 正在用远端最新提交覆盖当前订阅目录中的仓库内容")
+			cmd = exec.CommandContext(ctx, "git", "reset", "--hard", "FETCH_HEAD")
+			cmd.Dir = destDir
+			cmd.Env = env
+			output, err = runCmdWithCallback(ctx, cmd, emit)
+			fullOutput.WriteString(output)
+			if err != nil {
+				return fullOutput.String(), err
+			}
 
-		emit("[清理旧文件] 正在删除远端仓库已移除、但本地仍残留的文件和目录")
-		cmd = exec.CommandContext(ctx, "git", "clean", "-fd")
-		cmd.Dir = destDir
-		cmd.Env = env
-		output, err = runCmdWithCallback(ctx, cmd, emit)
-		fullOutput.WriteString(output)
+			emit("[清理旧文件] 正在删除远端仓库已移除、但本地仍残留的文件和目录")
+			cmd = exec.CommandContext(ctx, "git", "clean", "-fd")
+			cmd.Dir = destDir
+			cmd.Env = env
+			output, err = runCmdWithCallback(ctx, cmd, emit)
+			fullOutput.WriteString(output)
+		} else {
+			emit("[保留本地修改] 正在合并远端更新（保留本地修改的文件）")
+			cmd = exec.CommandContext(ctx, "git", "stash")
+			cmd.Dir = destDir
+			cmd.Env = env
+			stashOutput, _ := runCmdWithCallback(ctx, cmd, emit)
+			hasStash := !strings.Contains(stashOutput, "No local changes")
+
+			cmd = exec.CommandContext(ctx, "git", "reset", "--hard", "FETCH_HEAD")
+			cmd.Dir = destDir
+			cmd.Env = env
+			output, err = runCmdWithCallback(ctx, cmd, emit)
+			fullOutput.WriteString(output)
+			if err != nil {
+				return fullOutput.String(), err
+			}
+
+			if hasStash {
+				emit("[恢复本地修改] 正在恢复之前暂存的本地修改")
+				cmd = exec.CommandContext(ctx, "git", "stash", "pop")
+				cmd.Dir = destDir
+				cmd.Env = env
+				output, err = runCmdWithCallback(ctx, cmd, emit)
+				fullOutput.WriteString(output)
+				if err != nil {
+					emit("[提示] 本地修改与远端更新存在冲突，请手动处理")
+				}
+			}
+		}
 		return fullOutput.String(), err
 	}
 
@@ -260,6 +291,7 @@ func pullGitRepoWithCallback(ctx context.Context, sub *model.Subscription, sshKe
 				return fullOutput.String(), fmt.Errorf("拉取已停止")
 			}
 
+			forceOverwrite := sub.ForceOverwrite == nil || *sub.ForceOverwrite
 			emit("[覆盖更新本地文件] 正在用远端最新提交覆盖当前脚本目录内容")
 			cmd = exec.CommandContext(ctx, "git", "reset", "--hard", "FETCH_HEAD")
 			cmd.Dir = destDir
@@ -270,14 +302,18 @@ func pullGitRepoWithCallback(ctx context.Context, sub *model.Subscription, sshKe
 				return fullOutput.String(), err
 			}
 
-			emit("[清理旧文件] 正在删除远端仓库已移除、但本地仍残留的文件和目录")
-			cmd = exec.CommandContext(ctx, "git", "clean", "-fd")
-			cmd.Dir = destDir
-			cmd.Env = env
-			output, err = runCmdWithCallback(ctx, cmd, emit)
-			fullOutput.WriteString(output)
-			if err != nil {
-				return fullOutput.String(), err
+			if forceOverwrite {
+				emit("[清理旧文件] 正在删除远端仓库已移除、但本地仍残留的文件和目录")
+				cmd = exec.CommandContext(ctx, "git", "clean", "-fd")
+				cmd.Dir = destDir
+				cmd.Env = env
+				output, err = runCmdWithCallback(ctx, cmd, emit)
+				fullOutput.WriteString(output)
+				if err != nil {
+					return fullOutput.String(), err
+				}
+			} else {
+				emit("[保留本地文件] 跳过清理本地多余文件")
 			}
 			return fullOutput.String(), nil
 		}
@@ -357,7 +393,7 @@ func writeTempSSHKey(privateKey string) (string, error) {
 	return tmpFile.Name(), nil
 }
 
-var cronCommentRe = regexp.MustCompile(`(?i)#\s*cron\s*[:：]\s*(.+)`)
+var cronCommentRe = regexp.MustCompile(`(?im)^\s*#?\s*cron\s*[:：]\s*(.+)$`)
 
 type subscriptionTaskSyncOptions struct {
 	autoAdd     bool

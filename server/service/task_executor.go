@@ -301,6 +301,9 @@ func (e *TaskExecutor) runTask(req *ExecutionRequest, taskLog *model.TaskLog, ti
 		result, _, err := RunCommandWithPlan(plan, effectiveTimeout, envVars, maxLogSize, onOutputWithCollect, onStart)
 		if err != nil {
 			onOutput(fmt.Sprintf("[执行错误: %s]", err.Error()))
+			if strings.Contains(err.Error(), "illegal instruction") || strings.Contains(err.Error(), "core dumped") {
+				onOutput("[提示] 该错误通常是因为当前 CPU 不支持程序所需的指令集（如 AVX/SSE），常见于部分 VPS 或 ARM 设备。建议更换支持相关指令集的服务器。")
+			}
 			retries++
 			lastExitCode = 1
 			outputCollectorMu.Lock()

@@ -27,9 +27,10 @@ type Subscription struct {
 	LastPullAt  *time.Time `json:"last_pull_at"`
 	SaveDir     string     `gorm:"size:512;default:''" json:"save_dir"`
 	SSHKeyID    *uint      `json:"ssh_key_id"`
-	Alias       string     `gorm:"size:128;default:''" json:"alias"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
+	Alias          string     `gorm:"size:128;default:''" json:"alias"`
+	ForceOverwrite *bool      `gorm:"default:true" json:"force_overwrite"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
 }
 
 func (Subscription) TableName() string {
@@ -53,11 +54,12 @@ func (s *Subscription) ToDict() map[string]interface{} {
 		"enabled":       s.Enabled,
 		"status":        s.Status,
 		"last_pull_at":  s.LastPullAt,
-		"save_dir":      s.SaveDir,
-		"ssh_key_id":    s.SSHKeyID,
-		"alias":         s.Alias,
-		"created_at":    s.CreatedAt,
-		"updated_at":    s.UpdatedAt,
+		"save_dir":        s.SaveDir,
+		"ssh_key_id":      s.SSHKeyID,
+		"alias":           s.Alias,
+		"force_overwrite": s.ForceOverwrite == nil || *s.ForceOverwrite,
+		"created_at":      s.CreatedAt,
+		"updated_at":      s.UpdatedAt,
 	}
 }
 

@@ -130,11 +130,11 @@ async function fetchLatestLog(retryCount = 0) {
     }
   } catch (err: any) {
     if (err?.response?.status === 404) {
-      if (retryCount < 3 && props.visible) {
+      if (retryCount < 5 && props.visible) {
         reconnectTimer = setTimeout(() => {
           reconnectTimer = null
           void fetchLatestLog(retryCount + 1)
-        }, 350)
+        }, 500)
         return
       }
       error.value = '暂无日志记录'

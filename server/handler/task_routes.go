@@ -39,5 +39,10 @@ func (h *TaskHandler) RegisterRoutes(r *gin.RouterGroup) {
 		tasks.POST("/batch/run", middleware.RequireRole("operator"), h.BatchRun)
 		tasks.DELETE("/clean-logs", middleware.RequireRole("operator"), h.CleanLogs)
 		tasks.POST("/import", middleware.RequireRole("operator"), h.Import)
+
+		tasks.GET("/views", middleware.RequireRole("viewer"), h.ListViews)
+		tasks.POST("/views", middleware.RequireRole("operator"), h.CreateView)
+		tasks.PUT("/views/:viewId", middleware.RequireRole("operator"), h.UpdateView)
+		tasks.DELETE("/views/:viewId", middleware.RequireRole("operator"), h.DeleteView)
 	}
 }

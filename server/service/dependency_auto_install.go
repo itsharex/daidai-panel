@@ -16,6 +16,16 @@ var (
 	autoInstallNodeModuleRe = regexp.MustCompile(`(?:Cannot find module|Error \[ERR_MODULE_NOT_FOUND\].*)\s*'([^']+)'`)
 	autoInstallPyModuleRe   = regexp.MustCompile(`(?:ModuleNotFoundError|ImportError):\s*No module named\s+'([^']+)'`)
 	autoInstallGoModuleRe   = regexp.MustCompile(`(?:no required module provides package|missing go\.sum entry for module providing package)\s+([^\s:;]+)`)
+
+	thirdPartyExcludedModules = map[string]bool{
+		"sendNotify":   true,
+		"notify":       true,
+		"CryptoJS":     true,
+		"ql":           true,
+		"qlApi":        true,
+		"jdCookie":     true,
+		"JD_DmFruitShareCodes": true,
+	}
 )
 
 type AutoInstallCandidate struct {
@@ -41,7 +51,7 @@ func DetectAutoInstallCandidate(ext, output, workDir string) *AutoInstallCandida
 	case ".py":
 		if matches := autoInstallPyModuleRe.FindStringSubmatch(output); len(matches) > 1 {
 			requested := strings.Split(matches[1], ".")[0]
-			if isPythonStdlib(requested) {
+			if isPythonStdlib(requested) || thirdPartyExcludedModules[requested] {
 				return nil
 			}
 			packageName := ResolvePythonAutoInstallPackage(requested)
@@ -58,7 +68,7 @@ func DetectAutoInstallCandidate(ext, output, workDir string) *AutoInstallCandida
 	case ".js", ".ts":
 		if matches := autoInstallNodeModuleRe.FindStringSubmatch(output); len(matches) > 1 {
 			requested := strings.TrimSpace(matches[1])
-			if requested == "" || strings.HasPrefix(requested, ".") || strings.HasPrefix(requested, "/") {
+			if requested == "" || strings.HasPrefix(requested, ".") || strings.HasPrefix(requested, "/") || thirdPartyExcludedModules[requested] {
 				return nil
 			}
 			return &AutoInstallCandidate{
