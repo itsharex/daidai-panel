@@ -22,7 +22,7 @@ type managedRuntimePaths struct {
 	VenvSitePackages string
 	SanitizedPath    string
 
-	searchDirs       []string
+	searchDirs []string
 }
 
 const pythonEnvBootstrap = `import builtins, importlib, json, os, runpy, subprocess, sys
@@ -124,8 +124,8 @@ func BuildManagedRuntimeEnvMap(workDir, scriptsDir string, defaultChannelID *uin
 	if runtimePaths.SanitizedPath != "" {
 		envMap["PATH"] = joinPathSegments(runtimePaths.VenvBin, runtimePaths.SanitizedPath, runtimePaths.NodeBin)
 	}
-	if runtimePaths.VenvSitePackages != "" {
-		envMap["PYTHONPATH"] = runtimePaths.VenvSitePackages
+	if pythonPath := buildManagedPythonPath(envMap["PYTHONPATH"], workDir, scriptsDir, runtimePaths.VenvSitePackages); pythonPath != "" {
+		envMap["PYTHONPATH"] = pythonPath
 	}
 	if model.GetRegisteredConfigBool("auto_install_deps") {
 		envMap["DD_AUTO_INSTALL_DEPS"] = "1"
@@ -145,6 +145,10 @@ func BuildManagedRuntimeEnvMap(workDir, scriptsDir string, defaultChannelID *uin
 	}
 
 	return envMap, helperErr
+}
+
+func buildManagedPythonPath(existingPythonPath, workDir, scriptsDir, venvSitePackages string) string {
+	return joinPathSegments(workDir, scriptsDir, existingPythonPath, venvSitePackages)
 }
 
 func CreateManagedCommand(interpreter, scriptPath string, scriptArgs []string, workDir string, envVars map[string]string) (*exec.Cmd, func(), error) {

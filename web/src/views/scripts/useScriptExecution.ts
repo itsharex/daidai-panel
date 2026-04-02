@@ -157,7 +157,11 @@ export function useScriptExecution({ selectedFile, fileContent }: UseScriptExecu
     try {
       const shouldRunTempContent = debugCodeChanged.value || debugCode.value !== fileContent.value
       const res = shouldRunTempContent
-        ? await scriptApi.debugRun({ content: debugCode.value, language: runnerLanguageForFile(selectedFile.value) })
+        ? await scriptApi.debugRun({
+            path: selectedFile.value,
+            content: debugCode.value,
+            language: runnerLanguageForFile(selectedFile.value)
+          })
         : await scriptApi.debugRun({ path: selectedFile.value })
       debugRunId.value = res.run_id
       pollDebugLogs()

@@ -2,6 +2,9 @@ package service
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -26,5 +29,31 @@ func TestBuildManagedRuntimeEnvMapIncludesPythonAutoInstallSettings(t *testing.T
 	}
 	if got := aliases["crypto"]; got != "pycryptodome" {
 		t.Fatalf("expected crypto alias to be pycryptodome, got %q", got)
+	}
+}
+
+func TestBuildManagedPythonPathPrioritizesWorkDirAndScriptsDir(t *testing.T) {
+	got := buildManagedPythonPath(
+		filepath.Clean("/custom/pythonpath"),
+		filepath.Clean("/work/scripts/subdir"),
+		filepath.Clean("/work/scripts"),
+		filepath.Clean("/deps/python/venv/lib/python3.11/site-packages"),
+	)
+
+	parts := strings.Split(got, string(os.PathListSeparator))
+	want := []string{
+		filepath.Clean("/work/scripts/subdir"),
+		filepath.Clean("/work/scripts"),
+		filepath.Clean("/custom/pythonpath"),
+		filepath.Clean("/deps/python/venv/lib/python3.11/site-packages"),
+	}
+
+	if len(parts) != len(want) {
+		t.Fatalf("unexpected python path parts: got=%v want=%v", parts, want)
+	}
+	for idx, expected := range want {
+		if parts[idx] != expected {
+			t.Fatalf("python path order mismatch at %d: got=%q want=%q (all=%v)", idx, parts[idx], expected, parts)
+		}
 	}
 }

@@ -191,7 +191,7 @@ docker compose -f docker-compose.debian.yml up -d
 如果你是基于当前源码本地试跑，也可以手动构建：
 
 ```bash
-docker build --build-arg VERSION=1.9.9 -f Dockerfile.debian -t daidai-panel:debian-local .
+docker build --build-arg VERSION=2.0.3 -f Dockerfile.debian -t daidai-panel:debian-local .
 ```
 
 从 `v1.9.0` 开始，仓库里的发布工作流会自动发布 Debian 运行时镜像。Debian 运行时只保留一个滚动标签：
@@ -289,17 +289,17 @@ docker run -d \
 
 ## 自动发布
 
-仓库已配置 GitHub Actions 发布工作流。推送形如 `v1.9.9` 的 tag 后，会自动完成：
+仓库已配置 GitHub Actions 发布工作流。推送形如 `v2.0.3` 的 tag 后，会自动完成：
 
 - 创建 GitHub Release
 - 推送 Alpine 运行时镜像：`linzixuanzz/daidai-panel:latest`
-- 推送 Alpine 版本镜像：`linzixuanzz/daidai-panel:1.9.9`
+- 推送 Alpine 版本镜像：`linzixuanzz/daidai-panel:2.0.3`
 - 推送 Debian 运行时镜像：`linzixuanzz/daidai-panel:debian`
 
 发布前请先准备对应版本的更新日志文件，例如：
 
 ```text
-docs/release-notes/v1.9.9.md
+docs/release-notes/v2.0.3.md
 ```
 
 工作流会优先读取这份文件作为 GitHub Release 正文；如果缺失，会直接失败并提示补齐，确保每次发布都带有明确更新日志。
@@ -307,8 +307,8 @@ docs/release-notes/v1.9.9.md
 本次版本发布命令示例：
 
 ```bash
-git tag v1.9.9
-git push origin v1.9.9
+git tag v2.0.3
+git push origin v2.0.3
 ```
 
 ## 更新方法
@@ -327,7 +327,7 @@ docker compose up -d
 如果你当前使用的是源码仓库里手动本地构建的 Debian 运行时镜像，更新方式是重新构建：
 
 ```bash
-docker build --build-arg VERSION=1.9.9 -f Dockerfile.debian -t daidai-panel:debian-local .
+docker build --build-arg VERSION=2.0.3 -f Dockerfile.debian -t daidai-panel:debian-local .
 ```
 
 如果你使用的是 Debian 运行时镜像，则按下面方式更新：

@@ -332,10 +332,14 @@ func collectVolumeMappings(info *dockerInspectInfo) []string {
 		if bind == "" {
 			continue
 		}
-		if _, exists := seen[bind]; exists {
+		key, ok := buildVolumeMappingDedupKeyFromRaw(bind)
+		if !ok {
+			key = bind
+		}
+		if _, exists := seen[key]; exists {
 			continue
 		}
-		seen[bind] = struct{}{}
+		seen[key] = struct{}{}
 		result = append(result, bind)
 	}
 
@@ -366,15 +370,57 @@ func collectVolumeMappings(info *dockerInspectInfo) []string {
 		if !mount.RW {
 			mapping += ":ro"
 		}
-		if _, exists := seen[mapping]; exists {
+		key := buildVolumeMappingDedupKey(source, destination, !mount.RW)
+		if _, exists := seen[key]; exists {
 			continue
 		}
-		seen[mapping] = struct{}{}
+		seen[key] = struct{}{}
 		result = append(result, mapping)
 	}
 
 	sort.Strings(result)
 	return result
+}
+
+func buildVolumeMappingDedupKey(source, destination string, readOnly bool) string {
+	mode := "rw"
+	if readOnly {
+		mode = "ro"
+	}
+	return strings.TrimSpace(source) + "\x00" + strings.TrimSpace(destination) + "\x00" + mode
+}
+
+func buildVolumeMappingDedupKeyFromRaw(mapping string) (string, bool) {
+	mapping = strings.TrimSpace(mapping)
+	if mapping == "" {
+		return "", false
+	}
+
+	parts := strings.Split(mapping, ":")
+	if len(parts) < 2 {
+		return "", false
+	}
+
+	source := strings.TrimSpace(parts[0])
+	destination := strings.TrimSpace(parts[1])
+	if source == "" || destination == "" {
+		return "", false
+	}
+
+	readOnly := false
+	for _, rawOptionGroup := range parts[2:] {
+		for _, option := range strings.Split(rawOptionGroup, ",") {
+			if strings.EqualFold(strings.TrimSpace(option), "ro") {
+				readOnly = true
+				break
+			}
+		}
+		if readOnly {
+			break
+		}
+	}
+
+	return buildVolumeMappingDedupKey(source, destination, readOnly), true
 }
 
 func filterContainerEnv(envList []string) []string {

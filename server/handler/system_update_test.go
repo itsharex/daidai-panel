@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -114,6 +115,107 @@ func TestCollectVolumeMappingsKeepsCustomBindPath(t *testing.T) {
 	}
 	if got[1] != "/var/run/docker.sock:/var/run/docker.sock" {
 		t.Fatalf("expected docker socket bind to be preserved, got %v", got)
+	}
+}
+
+func TestCollectVolumeMappingsPreservesNamedVolumeAlongsideBind(t *testing.T) {
+	info := &dockerInspectInfo{
+		HostConfig: dockerInspectHostConfig{
+			Binds: []string{
+				"/var/run/docker.sock:/var/run/docker.sock",
+			},
+		},
+		Mounts: []dockerInspectMount{
+			{Type: "volume", Name: "daidai_panel_data", Destination: "/app/Dumb-Panel", RW: true},
+			{Type: "bind", Source: "/var/run/docker.sock", Destination: "/var/run/docker.sock", RW: true},
+		},
+	}
+
+	got := collectVolumeMappings(info)
+	if len(got) != 2 {
+		t.Fatalf("expected both named volume and bind mount to be preserved, got %v", got)
+	}
+
+	gotSet := make(map[string]struct{}, len(got))
+	for _, mapping := range got {
+		gotSet[mapping] = struct{}{}
+	}
+
+	if _, exists := gotSet["daidai_panel_data:/app/Dumb-Panel"]; !exists {
+		t.Fatalf("expected named data volume to be preserved, got %v", got)
+	}
+	if _, exists := gotSet["/var/run/docker.sock:/var/run/docker.sock"]; !exists {
+		t.Fatalf("expected docker socket bind to be preserved, got %v", got)
+	}
+}
+
+func TestCollectVolumeMappingsDeduplicatesEquivalentRWBindings(t *testing.T) {
+	info := &dockerInspectInfo{
+		HostConfig: dockerInspectHostConfig{
+			Binds: []string{
+				"/srv/panel-data:/app/Dumb-Panel:rw",
+				"/var/run/docker.sock:/var/run/docker.sock:rw",
+			},
+		},
+		Mounts: []dockerInspectMount{
+			{Type: "bind", Source: "/srv/panel-data", Destination: "/app/Dumb-Panel", RW: true},
+			{Type: "bind", Source: "/var/run/docker.sock", Destination: "/var/run/docker.sock", RW: true},
+		},
+	}
+
+	got := collectVolumeMappings(info)
+	if len(got) != 2 {
+		t.Fatalf("expected equivalent rw bindings to be deduplicated, got %v", got)
+	}
+
+	gotSet := make(map[string]struct{}, len(got))
+	for _, mapping := range got {
+		gotSet[mapping] = struct{}{}
+	}
+
+	if _, exists := gotSet["/srv/panel-data:/app/Dumb-Panel:rw"]; !exists {
+		t.Fatalf("expected original data bind to be preserved, got %v", got)
+	}
+	if _, exists := gotSet["/var/run/docker.sock:/var/run/docker.sock:rw"]; !exists {
+		t.Fatalf("expected original docker socket bind to be preserved, got %v", got)
+	}
+}
+
+func TestBuildContainerRunArgsPreservesCustomDataDirEnvAndMount(t *testing.T) {
+	info := &dockerInspectInfo{
+		HostConfig: dockerInspectHostConfig{
+			Binds: []string{
+				"/opt/daidai-data:/srv/custom-data",
+				"/var/run/docker.sock:/var/run/docker.sock",
+			},
+		},
+		Config: dockerInspectConfig{
+			Env: []string{
+				"TZ=Asia/Shanghai",
+				"DATA_DIR=/srv/custom-data",
+				"CONTAINER_NAME=daidai-panel",
+				"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+			},
+		},
+		Mounts: []dockerInspectMount{
+			{Type: "bind", Source: "/opt/daidai-data", Destination: "/srv/custom-data", RW: true},
+			{Type: "bind", Source: "/var/run/docker.sock", Destination: "/var/run/docker.sock", RW: true},
+		},
+	}
+
+	got := buildContainerRunArgs("daidai-panel", "linzixuanzz/daidai-panel:latest", info)
+
+	if !slices.Contains(got, "/opt/daidai-data:/srv/custom-data") {
+		t.Fatalf("expected custom data mount to be preserved, got %v", got)
+	}
+	if !slices.Contains(got, "DATA_DIR=/srv/custom-data") {
+		t.Fatalf("expected custom DATA_DIR env to be preserved, got %v", got)
+	}
+	if slices.Contains(got, "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin") {
+		t.Fatalf("expected runtime PATH env to be filtered out, got %v", got)
+	}
+	if got[len(got)-1] != "linzixuanzz/daidai-panel:latest" {
+		t.Fatalf("expected image name to remain the final run arg, got %v", got)
 	}
 }
 

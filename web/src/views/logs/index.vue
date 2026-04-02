@@ -37,6 +37,7 @@ const fileContentName = ref('')
 
 async function loadLogs() {
   loading.value = true
+  selectedIds.value = []
   try {
     const params: any = { page: page.value, page_size: pageSize.value }
     if (taskIdFilter.value) params.task_id = taskIdFilter.value
@@ -291,7 +292,7 @@ onBeforeUnmount(() => {
           <el-icon><Refresh /></el-icon> {{ autoRefresh ? '停止刷新' : '自动刷新' }}
         </el-button>
         <el-button @click="handleBatchDelete" :disabled="selectedIds.length === 0">
-          <el-icon><Delete /></el-icon> 批量删除
+          <el-icon><Delete /></el-icon> 批量删除{{ selectedIds.length > 0 ? ` (${selectedIds.length})` : '' }}
         </el-button>
         <el-button type="danger" plain @click="handleClean">
           <el-icon><Delete /></el-icon> 清理日志
@@ -300,7 +301,7 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="filter-bar">
-      <el-input v-model="keyword" placeholder="搜索日志内容" clearable style="width: 220px" @keyup.enter="handleSearch" @clear="handleSearch">
+      <el-input v-model="keyword" placeholder="搜索任务名称" clearable style="width: 220px" @keyup.enter="handleSearch" @clear="handleSearch">
         <template #prefix><el-icon><Search /></el-icon></template>
       </el-input>
       <el-input v-model="taskIdFilter" placeholder="任务ID" clearable style="width: 120px" @change="handleSearch" />

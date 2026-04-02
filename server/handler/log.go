@@ -37,27 +37,30 @@ func (h *LogHandler) List(c *gin.Context) {
 		pageSize = 20
 	}
 
-	query := database.DB.Model(&model.TaskLog{}).Preload("Task")
+	query := database.DB.Model(&model.TaskLog{}).
+		Joins("LEFT JOIN tasks ON tasks.id = task_logs.task_id")
 
 	if taskIDStr != "" {
 		taskID, _ := strconv.ParseUint(taskIDStr, 10, 32)
-		query = query.Where("task_id = ?", taskID)
+		query = query.Where("task_logs.task_id = ?", taskID)
 	}
 	if statusStr != "" {
 		status, err := strconv.Atoi(statusStr)
 		if err == nil {
-			query = query.Where("status = ?", status)
+			query = query.Where("task_logs.status = ?", status)
 		}
 	}
 	if keyword != "" {
-		query = query.Where("content LIKE ?", "%"+keyword+"%")
+		query = query.Where("tasks.name LIKE ?", "%"+keyword+"%")
 	}
 
 	var total int64
 	query.Count(&total)
 
 	var logs []model.TaskLog
-	query.Order("started_at DESC").
+	query.Select("task_logs.*").
+		Preload("Task").
+		Order("task_logs.started_at DESC").
 		Offset((page - 1) * pageSize).Limit(pageSize).Find(&logs)
 
 	data := make([]map[string]interface{}, len(logs))

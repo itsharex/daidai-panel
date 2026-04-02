@@ -48,24 +48,22 @@ func (h *ScriptHandler) DebugRun(c *gin.Context) {
 			return
 		}
 
-		tmpDir := filepath.Join(os.TempDir(), "daidai-debug")
-		if err := os.MkdirAll(tmpDir, 0o755); err != nil {
-			response.InternalError(c, "创建调试目录失败")
+		inlinePath, inlineWorkDir, inlineCleanup, prepareErr := prepareInlineDebugFile(req.Path, ext)
+		if prepareErr != nil {
+			response.InternalError(c, fmt.Sprintf("创建调试文件失败: %s", prepareErr))
 			return
 		}
-
-		full = filepath.Join(tmpDir, fmt.Sprintf("debug_%d%s", time.Now().UnixMilli(), ext))
+		full = inlinePath
+		workDir = inlineWorkDir
+		cleanupFn = inlineCleanup
 		content := req.Content
 		if ext == ".sh" {
 			content = string(service.NormalizeShellLineEndings([]byte(content)))
 		}
 		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			cleanupFn()
 			response.InternalError(c, "创建调试文件失败")
 			return
-		}
-		workDir = tmpDir
-		cleanupFn = func() {
-			_ = os.Remove(full)
 		}
 	} else {
 		resolvedPath, err := safePath(req.Path, true)
@@ -174,6 +172,35 @@ func (h *ScriptHandler) DebugRun(c *gin.Context) {
 	}()
 
 	response.Created(c, gin.H{"message": "脚本已启动", "run_id": runID})
+}
+
+func prepareInlineDebugFile(requestPath, ext string) (full string, workDir string, cleanupFn func(), err error) {
+	cleanupFn = func() {}
+	fileName := fmt.Sprintf("debug_%d%s", time.Now().UnixMilli(), ext)
+	workDir = filepath.Join(os.TempDir(), "daidai-debug")
+
+	if trimmedPath := strings.TrimSpace(requestPath); trimmedPath != "" {
+		resolvedPath, resolveErr := safePath(trimmedPath, true)
+		if resolveErr != nil {
+			return "", "", cleanupFn, resolveErr
+		}
+		workDir = filepath.Dir(resolvedPath)
+		baseName := strings.TrimSuffix(filepath.Base(resolvedPath), filepath.Ext(resolvedPath))
+		if baseName == "" {
+			baseName = "debug"
+		}
+		fileName = fmt.Sprintf(".%s.daidai-debug-%d%s", baseName, time.Now().UnixMilli(), ext)
+	}
+
+	if err := os.MkdirAll(workDir, 0o755); err != nil {
+		return "", "", cleanupFn, err
+	}
+
+	full = filepath.Join(workDir, fileName)
+	cleanupFn = func() {
+		_ = os.Remove(full)
+	}
+	return full, workDir, cleanupFn, nil
 }
 
 func (h *ScriptHandler) DebugLogs(c *gin.Context) {

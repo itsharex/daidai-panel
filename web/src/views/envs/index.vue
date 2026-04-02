@@ -2,6 +2,7 @@
 import { ref, onMounted, onBeforeUnmount, nextTick, computed, watch, type CSSProperties } from 'vue'
 import { envApi } from '@/api/env'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { copyText } from '@/utils/clipboard'
 import EnvBatchCreateDialog from './components/EnvBatchCreateDialog.vue'
 import EnvBatchGroupDialog from './components/EnvBatchGroupDialog.vue'
 import EnvBatchRenameDialog from './components/EnvBatchRenameDialog.vue'
@@ -10,7 +11,11 @@ import EnvImportDialog from './components/EnvImportDialog.vue'
 import { useResponsive } from '@/composables/useResponsive'
 
 const envTableDensityStorageKey = 'daidai-env-table-density'
+const envPageSizeStorageKey = 'daidai-env-page-size'
+const envAllFetchBatchSize = 100
 const { isMobile } = useResponsive()
+
+type EnvPageSizeSelection = '20' | '50' | '100' | 'all'
 
 type EnvFormModel = {
   id: number
@@ -24,7 +29,9 @@ const envList = ref<any[]>([])
 const loading = ref(true)
 const total = ref(0)
 const page = ref(1)
-const pageSize = ref(20)
+const initialPageSizeSelection = readEnvPageSizeSelection()
+const pageSizeSelection = ref<EnvPageSizeSelection>(initialPageSizeSelection)
+const pageSize = ref(initialPageSizeSelection === 'all' ? envAllFetchBatchSize : Number(initialPageSizeSelection))
 const keyword = ref('')
 const currentGroup = ref('')
 const groupFilter = ref('')
@@ -34,8 +41,21 @@ const selectedIdSet = computed(() => new Set(selectedIds.value))
 const selectedCountInCurrentPage = computed(() =>
   envList.value.filter((item) => selectedIdSet.value.has(item.id)).length
 )
+const showAllEnvs = computed(() => pageSizeSelection.value === 'all')
 const pinnedCountInCurrentPage = computed(() =>
   envList.value.filter((item) => isTopPinned(item)).length
+)
+const currentPageOffset = computed(() => (showAllEnvs.value ? 0 : (page.value - 1) * pageSize.value))
+const showFooterBar = computed(() => total.value > 0 || selectedCountInCurrentPage.value > 0)
+const showPager = computed(() => !showAllEnvs.value && total.value > pageSize.value)
+const pageSizeOptions: Array<{ label: string; value: EnvPageSizeSelection }> = [
+  { label: '20 / 页', value: '20' },
+  { label: '50 / 页', value: '50' },
+  { label: '100 / 页', value: '100' },
+  { label: '全部', value: 'all' }
+]
+const selectionScopeText = computed(() =>
+  showAllEnvs.value ? '批量操作作用于当前已勾选的数据。' : '批量操作仅作用于当前页勾选的数据。'
 )
 const tableDensity = ref<'comfortable' | 'compact'>(
   typeof window !== 'undefined' && window.localStorage.getItem(envTableDensityStorageKey) === 'compact'
@@ -76,6 +96,31 @@ let dragAutoScrollFrame = 0
 let sortableInitFrame = 0
 let desktopTableReadyFrame = 0
 const groupBadgeStyleCache = new Map<string, CSSProperties>()
+
+function readEnvPageSizeSelection(): EnvPageSizeSelection {
+  if (typeof window === 'undefined') {
+    return '20'
+  }
+
+  const raw = window.localStorage.getItem(envPageSizeStorageKey)
+  if (raw === '20' || raw === '50' || raw === '100' || raw === 'all') {
+    return raw
+  }
+
+  return '20'
+}
+
+function persistEnvPageSizeSelection(value: EnvPageSizeSelection) {
+  if (typeof window !== 'undefined') {
+    window.localStorage.setItem(envPageSizeStorageKey, value)
+  }
+}
+
+function applyEnvPageSizeSelection(value: EnvPageSizeSelection) {
+  pageSizeSelection.value = value
+  pageSize.value = value === 'all' ? envAllFetchBatchSize : Number(value)
+  persistEnvPageSizeSelection(value)
+}
 
 function loadSortable() {
   if (!sortableLoader) {
@@ -230,14 +275,53 @@ async function loadData() {
   selectedIds.value = []
   try {
     const group = groupFilter.value || currentGroup.value || undefined
-    const res = await envApi.list({
+    const params = {
       keyword: keyword.value || undefined,
-      group,
-      page: page.value,
-      page_size: pageSize.value
-    })
-    envList.value = res.data || []
-    total.value = res.total || 0
+      group
+    }
+
+    if (showAllEnvs.value) {
+      const allItems: any[] = []
+      let currentPage = 1
+      let totalCount = 0
+
+      while (true) {
+        const res = await envApi.list({
+          ...params,
+          page: currentPage,
+          page_size: envAllFetchBatchSize
+        })
+
+        if (currentPage === 1) {
+          totalCount = res.total || 0
+        }
+
+        const items = res.data || []
+        allItems.push(...items)
+
+        if (items.length === 0 || allItems.length >= totalCount || items.length < envAllFetchBatchSize) {
+          envList.value = allItems
+          total.value = totalCount
+          break
+        }
+
+        currentPage += 1
+      }
+    } else {
+      const res = await envApi.list({
+        ...params,
+        page: page.value,
+        page_size: pageSize.value
+      })
+      envList.value = res.data || []
+      total.value = res.total || 0
+
+      if (envList.value.length === 0 && total.value > 0 && page.value > 1) {
+        page.value = Math.max(1, Math.ceil(total.value / pageSize.value))
+        await loadData()
+        return
+      }
+    }
   } catch {
     ElMessage.error('加载环境变量失败')
   } finally {
@@ -372,8 +456,8 @@ function handlePageChange(newPage: number) {
   void loadData()
 }
 
-function handlePageSizeChange(newSize: number) {
-  pageSize.value = newSize
+function handlePageSizeChange(newSize: EnvPageSizeSelection) {
+  applyEnvPageSizeSelection(newSize)
   page.value = 1
   void loadData()
 }
@@ -629,14 +713,22 @@ async function refreshExport() {
   }
 }
 
-function copyExport() {
-  navigator.clipboard.writeText(exportContent.value)
-  ElMessage.success('已复制到剪贴板')
+async function copyExport() {
+  try {
+    await copyText(exportContent.value)
+    ElMessage.success('已复制到剪贴板')
+  } catch {
+    ElMessage.error('复制失败，请检查浏览器权限或站点访问方式')
+  }
 }
 
-function copyEnvValue(value: string) {
-  navigator.clipboard.writeText(value)
-  ElMessage.success('已复制到剪贴板')
+async function copyEnvValue(value: string) {
+  try {
+    await copyText(value)
+    ElMessage.success('已复制到剪贴板')
+  } catch {
+    ElMessage.error('复制失败，请检查浏览器权限或站点访问方式')
+  }
 }
 
 function formatDateTime(t: string | null) {
@@ -851,7 +943,7 @@ function formatDateTime(t: string | null) {
       <el-table-column type="selection" width="44" />
       <el-table-column label="#" width="58" align="center">
         <template #default="{ $index }">
-          <span class="row-index">{{ (page - 1) * pageSize + $index + 1 }}</span>
+          <span class="row-index">{{ currentPageOffset + $index + 1 }}</span>
         </template>
       </el-table-column>
       <el-table-column width="44" align="center">
@@ -986,29 +1078,53 @@ function formatDateTime(t: string | null) {
       </el-table-column>
     </el-table>
 
-    <div v-if="total > pageSize || selectedCountInCurrentPage > 0" class="table-footer-bar">
+    <div v-if="showFooterBar" class="table-footer-bar">
       <div class="selection-summary" :class="{ active: selectedCountInCurrentPage > 0 }">
         <span v-if="selectedCountInCurrentPage > 0">
-          已选择当前页 {{ selectedCountInCurrentPage }} 项，批量操作仅作用于当前页勾选的数据。
+          {{ showAllEnvs ? `已选择 ${selectedCountInCurrentPage} 项，${selectionScopeText}` : `已选择当前页 ${selectedCountInCurrentPage} 项，${selectionScopeText}` }}
         </span>
         <span v-else>
-          批量操作仅作用于当前页勾选的数据。
+          {{ selectionScopeText }}
         </span>
         <el-button v-if="selectedCountInCurrentPage > 0" text type="primary" @click="clearTableSelection">
           清空选择
         </el-button>
       </div>
 
-      <div class="pagination-container" v-if="total > pageSize">
+      <div class="pagination-container">
+        <div class="page-size-control">
+          <span class="page-size-label">每页显示</span>
+          <el-select
+            :model-value="pageSizeSelection"
+            size="small"
+            style="width: 110px"
+            @change="handlePageSizeChange"
+          >
+            <el-option
+              v-for="option in pageSizeOptions"
+              :key="option.value"
+              :label="option.label"
+              :value="option.value"
+            />
+          </el-select>
+        </div>
+
+        <span v-if="showAllEnvs" class="page-size-status">
+          已显示全部 {{ total }} 项
+        </span>
+
         <el-pagination
+          v-else-if="showPager"
           v-model:current-page="page"
-          v-model:page-size="pageSize"
+          :page-size="pageSize"
           :total="total"
-          :page-sizes="[20, 50, 100]"
-          layout="total, sizes, prev, pager, next"
+          layout="total, prev, pager, next"
           @current-change="handlePageChange"
-          @size-change="handlePageSizeChange"
         />
+
+        <span v-else class="page-size-status">
+          共 {{ total }} 项
+        </span>
       </div>
     </div>
 
@@ -1533,8 +1649,23 @@ function formatDateTime(t: string | null) {
 
 .pagination-container {
   display: flex;
+  align-items: center;
+  gap: 12px;
   justify-content: flex-end;
   margin-left: auto;
+  flex-wrap: wrap;
+}
+
+.page-size-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.page-size-label,
+.page-size-status {
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
 }
 
 .export-format-switch {
@@ -1644,7 +1775,7 @@ function formatDateTime(t: string | null) {
 
   .pagination-container {
     width: 100%;
-    justify-content: flex-start;
+    justify-content: space-between;
   }
 }
 </style>

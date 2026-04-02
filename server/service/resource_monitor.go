@@ -108,22 +108,59 @@ func getPanelUptime() string {
 }
 
 func getLinuxMemory() (total, used, free uint64) {
-	out, err := exec.Command("free", "-b").Output()
+	content, err := os.ReadFile("/proc/meminfo")
 	if err != nil {
 		return
 	}
-	lines := strings.Split(string(out), "\n")
-	if len(lines) < 2 {
-		return
+	return parseProcMeminfo(content)
+}
+
+func parseProcMeminfo(content []byte) (total, used, free uint64) {
+	values := make(map[string]uint64)
+	for _, line := range strings.Split(string(content), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+
+		fields := strings.Fields(strings.TrimSpace(parts[1]))
+		if len(fields) == 0 {
+			continue
+		}
+
+		value, err := strconv.ParseUint(fields[0], 10, 64)
+		if err != nil {
+			continue
+		}
+
+		// /proc/meminfo values are reported in KiB.
+		values[strings.TrimSpace(parts[0])] = value * 1024
 	}
-	fields := strings.Fields(lines[1])
-	if len(fields) < 4 {
-		return
+
+	total = values["MemTotal"]
+	if total == 0 {
+		return 0, 0, 0
 	}
-	total, _ = strconv.ParseUint(fields[1], 10, 64)
-	used, _ = strconv.ParseUint(fields[2], 10, 64)
-	free, _ = strconv.ParseUint(fields[3], 10, 64)
-	return
+
+	available := values["MemAvailable"]
+	if available == 0 {
+		available = values["MemFree"] + values["Buffers"] + values["Cached"] + values["SReclaimable"]
+		if shmem := values["Shmem"]; available > shmem {
+			available -= shmem
+		}
+	}
+	if available > total {
+		available = total
+	}
+
+	free = available
+	used = total - available
+	return total, used, free
 }
 
 func getLinuxDisk() (total, used, free uint64) {

@@ -691,20 +691,70 @@ func resolveCronForSubscriptionTask(path string, defaultCron string) string {
 
 	scanner := bufio.NewScanner(f)
 	lineCount := 0
+	scriptBase := strings.ToLower(filepath.Base(path))
 	for scanner.Scan() {
 		lineCount++
 		if lineCount > 50 {
 			break
 		}
 		line := scanner.Text()
-		matches := cronCommentRe.FindStringSubmatch(line)
-		if len(matches) > 1 {
-			expr := strings.TrimSpace(matches[1])
-			result := cron.Parse(expr)
-			if result.Valid {
-				return expr
-			}
+		if expr := extractSubscriptionCronExpression(line, scriptBase); expr != "" {
+			return expr
 		}
 	}
 	return strings.TrimSpace(defaultCron)
+}
+
+func extractSubscriptionCronExpression(line, scriptBase string) string {
+	if matches := cronCommentRe.FindStringSubmatch(line); len(matches) > 1 {
+		expr := strings.TrimSpace(matches[1])
+		if cron.Parse(expr).Valid {
+			return expr
+		}
+	}
+
+	return extractSubscriptionCronExpressionFromFilenameLine(line, scriptBase)
+}
+
+func extractSubscriptionCronExpressionFromFilenameLine(line, scriptBase string) string {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" || scriptBase == "" {
+		return ""
+	}
+
+	cleaned := strings.TrimSpace(strings.Trim(trimmed, `"'`))
+	fields := strings.Fields(cleaned)
+	if len(fields) < 6 {
+		return ""
+	}
+
+	for _, cronFieldCount := range []int{6, 5} {
+		if len(fields) <= cronFieldCount {
+			continue
+		}
+
+		expr := strings.Join(fields[:cronFieldCount], " ")
+		if !cron.Parse(expr).Valid {
+			continue
+		}
+
+		fileToken := normalizeSubscriptionCronScriptToken(fields[cronFieldCount])
+		if fileToken == "" {
+			continue
+		}
+
+		if strings.EqualFold(filepath.Base(fileToken), scriptBase) {
+			return expr
+		}
+	}
+
+	return ""
+}
+
+func normalizeSubscriptionCronScriptToken(token string) string {
+	token = strings.TrimSpace(token)
+	token = strings.Trim(token, `"'`)
+	token = strings.TrimRight(token, ",;:)")
+	token = strings.TrimLeft(token, "(")
+	return strings.TrimSpace(token)
 }
