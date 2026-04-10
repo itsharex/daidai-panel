@@ -11,7 +11,6 @@ const logs = ref<any[]>([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
-const taskIdFilter = ref<string>('')
 const statusFilter = ref<string>('')
 const keyword = ref('')
 const loading = ref(false)
@@ -44,7 +43,6 @@ async function loadLogs() {
   selectedIds.value = []
   try {
     const params: any = { page: page.value, page_size: pageSize.value }
-    if (taskIdFilter.value) params.task_id = taskIdFilter.value
     if (statusFilter.value !== '') params.status = statusFilter.value
     if (keyword.value) params.keyword = keyword.value
     const res = await logApi.list(params)
@@ -324,10 +322,9 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="filter-bar">
-      <el-input v-model="keyword" placeholder="搜索任务名称" clearable style="width: 220px" @keyup.enter="handleSearch" @clear="handleSearch">
+      <el-input v-model="keyword" placeholder="搜索任务名称" clearable style="width: 260px" @keyup.enter="handleSearch" @clear="handleSearch">
         <template #prefix><el-icon><Search /></el-icon></template>
       </el-input>
-      <el-input v-model="taskIdFilter" placeholder="任务ID" clearable style="width: 120px" @change="handleSearch" />
       <el-select v-model="statusFilter" placeholder="状态" clearable style="width: 120px" @change="handleSearch">
         <el-option label="成功" value="0" />
         <el-option label="失败" value="1" />

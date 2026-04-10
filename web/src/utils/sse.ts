@@ -17,7 +17,17 @@ export interface EventStreamConnection {
   close: () => void
 }
 
-export function openAuthorizedEventStream(url: string, handlers: EventStreamHandlers = {}): EventStreamConnection {
+export interface EventStreamRequestOptions {
+  method?: string
+  headers?: Record<string, string>
+  body?: BodyInit | null
+}
+
+export function openAuthorizedEventStream(
+  url: string,
+  handlers: EventStreamHandlers = {},
+  requestOptions: EventStreamRequestOptions = {}
+): EventStreamConnection {
   const authStore = useAuthStore()
   const controller = new AbortController()
   let closed = false
@@ -33,14 +43,18 @@ export function openAuthorizedEventStream(url: string, handlers: EventStreamHand
 
   const connect = async () => {
     try {
+      const headers: Record<string, string> = {
+        Accept: 'text/event-stream',
+        Authorization: `Bearer ${authStore.accessToken}`,
+        'X-Client-Type': 'web',
+        'X-Client-App': 'daidai-panel-web',
+        ...(requestOptions.headers || {})
+      }
+
       const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          Accept: 'text/event-stream',
-          Authorization: `Bearer ${authStore.accessToken}`,
-          'X-Client-Type': 'web',
-          'X-Client-App': 'daidai-panel-web'
-        },
+        method: requestOptions.method || 'GET',
+        headers,
+        body: requestOptions.body,
         cache: 'no-store',
         signal: controller.signal
       })

@@ -1,4 +1,11 @@
+import type { AICodeAPIFormat, AICodeAuthStrategy, AIProviderId } from '@/api/ai'
+
 export type CaptchaFailMode = 'open' | 'strict'
+
+export interface AIProviderTestState {
+  status: 'idle' | 'success' | 'error'
+  message: string
+}
 
 export interface SettingsConfigForm {
   max_concurrent_tasks: number
@@ -30,4 +37,30 @@ export interface SettingsConfigForm {
   editor_background_color: string
   log_background_color: string
   log_background_image: string
+  ai_enabled: boolean
+  ai_code_custom_prompt: string
+  ai_default_provider: AIProviderId | string
+  ai_request_timeout_seconds: number
+  ai_temperature: string
+  ai_openai_base_url: string
+  ai_openai_api_key: string
+  ai_openai_model: string
+  ai_openai_api_format: AICodeAPIFormat | string
+  ai_openai_is_full_url: boolean
+  ai_anthropic_base_url: string
+  ai_anthropic_api_key: string
+  ai_anthropic_model: string
+  ai_anthropic_api_format: AICodeAPIFormat | string
+  ai_anthropic_auth_strategy: AICodeAuthStrategy | string
+  ai_anthropic_is_full_url: boolean
+  ai_gemini_base_url: string
+  ai_gemini_api_key: string
+  ai_gemini_model: string
+  ai_gemini_is_full_url: boolean
+  ai_custom_base_url: string
+  ai_custom_api_key: string
+  ai_custom_model: string
+  ai_custom_api_format: AICodeAPIFormat | string
+  ai_custom_auth_strategy: AICodeAuthStrategy | string
+  ai_custom_is_full_url: boolean
 }

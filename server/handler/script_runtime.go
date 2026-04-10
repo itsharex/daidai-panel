@@ -77,6 +77,21 @@ func (run *debugRun) logOutput() string {
 	return strings.Join(run.Logs, "\n")
 }
 
+func (run *debugRun) logOutputSince(offset int) string {
+	run.mu.Lock()
+	defer run.mu.Unlock()
+	if offset >= len(run.Logs) {
+		return ""
+	}
+	return strings.Join(run.Logs[offset:], "\n")
+}
+
+func (run *debugRun) logLen() int {
+	run.mu.Lock()
+	defer run.mu.Unlock()
+	return len(run.Logs)
+}
+
 func (run *debugRun) snapshot() ([]string, bool, *int, string) {
 	run.mu.Lock()
 	defer run.mu.Unlock()

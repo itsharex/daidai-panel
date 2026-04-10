@@ -13,9 +13,11 @@ import (
 )
 
 var (
-	autoInstallNodeModuleRe = regexp.MustCompile(`(?:Cannot find module|Error \[ERR_MODULE_NOT_FOUND\].*)\s*'([^']+)'`)
-	autoInstallPyModuleRe   = regexp.MustCompile(`(?:ModuleNotFoundError|ImportError):\s*No module named\s+'([^']+)'`)
-	autoInstallGoModuleRe   = regexp.MustCompile(`(?:no required module provides package|missing go\.sum entry for module providing package)\s+([^\s:;]+)`)
+	autoInstallNodeModuleRe    = regexp.MustCompile(`(?:Cannot find module|Error \[ERR_MODULE_NOT_FOUND\].*)\s*'([^']+)'`)
+	autoInstallNodeHintRe      = regexp.MustCompile(`npm\s+install\s+([a-zA-Z@][a-zA-Z0-9_./@-]*)`)
+	autoInstallPyModuleRe      = regexp.MustCompile(`(?:ModuleNotFoundError|ImportError):\s*No module named\s+'([^']+)'`)
+	autoInstallPyHintRe        = regexp.MustCompile(`pip3?\s+install\s+([a-zA-Z][a-zA-Z0-9_.@-]*)`)
+	autoInstallGoModuleRe      = regexp.MustCompile(`(?:no required module provides package|missing go\.sum entry for module providing package)\s+([^\s:;]+)`)
 
 	thirdPartyExcludedModules = map[string]bool{
 		"sendNotify":           true,
@@ -54,6 +56,9 @@ func DetectAutoInstallCandidate(ext, output, workDir string) *AutoInstallCandida
 			if isPythonStdlib(requested) || thirdPartyExcludedModules[requested] {
 				return nil
 			}
+			if isLocalPythonModule(requested, workDir) {
+				return nil
+			}
 			packageName := ResolvePythonAutoInstallPackage(requested)
 			return &AutoInstallCandidate{
 				Manager:       "python",
@@ -65,10 +70,40 @@ func DetectAutoInstallCandidate(ext, output, workDir string) *AutoInstallCandida
 				RecordName:    packageName,
 			}
 		}
+		if matches := autoInstallPyHintRe.FindStringSubmatch(output); len(matches) > 1 {
+			requested := strings.TrimSpace(matches[1])
+			if requested == "" || isPythonStdlib(requested) || thirdPartyExcludedModules[requested] {
+				return nil
+			}
+			return &AutoInstallCandidate{
+				Manager:       "python",
+				RequestedName: requested,
+				PackageName:   requested,
+				DisplayName:   requested,
+				WorkDir:       workDir,
+				RecordType:    model.DepTypePython,
+				RecordName:    requested,
+			}
+		}
 	case ".js", ".ts":
 		if matches := autoInstallNodeModuleRe.FindStringSubmatch(output); len(matches) > 1 {
 			requested := strings.TrimSpace(matches[1])
 			if requested == "" || strings.HasPrefix(requested, ".") || strings.HasPrefix(requested, "/") || thirdPartyExcludedModules[requested] {
+				return nil
+			}
+			return &AutoInstallCandidate{
+				Manager:       "nodejs",
+				RequestedName: requested,
+				PackageName:   requested,
+				DisplayName:   requested,
+				WorkDir:       workDir,
+				RecordType:    model.DepTypeNodeJS,
+				RecordName:    requested,
+			}
+		}
+		if matches := autoInstallNodeHintRe.FindStringSubmatch(output); len(matches) > 1 {
+			requested := strings.TrimSpace(matches[1])
+			if requested == "" || thirdPartyExcludedModules[requested] {
 				return nil
 			}
 			return &AutoInstallCandidate{
@@ -221,6 +256,29 @@ var pythonStdlibModules = map[string]bool{
 	"_io": true, "_signal": true, "_abc": true, "_codecs": true, "_collections": true,
 	"_functools": true, "_operator": true, "_sre": true, "_stat": true, "_string": true,
 	"_weakref": true,
+}
+
+func isLocalPythonModule(name, workDir string) bool {
+	if workDir == "" || name == "" {
+		return false
+	}
+	for _, suffix := range []string{".py", ".so", ".pyd", ".pyc"} {
+		if _, err := os.Stat(filepath.Join(workDir, name+suffix)); err == nil {
+			return true
+		}
+	}
+	if info, err := os.Stat(filepath.Join(workDir, name)); err == nil && info.IsDir() {
+		return true
+	}
+	matches, _ := filepath.Glob(filepath.Join(workDir, name+".*.so"))
+	if len(matches) > 0 {
+		return true
+	}
+	matches, _ = filepath.Glob(filepath.Join(workDir, name+".*.pyd"))
+	if len(matches) > 0 {
+		return true
+	}
+	return false
 }
 
 func isPythonStdlib(name string) bool {

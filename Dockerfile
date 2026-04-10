@@ -1,4 +1,4 @@
-FROM node:20.19.0-alpine AS frontend-builder
+FROM node:20.19.0-bookworm-slim AS frontend-builder
 
 WORKDIR /build
 COPY web/package.json web/package-lock.json ./

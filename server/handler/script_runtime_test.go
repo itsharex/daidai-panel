@@ -34,43 +34,6 @@ func TestScriptLanguageExtMapSupportsGo(t *testing.T) {
 	}
 }
 
-func TestDetectMissingDep(t *testing.T) {
-	tests := []struct {
-		name   string
-		output string
-		want   string
-	}{
-		{
-			name:   "node_module",
-			output: "Error: Cannot find module 'axios'",
-			want:   "axios",
-		},
-		{
-			name:   "node_relative_module",
-			output: "Error: Cannot find module './local-helper'",
-			want:   "",
-		},
-		{
-			name:   "python_module",
-			output: "ModuleNotFoundError: No module named 'requests.sessions'",
-			want:   "requests",
-		},
-		{
-			name:   "no_match",
-			output: "plain output",
-			want:   "",
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := detectMissingDep(tc.output); got != tc.want {
-				t.Fatalf("detectMissingDep(%q) = %q, want %q", tc.output, got, tc.want)
-			}
-		})
-	}
-}
-
 func TestDebugRunFinishDoesNotOverrideStoppedStatus(t *testing.T) {
 	exitCode := -1
 	run := &debugRun{

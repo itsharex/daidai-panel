@@ -84,10 +84,26 @@ if _dd_auto_install_enabled:
         print(f"[安装成功: {display_name}]", flush=True)
         return True
 
+    def _dd_is_local_module(name, script_dir):
+        for suffix in [".so", ".pyd", ".py", ".pyc"]:
+            if os.path.isfile(os.path.join(script_dir, name + suffix)):
+                return True
+        if os.path.isdir(os.path.join(script_dir, name)):
+            return True
+        import glob as _dd_glob
+        if _dd_glob.glob(os.path.join(script_dir, name + ".*.so")):
+            return True
+        if _dd_glob.glob(os.path.join(script_dir, name + ".*.pyd")):
+            return True
+        return False
+
+    _dd_script_dir = os.path.dirname(os.path.abspath(script_path))
     _dd_imported_names = _dd_scan_imports(script_path)
     _dd_missing = []
     for _dd_name in dict.fromkeys(_dd_imported_names):
         if _dd_name.startswith("_") or _dd_name in _dd_stdlib_names:
+            continue
+        if _dd_is_local_module(_dd_name, _dd_script_dir):
             continue
         try:
             importlib.import_module(_dd_name)
