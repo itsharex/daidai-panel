@@ -128,43 +128,52 @@ func (h *ScriptHandler) DebugRun(c *gin.Context) {
 		}
 
 		if exitCode != 0 && model.GetRegisteredConfigBool("auto_install_deps") {
-			candidate := detectAutoInstallCandidate(ext, run.logOutput(), workDir)
-			if candidate != nil {
-				run.appendLog(fmt.Sprintf("[检测到缺失依赖: %s，正在自动安装...]", candidate.DisplayName))
-
-				installResult := installDepForDebug(candidate, envMap)
+			installed := map[string]bool{}
+			const maxRetries = 5
+			logOffset := 0
+			for i := 0; i < maxRetries && exitCode != 0; i++ {
 				if run.isStopped() {
 					return
 				}
-				if installResult.Success {
-					run.appendLog(fmt.Sprintf("[安装成功: %s，自动重试执行]", candidate.DisplayName))
-
-					retryCmd, retryCleanup, retryPrepareErr := newScriptCommand(interpreter, full, nil, workDir, envMap)
-					if retryPrepareErr != nil {
-						run.appendLog(fmt.Sprintf("[重试启动失败: %s]", retryPrepareErr))
-						run.finish(exitCode, waitErr, elapsed)
-						return
-					}
-					retryPipeWriter, retryScanDone, startErr := startTrackedCommand(retryCmd, run)
-					if startErr == nil {
-						waitErr = waitTrackedCommand(retryCmd, retryPipeWriter, retryScanDone)
-						retryCleanup()
-						elapsed = time.Since(startTime).Seconds()
-						exitCode = resolveExitCode(waitErr)
-						if run.isStopped() {
-							return
-						}
-					} else {
-						retryCleanup()
-						run.appendLog(fmt.Sprintf("[重试启动失败: %s]", startErr))
-					}
-				} else {
+				candidate := detectAutoInstallCandidate(ext, run.logOutputSince(logOffset), workDir)
+				if candidate == nil {
+					break
+				}
+				if installed[candidate.PackageName] {
+					run.appendLog(fmt.Sprintf("[%s 已安装但仍然报错，可能是模块版本不兼容或内部依赖异常，请尝试手动安装指定版本]", candidate.DisplayName))
+					break
+				}
+				run.appendLog(fmt.Sprintf("[检测到缺失依赖: %s，正在自动安装...]", candidate.DisplayName))
+				installResult := installDepForDebug(candidate, envMap)
+				installed[candidate.PackageName] = true
+				if run.isStopped() {
+					return
+				}
+				if !installResult.Success {
 					failureReason := strings.TrimSpace(installResult.Error)
 					if failureReason == "" {
 						failureReason = candidate.DisplayName
 					}
 					run.appendLog(fmt.Sprintf("[安装失败: %s]", failureReason))
+					break
 				}
+				run.appendLog(fmt.Sprintf("[安装成功: %s，自动重试执行]", candidate.DisplayName))
+				logOffset = run.logLen()
+				retryCmd, retryCleanup, retryPrepareErr := newScriptCommand(interpreter, full, nil, workDir, envMap)
+				if retryPrepareErr != nil {
+					run.appendLog(fmt.Sprintf("[重试启动失败: %s]", retryPrepareErr))
+					break
+				}
+				retryPipeWriter, retryScanDone, startErr := startTrackedCommand(retryCmd, run)
+				if startErr != nil {
+					retryCleanup()
+					run.appendLog(fmt.Sprintf("[重试启动失败: %s]", startErr))
+					break
+				}
+				waitErr = waitTrackedCommand(retryCmd, retryPipeWriter, retryScanDone)
+				retryCleanup()
+				elapsed = time.Since(startTime).Seconds()
+				exitCode = resolveExitCode(waitErr)
 			}
 		}
 

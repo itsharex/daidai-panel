@@ -1,4 +1,4 @@
-import { onBeforeUnmount, onMounted, ref, watch, type Ref } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, watch, type Ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { scriptApi } from '@/api/script'
 
@@ -25,6 +25,7 @@ export function useScriptExecution({ selectedFile, fileContent }: UseScriptExecu
   const runnerLogs = ref<string[]>([])
   const runnerRunning = ref(false)
   const runnerExitCode = ref<number | null>(null)
+  const runnerError = ref('')
 
   let debugTimer: ReturnType<typeof setInterval> | null = null
   let runnerTimer: ReturnType<typeof setInterval> | null = null
@@ -148,14 +149,14 @@ export function useScriptExecution({ selectedFile, fileContent }: UseScriptExecu
     showDebugDialog.value = true
   }
 
-  async function handleDebugStart() {
+  async function handleDebugStart(options?: { forceEditorContent?: boolean }) {
     if (!selectedFile.value) return
     debugLogs.value = []
     debugError.value = ''
     debugExitCode.value = null
     debugRunning.value = true
     try {
-      const shouldRunTempContent = debugCodeChanged.value || debugCode.value !== fileContent.value
+      const shouldRunTempContent = !!options?.forceEditorContent || debugCodeChanged.value || debugCode.value !== fileContent.value
       const res = shouldRunTempContent
         ? await scriptApi.debugRun({
             path: selectedFile.value,
@@ -170,6 +171,17 @@ export function useScriptExecution({ selectedFile, fileContent }: UseScriptExecu
       ElMessage.error(debugError.value)
       debugRunning.value = false
     }
+  }
+
+  async function openDebugAndStart(options?: { useEditorContent?: boolean }) {
+    if (!selectedFile.value) return
+    await handleDebugRun()
+    if (options?.useEditorContent) {
+      debugCode.value = fileContent.value
+      debugCodeChanged.value = true
+    }
+    await nextTick()
+    await handleDebugStart({ forceEditorContent: !!options?.useEditorContent })
   }
 
   function runnerLanguageForFile(path: string) {
@@ -218,6 +230,7 @@ export function useScriptExecution({ selectedFile, fileContent }: UseScriptExecu
     runnerLogs.value = []
     runnerRunning.value = false
     runnerExitCode.value = null
+    runnerError.value = ''
     runnerRunId.value = ''
     showCodeRunner.value = true
   }
@@ -229,13 +242,16 @@ export function useScriptExecution({ selectedFile, fileContent }: UseScriptExecu
     }
     runnerLogs.value = []
     runnerExitCode.value = null
+    runnerError.value = ''
     runnerRunning.value = true
     try {
       const res = await scriptApi.runCode(runnerCode.value, runnerLanguage.value)
       runnerRunId.value = res.run_id
       pollRunnerLogs()
     } catch (err: any) {
-      ElMessage.error(err?.response?.data?.error || '运行失败')
+      const msg = err?.response?.data?.error || err?.message || '运行失败'
+      runnerError.value = msg
+      ElMessage.error(msg)
       runnerRunning.value = false
     }
   }
@@ -253,11 +269,15 @@ export function useScriptExecution({ selectedFile, fileContent }: UseScriptExecu
         if (res.data.done) {
           runnerRunning.value = false
           runnerExitCode.value = res.data.exit_code ?? null
+          if (res.data.status === 'failed') {
+            runnerError.value = 'failed'
+          }
           clearRunnerTimer()
           runnerRunId.value = ''
         }
       } catch {
         runnerRunning.value = false
+        runnerError.value = '获取运行日志失败，请检查服务状态'
         clearRunnerTimer()
       }
     }, 500)
@@ -282,8 +302,10 @@ export function useScriptExecution({ selectedFile, fileContent }: UseScriptExecu
     runnerLogs,
     runnerRunning,
     runnerExitCode,
+    runnerError,
     handleDebugRun,
     handleDebugStart,
+    openDebugAndStart,
     handleDebugStop,
     openCodeRunner,
     handleRunCode,

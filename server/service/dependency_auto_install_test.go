@@ -54,4 +54,44 @@ func TestDetectAutoInstallCandidate(t *testing.T) {
 			t.Fatalf("expected nil candidate, got %+v", candidate)
 		}
 	})
+
+	t.Run("node hint npm install", func(t *testing.T) {
+		candidate := DetectAutoInstallCandidate(".js", `缺少有效 https-proxy-agent 模块！请运行: npm install https-proxy-agent`, t.TempDir())
+		if candidate == nil {
+			t.Fatal("expected node candidate from npm install hint")
+		}
+		if candidate.Manager != "nodejs" || candidate.PackageName != "https-proxy-agent" {
+			t.Fatalf("unexpected candidate: %+v", candidate)
+		}
+	})
+
+	t.Run("python hint pip install", func(t *testing.T) {
+		candidate := DetectAutoInstallCandidate(".py", `请先安装依赖: pip install beautifulsoup4`, t.TempDir())
+		if candidate == nil {
+			t.Fatal("expected python candidate from pip install hint")
+		}
+		if candidate.Manager != "python" || candidate.PackageName != "beautifulsoup4" {
+			t.Fatalf("unexpected candidate: %+v", candidate)
+		}
+	})
+
+	t.Run("node native error takes priority over hint", func(t *testing.T) {
+		output := "Error: Cannot find module 'axios'\nnpm install axios to fix"
+		candidate := DetectAutoInstallCandidate(".js", output, t.TempDir())
+		if candidate == nil {
+			t.Fatal("expected candidate")
+		}
+		if candidate.PackageName != "axios" {
+			t.Fatalf("expected axios, got %s", candidate.PackageName)
+		}
+	})
+
+	t.Run("python local so not installed", func(t *testing.T) {
+		workDir := t.TempDir()
+		os.WriteFile(filepath.Join(workDir, "loader_v2.so"), []byte{}, 0644)
+		candidate := DetectAutoInstallCandidate(".py", "ModuleNotFoundError: No module named 'loader_v2'", workDir)
+		if candidate != nil {
+			t.Fatalf("expected nil for local .so file, got %+v", candidate)
+		}
+	})
 }

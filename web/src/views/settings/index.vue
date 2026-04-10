@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useAuthStore } from '@/stores/auth'
+import AIConfigCard from './components/AIConfigCard.vue'
 import BackupManagementCard from './components/BackupManagementCard.vue'
 import CaptchaConfigCard from './components/CaptchaConfigCard.vue'
 import IPWhitelistCard from './components/IPWhitelistCard.vue'
@@ -16,7 +17,7 @@ import TaskExecutionCard from './components/TaskExecutionCard.vue'
 import { useSettingsConfig } from './useSettingsConfig'
 import { useSettingsOverview } from './useSettingsOverview'
 import { useSettingsSecurity } from './useSettingsSecurity'
-import { Connection, Document, Lock, Monitor, Refresh } from '@element-plus/icons-vue'
+import { Connection, Document, Lock, MagicStick, Monitor, Refresh } from '@element-plus/icons-vue'
 
 const authStore = useAuthStore()
 const roleLevel: Record<string, number> = { viewer: 1, operator: 2, admin: 3 }
@@ -62,6 +63,8 @@ const {
   captchaFeatureImplemented,
   configsLoading,
   configsSaving,
+  aiTestingProvider,
+  aiProviderTestStates,
   configForm,
   loadSystemConfigs,
   handleSaveSystemConfig,
@@ -70,7 +73,9 @@ const {
   previewPanelAppearance,
   handleSaveTaskConfig,
   handleSaveProxy,
-  handleSaveCaptcha
+  handleSaveCaptcha,
+  handleTestAIProvider,
+  handleSaveAIConfig
 } = config
 
 const {
@@ -149,7 +154,7 @@ function handleTabChange(tab: string) {
     void loadSystemStats()
     void loadSystemInfo()
     void loadUpdatePreferences()
-  } else if (tab === 'config' || tab === 'task-exec' || tab === 'proxy' || tab === 'captcha') {
+  } else if (tab === 'config' || tab === 'task-exec' || tab === 'proxy' || tab === 'captcha' || tab === 'ai') {
     void loadSystemConfigs()
   } else if (tab === 'backup') {
     void loadBackups()
@@ -250,6 +255,21 @@ onMounted(() => {
           :form="configForm"
           :captcha-feature-implemented="captchaFeatureImplemented"
           :on-save="handleSaveCaptcha"
+        />
+      </el-tab-pane>
+
+      <el-tab-pane v-if="isAdmin" name="ai">
+        <template #label>
+          <span class="sub-tab-label"><el-icon :size="14"><MagicStick /></el-icon>AI 助手</span>
+        </template>
+        <AIConfigCard
+          :configs-loading="configsLoading"
+          :configs-saving="configsSaving"
+          :ai-testing-provider="aiTestingProvider"
+          :ai-provider-test-states="aiProviderTestStates"
+          :form="configForm"
+          :on-test="handleTestAIProvider"
+          :on-save="handleSaveAIConfig"
         />
       </el-tab-pane>
 

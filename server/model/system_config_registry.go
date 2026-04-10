@@ -38,6 +38,14 @@ type systemConfigSpec struct {
 	normalize func(string) (string, error)
 }
 
+var defaultAICodeCustomPromptTemplate = strings.TrimSpace(`
+- 默认使用简体中文编写必要的日志、注释和错误提示，输出内容要方便在面板日志里直接排查。
+- 默认生成可直接运行的完整脚本；如果是修改现有脚本，优先最小必要改动，保留原有变量名、入口形式和已有依赖风格。
+- 所有网络请求都应显式设置合理的 timeout；需要重试时只做有限次重试，并输出清晰日志。
+- 不要吞掉异常；失败时要输出明确错误原因，必要时返回非 0 退出码或抛出异常，方便面板识别失败。
+- 如果脚本需要通知、环境变量管理、任务或脚本相关能力，优先沿用面板官方 helper、官方接口和当前仓库已有调用方式。
+- 除非用户明确要求，否则不要引入体积大、安装重或与当前脚本无关的新依赖。`)
+
 var registeredSystemConfigSpecs = []systemConfigSpec{
 	newIntConfig("max_concurrent_tasks", "5", "定时任务最大并发数", "tasks", 1, 128),
 	newIntConfig("command_timeout", "86400", "全局默认超时（秒）", "tasks", 1, 604800),
@@ -70,6 +78,99 @@ var registeredSystemConfigSpecs = []systemConfigSpec{
 	newTrimmedStringConfig("editor_background_color", "", "脚本编辑器背景颜色（留空使用默认样式）", "branding"),
 	newTrimmedStringConfig("log_background_color", "#0f172a", "日志视图背景颜色（建议使用深色）", "branding"),
 	newTrimmedStringConfig("log_background_image", "", "日志视图背景图片（data URL）", "branding"),
+	newBoolConfig("ai_enabled", "false", "启用 AI 脚本助手", "ai"),
+	newValidatedStringConfig(
+		"ai_code_custom_prompt",
+		defaultAICodeCustomPromptTemplate,
+		"AI 脚本附加提示词（在系统固定安全规则后追加，不能覆盖固定约束）",
+		"ai",
+		normalizeAICustomPromptValue,
+	),
+	newEnumConfig(
+		"ai_default_provider",
+		"openai",
+		"AI 默认提供商",
+		"ai",
+		[]SystemConfigOption{
+			{Value: "openai", Label: "OpenAI / GPT"},
+			{Value: "anthropic", Label: "Claude / Anthropic"},
+			{Value: "gemini", Label: "Gemini / Google"},
+			{Value: "custom", Label: "第三方兼容接口"},
+		},
+	),
+	newIntConfig("ai_request_timeout_seconds", "120", "AI 请求超时时间（秒）", "ai", 10, 600),
+	newTrimmedStringConfig("ai_temperature", "0.2", "AI 生成温度 (0-2)", "ai"),
+	newAIEndpointURLConfig("ai_openai_base_url", "https://api.openai.com/v1", "OpenAI API Base URL", "ai"),
+	newTrimmedStringConfig("ai_openai_api_key", "", "OpenAI API Key", "ai"),
+	newTrimmedStringConfig("ai_openai_model", "", "OpenAI 默认模型", "ai"),
+	newEnumConfig(
+		"ai_openai_api_format",
+		"openai_chat",
+		"OpenAI 接口格式",
+		"ai",
+		[]SystemConfigOption{
+			{Value: "openai_chat", Label: "OpenAI Chat Completions"},
+			{Value: "openai_responses", Label: "OpenAI Responses"},
+		},
+	),
+	newBoolConfig("ai_openai_is_full_url", "false", "OpenAI 请求地址按完整端点直连", "ai"),
+	newAIEndpointURLConfig("ai_anthropic_base_url", "https://api.anthropic.com", "Claude API Base URL", "ai"),
+	newTrimmedStringConfig("ai_anthropic_api_key", "", "Claude API Key", "ai"),
+	newTrimmedStringConfig("ai_anthropic_model", "", "Claude 默认模型", "ai"),
+	newEnumConfig(
+		"ai_anthropic_api_format",
+		"anthropic",
+		"Claude 接口格式",
+		"ai",
+		[]SystemConfigOption{
+			{Value: "anthropic", Label: "Anthropic Messages"},
+			{Value: "openai_chat", Label: "OpenAI Chat Completions"},
+			{Value: "openai_responses", Label: "OpenAI Responses"},
+		},
+	),
+	newEnumConfig(
+		"ai_anthropic_auth_strategy",
+		"anthropic_key",
+		"Claude 鉴权方式",
+		"ai",
+		[]SystemConfigOption{
+			{Value: "anthropic_key", Label: "x-api-key + anthropic-version"},
+			{Value: "bearer", Label: "Authorization Bearer"},
+		},
+	),
+	newBoolConfig("ai_anthropic_is_full_url", "false", "Claude 请求地址按完整端点直连", "ai"),
+	newAIEndpointURLConfig("ai_gemini_base_url", "https://generativelanguage.googleapis.com", "Gemini API Base URL", "ai"),
+	newTrimmedStringConfig("ai_gemini_api_key", "", "Gemini API Key", "ai"),
+	newTrimmedStringConfig("ai_gemini_model", "", "Gemini 默认模型", "ai"),
+	newBoolConfig("ai_gemini_is_full_url", "false", "Gemini 请求地址按完整端点直连", "ai"),
+	newAIEndpointURLConfig("ai_custom_base_url", "", "第三方兼容接口 Base URL", "ai"),
+	newTrimmedStringConfig("ai_custom_api_key", "", "第三方接口 API Key", "ai"),
+	newTrimmedStringConfig("ai_custom_model", "", "第三方接口默认模型", "ai"),
+	newEnumConfig(
+		"ai_custom_api_format",
+		"openai_chat",
+		"第三方接口格式",
+		"ai",
+		[]SystemConfigOption{
+			{Value: "openai_chat", Label: "OpenAI Chat Completions"},
+			{Value: "openai_responses", Label: "OpenAI Responses"},
+			{Value: "anthropic", Label: "Anthropic Messages"},
+			{Value: "gemini", Label: "Gemini GenerateContent"},
+		},
+	),
+	newEnumConfig(
+		"ai_custom_auth_strategy",
+		"bearer",
+		"第三方接口鉴权方式",
+		"ai",
+		[]SystemConfigOption{
+			{Value: "bearer", Label: "Authorization Bearer"},
+			{Value: "x_api_key", Label: "x-api-key"},
+			{Value: "anthropic_key", Label: "x-api-key + anthropic-version"},
+			{Value: "google_key", Label: "x-goog-api-key"},
+		},
+	),
+	newBoolConfig("ai_custom_is_full_url", "false", "第三方请求地址按完整端点直连", "ai"),
 	newBoolConfig("captcha_enabled", "false", "极验验证码开关（连续失败 3 次后触发）", "security"),
 	newTrimmedStringConfig("captcha_id", "", "验证码平台 ID", "security"),
 	newTrimmedStringConfig("captcha_key", "", "验证码平台密钥（服务端 Key）", "security"),
@@ -125,6 +226,18 @@ func newValidatedStringConfig(key, defaultValue, description, group string, norm
 		},
 		normalize: normalize,
 	}
+}
+
+func newHTTPBaseURLConfig(key, defaultValue, description, group string) systemConfigSpec {
+	return newValidatedStringConfig(key, defaultValue, description, group, func(value string) (string, error) {
+		return normalizeHTTPBaseURLValue(value, defaultValue)
+	})
+}
+
+func newAIEndpointURLConfig(key, defaultValue, description, group string) systemConfigSpec {
+	return newValidatedStringConfig(key, defaultValue, description, group, func(value string) (string, error) {
+		return normalizeAIEndpointURLValue(value, defaultValue)
+	})
 }
 
 func newBoolConfig(key, defaultValue, description, group string) systemConfigSpec {
@@ -272,6 +385,94 @@ func normalizeUpdateImageMirror(value string) (string, error) {
 	}
 
 	return parsed.Host, nil
+}
+
+func normalizeHTTPBaseURLValue(value, defaultValue string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		value = strings.TrimSpace(defaultValue)
+	}
+	if value == "" {
+		return "", nil
+	}
+
+	if !strings.Contains(value, "://") {
+		value = "https://" + value
+	}
+
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Host == "" {
+		return "", fmt.Errorf("API Base URL 格式无效")
+	}
+
+	switch strings.ToLower(parsed.Scheme) {
+	case "http", "https":
+	default:
+		return "", fmt.Errorf("API Base URL 仅支持 http/https")
+	}
+
+	if parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", fmt.Errorf("API Base URL 不能带查询参数或片段")
+	}
+
+	pathValue := strings.TrimRight(parsed.EscapedPath(), "/")
+	normalized := parsed.Scheme + "://" + parsed.Host
+	if pathValue != "" {
+		normalized += pathValue
+	}
+	return normalized, nil
+}
+
+func normalizeAIEndpointURLValue(value, defaultValue string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		value = strings.TrimSpace(defaultValue)
+	}
+	if value == "" {
+		return "", nil
+	}
+
+	if !strings.Contains(value, "://") {
+		value = "https://" + value
+	}
+
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Host == "" {
+		return "", fmt.Errorf("API 地址格式无效")
+	}
+
+	switch strings.ToLower(parsed.Scheme) {
+	case "http", "https":
+	default:
+		return "", fmt.Errorf("API 地址仅支持 http/https")
+	}
+
+	if parsed.Fragment != "" {
+		return "", fmt.Errorf("API 地址不能带片段")
+	}
+
+	pathValue := strings.TrimRight(parsed.EscapedPath(), "/")
+	normalized := parsed.Scheme + "://" + parsed.Host
+	if pathValue != "" {
+		normalized += pathValue
+	}
+	if parsed.RawQuery != "" {
+		normalized += "?" + parsed.RawQuery
+	}
+	return normalized, nil
+}
+
+func normalizeAICustomPromptValue(value string) (string, error) {
+	value = strings.ReplaceAll(value, "\r\n", "\n")
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", nil
+	}
+
+	if len([]rune(value)) > 8000 {
+		return "", fmt.Errorf("AI 附加提示词不能超过 8000 个字符")
+	}
+	return value, nil
 }
 
 func normalizeTrustedProxyCIDRs(value string) (string, error) {

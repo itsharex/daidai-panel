@@ -4,19 +4,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
+	"daidai-panel/model"
 	"daidai-panel/pkg/response"
 	"daidai-panel/service"
 
 	"github.com/gin-gonic/gin"
-)
-
-var (
-	debugNodeModuleRe = regexp.MustCompile(`(?:Cannot find module|Error \[ERR_MODULE_NOT_FOUND\].*)\s*'([^']+)'`)
-	debugPyModuleRe   = regexp.MustCompile(`(?:ModuleNotFoundError|ImportError):\s*No module named\s+'([^']+)'`)
 )
 
 func (h *ScriptHandler) RunCode(c *gin.Context) {
@@ -75,24 +70,71 @@ func (h *ScriptHandler) RunCode(c *gin.Context) {
 	go func() {
 		waitErr := waitTrackedCommand(cmd, pipeWriter, scanDone)
 		cleanup()
+		elapsed := time.Since(startTime).Seconds()
+		exitCode := resolveExitCode(waitErr)
+
+		if run.isStopped() {
+			os.Remove(tmpFile)
+			return
+		}
+
+		if exitCode != 0 && model.GetRegisteredConfigBool("auto_install_deps") {
+			installed := map[string]bool{}
+			const maxRetries = 5
+			logOffset := 0
+			for i := 0; i < maxRetries && exitCode != 0; i++ {
+				if run.isStopped() {
+					os.Remove(tmpFile)
+					return
+				}
+				candidate := detectAutoInstallCandidate(ext, run.logOutputSince(logOffset), tmpDir)
+				if candidate == nil {
+					break
+				}
+				if installed[candidate.PackageName] {
+					run.appendLog(fmt.Sprintf("[%s 已安装但仍然报错，可能是模块版本不兼容或内部依赖异常，请尝试手动安装指定版本]", candidate.DisplayName))
+					break
+				}
+				run.appendLog(fmt.Sprintf("[检测到缺失依赖: %s，正在自动安装...]", candidate.DisplayName))
+				installResult := installDepForDebug(candidate, envMap)
+				installed[candidate.PackageName] = true
+				if run.isStopped() {
+					os.Remove(tmpFile)
+					return
+				}
+				if !installResult.Success {
+					failureReason := strings.TrimSpace(installResult.Error)
+					if failureReason == "" {
+						failureReason = candidate.DisplayName
+					}
+					run.appendLog(fmt.Sprintf("[安装失败: %s]", failureReason))
+					break
+				}
+				run.appendLog(fmt.Sprintf("[安装成功: %s，自动重试执行]", candidate.DisplayName))
+				logOffset = run.logLen()
+				retryCmd, retryCleanup, retryPrepareErr := newScriptCommand(interpreter, tmpFile, nil, tmpDir, envMap)
+				if retryPrepareErr != nil {
+					run.appendLog(fmt.Sprintf("[重试启动失败: %s]", retryPrepareErr))
+					break
+				}
+				retryPipeWriter, retryScanDone, startErr := startTrackedCommand(retryCmd, run)
+				if startErr != nil {
+					retryCleanup()
+					run.appendLog(fmt.Sprintf("[重试启动失败: %s]", startErr))
+					break
+				}
+				waitErr = waitTrackedCommand(retryCmd, retryPipeWriter, retryScanDone)
+				retryCleanup()
+				elapsed = time.Since(startTime).Seconds()
+				exitCode = resolveExitCode(waitErr)
+			}
+		}
+
 		os.Remove(tmpFile)
-		run.finish(resolveExitCode(waitErr), waitErr, time.Since(startTime).Seconds())
+		run.finish(exitCode, waitErr, elapsed)
 	}()
 
 	response.Created(c, gin.H{"message": "代码已启动", "run_id": runID})
-}
-
-func detectMissingDep(output string) string {
-	if matches := debugNodeModuleRe.FindStringSubmatch(output); len(matches) > 1 {
-		mod := matches[1]
-		if !strings.HasPrefix(mod, ".") && !strings.HasPrefix(mod, "/") {
-			return mod
-		}
-	}
-	if matches := debugPyModuleRe.FindStringSubmatch(output); len(matches) > 1 {
-		return strings.Split(matches[1], ".")[0]
-	}
-	return ""
 }
 
 func detectAutoInstallCandidate(ext, output, workDir string) *service.AutoInstallCandidate {

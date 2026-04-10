@@ -23,6 +23,7 @@ defineProps<{
   runnerLogs: string[]
   runnerRunning: boolean
   runnerExitCode: number | null
+  runnerError: string
   onDebugStart: () => void | Promise<void>
   onDebugSave: () => void | Promise<void>
   onDebugStop: () => void | Promise<void>
@@ -64,22 +65,28 @@ function markDebugCodeChanged() {
           <el-icon><Tickets /></el-icon>
           <span>运行输出</span>
           <el-tag v-if="runnerRunning" type="warning" size="small" effect="plain">运行中</el-tag>
-          <el-tag v-else-if="runnerLogs.length > 0" :type="runnerExitCode === 0 ? 'success' : 'danger'" size="small" effect="plain">
+          <el-tag v-else-if="runnerError || runnerLogs.length > 0" :type="runnerExitCode === 0 ? 'success' : 'danger'" size="small" effect="plain">
             {{ runnerExitCode === 0 ? '成功' : '失败' }}
           </el-tag>
         </div>
         <div class="panel-content">
+          <div v-if="runnerError" class="debug-error">
+            <el-alert type="error" :title="runnerError === 'failed' ? `退出码: ${runnerExitCode}` : runnerError" :closable="false" show-icon />
+          </div>
           <pre v-if="runnerLogs.length > 0" class="debug-logs">{{ runnerLogs.join('\n') }}</pre>
-          <el-empty v-else description="点击运行按钮执行代码" :image-size="80" />
+          <el-empty v-if="!runnerLogs.length && !runnerError" description="点击运行按钮执行代码" :image-size="80" />
         </div>
       </div>
     </div>
     <template #footer>
-      <el-button v-if="!runnerRunning" type="primary" @click="onRunCode">
+      <el-button v-if="!runnerRunning && !runnerLogs.length && !runnerError" type="primary" @click="onRunCode">
         <el-icon><VideoPlay /></el-icon>运行
       </el-button>
       <el-button v-if="runnerRunning" type="danger" @click="onStopRunner">
         <el-icon><VideoPause /></el-icon>停止
+      </el-button>
+      <el-button v-if="!runnerRunning && (runnerLogs.length > 0 || runnerError)" type="primary" @click="onRunCode">
+        <el-icon><RefreshRight /></el-icon>重新运行
       </el-button>
       <el-button @click="showCodeRunner = false">关闭</el-button>
     </template>

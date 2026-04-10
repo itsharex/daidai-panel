@@ -1,8 +1,10 @@
 <script setup lang="ts">
+import ScriptAIAssistantDialog from './components/ScriptAIAssistantDialog.vue'
 import ScriptExecutionDialogs from './components/ScriptExecutionDialogs.vue'
 import ScriptManageDialogs from './components/ScriptManageDialogs.vue'
 import ScriptsEditorPane from './components/ScriptsEditorPane.vue'
 import ScriptsSidebar from './components/ScriptsSidebar.vue'
+import { useScriptAI } from './useScriptAI'
 import { useScriptExecution } from './useScriptExecution'
 import { useScriptWorkspace } from './useScriptWorkspace'
 
@@ -10,6 +12,20 @@ const workspace = useScriptWorkspace()
 const execution = useScriptExecution({
   selectedFile: workspace.selectedFile,
   fileContent: workspace.fileContent
+})
+const ai = useScriptAI({
+  selectedFile: workspace.selectedFile,
+  fileContent: workspace.fileContent,
+  isBinary: workspace.isBinary,
+  isEditing: workspace.isEditing,
+  hasChanges: workspace.hasChanges,
+  editorLanguage: workspace.editorLanguage,
+  loadTree: workspace.loadTree,
+  loadFileContent: workspace.loadFileContent,
+  debugLogs: execution.debugLogs,
+  debugExitCode: execution.debugExitCode,
+  debugError: execution.debugError,
+  openDebugAndStart: execution.openDebugAndStart
 })
 
 const {
@@ -86,6 +102,7 @@ const {
   runnerLogs,
   runnerRunning,
   runnerExitCode,
+  runnerError,
   handleDebugRun,
   handleDebugStart,
   handleDebugStop,
@@ -93,6 +110,43 @@ const {
   handleRunCode,
   handleStopRunner
 } = execution
+
+const {
+  showAIDialog,
+  aiEnabled,
+  configLoading,
+  generating,
+  configuredProviders,
+  provider,
+  modelOverride,
+  mode,
+  responseMode,
+  prompt,
+  targetPath,
+  manualLanguage,
+  includeDebugLogs,
+  autoDebugAfterApply,
+  conversationMode,
+  hasConversation,
+  conversationTurnCount,
+  previewBaseContent,
+  resultSummary,
+  resultContent,
+  resultPreviewContent,
+  resultWarnings,
+  resultProviderLabel,
+  resultModel,
+  resultResponseMode,
+  resultCanApply,
+  generationError,
+  hasDebugContext,
+  resolvedLanguage,
+  applyButtonText,
+  openAIDialogFor,
+  handleGenerate,
+  handleCancelGenerate,
+  handleApply
+} = ai
 
 async function handleDebugSave() {
   if (!selectedFile.value || isBinary.value) {
@@ -118,6 +172,10 @@ function openSelectedFileRenameDialog() {
 
 function handleDeleteSelectedFile() {
   return handleDelete(selectedFile.value)
+}
+
+function openSelectedFileAIDialog() {
+  openAIDialogFor(selectedFile.value ? 'modify' : 'generate')
 }
 </script>
 
@@ -155,6 +213,7 @@ function handleDeleteSelectedFile() {
       :editor-language="editorLanguage"
       :on-mobile-back="handleMobileBack"
       :on-debug-run="handleDebugRun"
+      :on-open-ai="openSelectedFileAIDialog"
       :on-add-to-task="handleAddToTask"
       :on-save="handleSave"
       :on-format="handleFormat"
@@ -215,12 +274,51 @@ function handleDeleteSelectedFile() {
       :runner-logs="runnerLogs"
       :runner-running="runnerRunning"
       :runner-exit-code="runnerExitCode"
+      :runner-error="runnerError"
       :debug-saving="saving"
       :on-debug-start="handleDebugStart"
       :on-debug-save="handleDebugSave"
       :on-debug-stop="handleDebugStop"
       :on-run-code="handleRunCode"
       :on-stop-runner="handleStopRunner"
+    />
+
+    <ScriptAIAssistantDialog
+      v-model:show-ai-dialog="showAIDialog"
+      v-model:provider="provider"
+      v-model:model-override="modelOverride"
+      v-model:mode="mode"
+      v-model:response-mode="responseMode"
+      v-model:prompt="prompt"
+      v-model:target-path="targetPath"
+      v-model:manual-language="manualLanguage"
+      v-model:include-debug-logs="includeDebugLogs"
+      v-model:auto-debug-after-apply="autoDebugAfterApply"
+      v-model:conversation-mode="conversationMode"
+      :is-mobile="isMobile"
+      :ai-enabled="aiEnabled"
+      :config-loading="configLoading"
+      :generating="generating"
+      :selected-file="selectedFile"
+      :available-providers="configuredProviders"
+      :has-debug-context="hasDebugContext"
+      :current-content="previewBaseContent"
+      :preview-language="resolvedLanguage"
+      :result-summary="resultSummary"
+      :result-warnings="resultWarnings"
+      :result-content="resultContent"
+      :result-preview-content="resultPreviewContent"
+      :result-provider-label="resultProviderLabel"
+      :result-model="resultModel"
+      :result-response-mode="resultResponseMode"
+      :result-can-apply="resultCanApply"
+      :generation-error="generationError"
+      :apply-button-text="applyButtonText"
+      :has-conversation="hasConversation"
+      :conversation-turn-count="conversationTurnCount"
+      :on-generate="handleGenerate"
+      :on-cancel="handleCancelGenerate"
+      :on-apply="handleApply"
     />
   </div>
 </template>

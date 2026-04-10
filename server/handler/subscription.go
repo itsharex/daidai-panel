@@ -144,20 +144,21 @@ func (h *SubscriptionHandler) List(c *gin.Context) {
 
 func (h *SubscriptionHandler) Create(c *gin.Context) {
 	var req struct {
-		Name        string `json:"name" binding:"required"`
-		Type        string `json:"type"`
-		URL         string `json:"url" binding:"required"`
-		Branch      string `json:"branch"`
-		Schedule    string `json:"schedule"`
-		Whitelist   string `json:"whitelist"`
-		Blacklist   string `json:"blacklist"`
-		DependOn    string `json:"depend_on"`
-		HookScript  string `json:"hook_script"`
-		AutoAddTask bool   `json:"auto_add_task"`
-		AutoDelTask bool   `json:"auto_del_task"`
-		SaveDir     string `json:"save_dir"`
-		SSHKeyID    *uint  `json:"ssh_key_id"`
-		Alias       string `json:"alias"`
+		Name           string `json:"name" binding:"required"`
+		Type           string `json:"type"`
+		URL            string `json:"url" binding:"required"`
+		Branch         string `json:"branch"`
+		Schedule       string `json:"schedule"`
+		Whitelist      string `json:"whitelist"`
+		Blacklist      string `json:"blacklist"`
+		DependOn       string `json:"depend_on"`
+		HookScript     string `json:"hook_script"`
+		AutoAddTask    bool   `json:"auto_add_task"`
+		AutoDelTask    bool   `json:"auto_del_task"`
+		SaveDir        string `json:"save_dir"`
+		SSHKeyID       *uint  `json:"ssh_key_id"`
+		Alias          string `json:"alias"`
+		ForceOverwrite *bool  `json:"force_overwrite"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "请求参数错误")
@@ -173,21 +174,22 @@ func (h *SubscriptionHandler) Create(c *gin.Context) {
 	}
 
 	sub := model.Subscription{
-		Name:        req.Name,
-		Type:        req.Type,
-		URL:         req.URL,
-		Branch:      req.Branch,
-		Schedule:    req.Schedule,
-		Whitelist:   req.Whitelist,
-		Blacklist:   req.Blacklist,
-		DependOn:    req.DependOn,
-		HookScript:  req.HookScript,
-		AutoAddTask: req.AutoAddTask,
-		AutoDelTask: req.AutoDelTask,
-		Enabled:     true,
-		SaveDir:     req.SaveDir,
-		SSHKeyID:    req.SSHKeyID,
-		Alias:       req.Alias,
+		Name:           req.Name,
+		Type:           req.Type,
+		URL:            req.URL,
+		Branch:         req.Branch,
+		Schedule:       req.Schedule,
+		Whitelist:      req.Whitelist,
+		Blacklist:      req.Blacklist,
+		DependOn:       req.DependOn,
+		HookScript:     req.HookScript,
+		AutoAddTask:    req.AutoAddTask,
+		AutoDelTask:    req.AutoDelTask,
+		Enabled:        true,
+		SaveDir:        req.SaveDir,
+		SSHKeyID:       req.SSHKeyID,
+		Alias:          req.Alias,
+		ForceOverwrite: req.ForceOverwrite,
 	}
 
 	if err := database.DB.Create(&sub).Error; err != nil {
@@ -222,7 +224,7 @@ func (h *SubscriptionHandler) Update(c *gin.Context) {
 		"name": true, "type": true, "url": true, "branch": true,
 		"schedule": true, "whitelist": true, "blacklist": true,
 		"depend_on": true, "hook_script": true, "auto_add_task": true, "auto_del_task": true,
-		"save_dir": true, "ssh_key_id": true, "alias": true,
+		"save_dir": true, "ssh_key_id": true, "alias": true, "force_overwrite": true,
 	}
 	updates := make(map[string]interface{})
 	for k, v := range req {

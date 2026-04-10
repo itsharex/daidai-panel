@@ -126,7 +126,7 @@ watch(searchKeyword, (val) => {
   .sidebar-actions {
     display: flex;
     align-items: center;
-    gap: 2px;
+    gap: 4px;
 
     .action-btn {
       width: 28px;
@@ -202,9 +202,10 @@ watch(searchKeyword, (val) => {
     gap: 8px;
 
     .sidebar-actions {
-      gap: 1px;
+      gap: 4px;
       width: 100%;
-      justify-content: space-between;
+      justify-content: flex-start;
+      flex-wrap: wrap;
     }
   }
 

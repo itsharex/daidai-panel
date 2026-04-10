@@ -10,11 +10,15 @@ const props = withDefaults(defineProps<{
   readonly?: boolean
   renderSideBySide?: boolean
   ignoreTrimWhitespace?: boolean
+  hideUnchangedRegions?: boolean
+  contextLineCount?: number
 }>(), {
   language: 'plaintext',
   readonly: true,
   renderSideBySide: true,
   ignoreTrimWhitespace: false,
+  hideUnchangedRegions: false,
+  contextLineCount: 3,
 })
 
 const editorRef = ref<HTMLElement>()
@@ -173,7 +177,12 @@ onMounted(async () => {
       fontSize: 14,
       minimap: { enabled: false },
       wordWrap: 'on',
-      diffWordWrap: 'on'
+      diffWordWrap: 'on',
+      hideUnchangedRegions: {
+        enabled: props.hideUnchangedRegions,
+        contextLineCount: props.contextLineCount,
+        minimumLineCount: 2,
+      }
     })
 
     createModels()
@@ -236,6 +245,28 @@ watch(() => props.renderSideBySide, (newValue) => {
 
 watch(() => props.ignoreTrimWhitespace, (newValue) => {
   editor?.updateOptions({ ignoreTrimWhitespace: newValue })
+  scheduleEditorLayout(20)
+})
+
+watch(() => props.hideUnchangedRegions, (newValue) => {
+  editor?.updateOptions({
+    hideUnchangedRegions: {
+      enabled: newValue,
+      contextLineCount: props.contextLineCount,
+      minimumLineCount: 2,
+    }
+  })
+  scheduleEditorLayout(20)
+})
+
+watch(() => props.contextLineCount, (newValue) => {
+  editor?.updateOptions({
+    hideUnchangedRegions: {
+      enabled: props.hideUnchangedRegions,
+      contextLineCount: newValue,
+      minimumLineCount: 2,
+    }
+  })
   scheduleEditorLayout(20)
 })
 

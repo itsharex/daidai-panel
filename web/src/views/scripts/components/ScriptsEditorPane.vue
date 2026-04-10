@@ -19,6 +19,7 @@ defineProps<{
   editorLanguage: string
   onMobileBack: () => void
   onDebugRun: () => void | Promise<void>
+  onOpenAi: () => void | Promise<void>
   onAddToTask: () => void
   onSave: () => void | Promise<void>
   onFormat: () => void | Promise<void>
@@ -40,7 +41,19 @@ function startEdit() {
 <template>
   <div class="scripts-editor" :class="{ mobile: isMobile }" v-show="!isMobile || mobileShowEditor">
     <div v-if="!selectedFile" class="editor-placeholder">
-      <el-empty description="选择一个文件查看内容" />
+      <div class="placeholder-shell">
+        <el-empty>
+          <template #description>
+            <div class="placeholder-description">
+              <span>选择一个文件查看内容</span>
+              <small>也可以直接调用 AI 生成新脚本，再保存到脚本目录。</small>
+            </div>
+          </template>
+          <el-button type="primary" plain @click="onOpenAi">
+            <el-icon><MagicStick /></el-icon>AI 生成脚本
+          </el-button>
+        </el-empty>
+      </div>
     </div>
     <template v-else>
       <div class="editor-header">
@@ -58,6 +71,9 @@ function startEdit() {
           </el-button>
           <el-button :size="isMobile ? 'small' : 'default'" type="success" @click="onDebugRun" :disabled="isBinary">
             <el-icon><VideoPlay /></el-icon><span v-if="!isMobile">调试</span>
+          </el-button>
+          <el-button class="ai-action-btn" :size="isMobile ? 'small' : 'default'" @click="onOpenAi" :disabled="isBinary">
+            <el-icon><MagicStick /></el-icon><span v-if="!isMobile">AI 助手</span>
           </el-button>
           <el-button v-if="!isMobile" size="default" type="primary" @click="onAddToTask" :disabled="isBinary">
             <el-icon><Plus /></el-icon>添加任务
@@ -79,6 +95,9 @@ function startEdit() {
                 </el-dropdown-item>
                 <el-dropdown-item v-if="isMobile" @click="onAddToTask" :disabled="isBinary">
                   <el-icon><Plus /></el-icon>添加任务
+                </el-dropdown-item>
+                <el-dropdown-item v-if="isMobile" @click="onOpenAi" :disabled="isBinary">
+                  <el-icon><MagicStick /></el-icon>AI 助手
                 </el-dropdown-item>
                 <el-dropdown-item v-if="isMobile && isEditing" @click="onFormat" :disabled="isBinary">
                   <el-icon><MagicStick /></el-icon>格式化
@@ -129,6 +148,29 @@ function startEdit() {
   justify-content: center;
 }
 
+.placeholder-shell {
+  width: min(420px, 100%);
+  padding: 20px;
+}
+
+.placeholder-description {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  line-height: 1.6;
+
+  span {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--el-text-color-primary);
+  }
+
+  small {
+    font-size: 13px;
+    color: var(--el-text-color-secondary);
+  }
+}
+
 .editor-header {
   padding: 12px 20px;
   display: flex;
@@ -149,6 +191,11 @@ function startEdit() {
     align-items: center;
     gap: 10px;
   }
+}
+
+.ai-action-btn {
+  border-color: color-mix(in srgb, var(--el-color-primary) 24%, var(--el-border-color));
+  background: color-mix(in srgb, var(--el-color-primary-light-9) 82%, white 18%);
 }
 
 .editor-content {
