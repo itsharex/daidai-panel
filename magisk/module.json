@@ -1,0 +1,9 @@
+{
+  "id": "daidai-panel",
+  "name": "呆呆面板",
+  "version": "VERSION_PLACEHOLDER",
+  "versionCode": VERSIONCODE_PLACEHOLDER,
+  "author": "呆呆面板团队",
+  "description": "呆呆面板 - 轻量级服务器管理面板，可在 Android 设备上通过 Magisk 面具运行",
+  "minApi": 28
+}

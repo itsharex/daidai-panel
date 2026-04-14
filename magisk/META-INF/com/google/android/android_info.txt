@@ -1,0 +1,12 @@
+# Magisk 模块信息
+# 此文件定义了模块的元数据
+
+MAGISK_VER=24.0
+MAGISK_MIN_VER=24.0
+
+# 模块信息
+MODULE_NAME=呆呆面板
+MODULE_ID=daidai-panel
+MODULE_VERSION=2.0.4
+MODULE_AUTHOR=呆呆面板团队
+MODULE_DESCRIPTION=呆呆面板 - 轻量级服务器管理面板，可在 Android 设备上通过 Magisk 面具运行

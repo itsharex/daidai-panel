@@ -1,0 +1,28 @@
+# Magisk 模块安装脚本
+# 此脚本会在模块安装时执行
+
+# 如果不存在，则设置权限
+ui_print "- 正在安装呆呆面板模块..."
+
+# 复制二进制文件
+cp -f "$MODDIR/daidai-server" "/data/adb/daidai-panel/daidai-server" 2>/dev/null || true
+
+# 复制前端文件
+if [ -d "$MODDIR/web" ]; then
+    cp -rf "$MODDIR/web/"* "/data/adb/daidai-panel/web/" 2>/dev/null || true
+fi
+
+# 创建目录
+mkdir -p /data/adb/daidai-panel/data
+mkdir -p /data/adb/daidai-panel/scripts
+mkdir -p /data/adb/daidai-panel/logs
+mkdir -p /data/adb/daidai-panel/backups
+mkdir -p /data/adb/daidai-panel/web
+
+# 设置权限
+chmod 755 /data/adb/daidai-panel/daidai-server 2>/dev/null || true
+chmod -R 755 /data/adb/daidai-panel 2>/dev/null || true
+
+ui_print "- 安装完成!"
+ui_print "- 访问地址: http://localhost:5700"
+ui_print "- 数据目录: /data/adb/daidai-panel"

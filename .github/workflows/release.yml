@@ -107,6 +107,121 @@ jobs:
               --notes-file "$NOTES_FILE"
           fi
 
+  magisk-module:
+    runs-on: ubuntu-latest
+    needs: release
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build Frontend
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build Magisk Module - ARM64
+        run: |
+          MODULE_DIR=magisk-build
+          rm -rf $MODULE_DIR
+          mkdir -p $MODULE_DIR
+
+          # Copy module files
+          sed "s/VERSION_PLACEHOLDER/${{ steps.version.outputs.VERSION }}/g; s/VERSIONCODE_PLACEHOLDER/$(echo '${{ steps.version.outputs.VERSION }}' | tr -d '.' | head -c 4)/g" magisk/module.json > $MODULE_DIR/module.json
+          cp magisk/system.prop $MODULE_DIR/
+          cp magisk/service.sh $MODULE_DIR/
+          cp magisk/uninstall.sh $MODULE_DIR/
+          cp -r magisk/META-INF $MODULE_DIR/
+
+          # Build backend for Android ARM64
+          cd server
+          CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build \
+            -ldflags="-s -w -X daidai-panel/handler.Version=${{ steps.version.outputs.VERSION }}" \
+            -o ../$MODULE_DIR/daidai-server .
+
+          # Build ddp command tool
+          go build -ldflags="-s -w" -o ../$MODULE_DIR/ddp ./cmd/ddp
+          cd ..
+
+          # Copy frontend files
+          mkdir -p $MODULE_DIR/web
+          cp -r web/dist/* $MODULE_DIR/web/
+
+          # Copy README
+          cp magisk/README.md $MODULE_DIR/
+
+          # Package module
+          cd $MODULE_DIR
+          zip -r "../daidai-panel-magisk-${{ steps.version.outputs.VERSION }}-arm64.zip" .
+          cd ..
+
+          echo "ARM64模块构建完成: daidai-panel-magisk-${{ steps.version.outputs.VERSION }}-arm64.zip"
+
+      - name: Build Magisk Module - ARM (32-bit)
+        run: |
+          MODULE_DIR=magisk-build-arm
+          rm -rf $MODULE_DIR
+          mkdir -p $MODULE_DIR
+
+          # Copy module files
+          sed "s/VERSION_PLACEHOLDER/${{ steps.version.outputs.VERSION }}/g; s/VERSIONCODE_PLACEHOLDER/$(echo '${{ steps.version.outputs.VERSION }}' | tr -d '.' | head -c 4)/g" magisk/module.json > $MODULE_DIR/module.json
+          cp magisk/system.prop $MODULE_DIR/
+          cp magisk/service.sh $MODULE_DIR/
+          cp magisk/uninstall.sh $MODULE_DIR/
+          cp -r magisk/META-INF $MODULE_DIR/
+
+          # Build backend for Android ARM (32-bit)
+          cd server
+          CGO_ENABLED=0 GOOS=android GOARCH=arm go build \
+            -ldflags="-s -w -X daidai-panel/handler.Version=${{ steps.version.outputs.VERSION }}" \
+            -o ../$MODULE_DIR/daidai-server .
+
+          # Build ddp command tool
+          go build -ldflags="-s -w" -o ../$MODULE_DIR/ddp ./cmd/ddp
+          cd ..
+
+          # Copy frontend files
+          mkdir -p $MODULE_DIR/web
+          cp -r web/dist/* $MODULE_DIR/web/
+
+          # Copy README
+          cp magisk/README.md $MODULE_DIR/
+
+          # Package module
+          cd $MODULE_DIR
+          zip -r "../daidai-panel-magisk-${{ steps.version.outputs.VERSION }}-arm.zip" .
+          cd ..
+
+          echo "ARM模块构建完成: daidai-panel-magisk-${{ steps.version.outputs.VERSION }}-arm.zip"
+
+      - name: Upload Magisk Modules to Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh release upload "${GITHUB_REF_NAME}" \
+            daidai-panel-magisk-${{ steps.version.outputs.VERSION }}-arm64.zip \
+            daidai-panel-magisk-${{ steps.version.outputs.VERSION }}-arm.zip \
+            --clobber
+
+          echo "Magisk 模块已上传到 Release"
+
   docker-alpine:
     runs-on: ubuntu-latest
     needs: release
