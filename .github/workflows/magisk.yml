@@ -76,48 +76,10 @@ jobs:
 
           echo "ARM64模块构建完成: daidai-panel-magisk-${{ inputs.version }}-arm64.zip"
 
-      - name: Build Magisk Module - ARM (32-bit)
-        run: |
-          MODULE_DIR=magisk-build-arm
-          rm -rf $MODULE_DIR
-          mkdir -p $MODULE_DIR
-
-          # Copy module files and replace version placeholder
-          sed "s/VERSION_PLACEHOLDER/${{ inputs.version }}/g; s/VERSIONCODE_PLACEHOLDER/$(echo '${{ inputs.version }}' | tr -d '.' | head -c 4)/g" magisk/module.json > $MODULE_DIR/module.json
-          cp magisk/system.prop $MODULE_DIR/
-          cp magisk/service.sh $MODULE_DIR/
-          cp magisk/uninstall.sh $MODULE_DIR/
-          cp -r magisk/META-INF $MODULE_DIR/
-
-          # Build backend for Android ARM (32-bit)
-          cd server
-          CGO_ENABLED=0 GOOS=android GOARCH=arm go build \
-            -ldflags="-s -w -X daidai-panel/handler.Version=${{ inputs.version }}" \
-            -o ../$MODULE_DIR/daidai-server .
-
-          # Build ddp command tool
-          go build -ldflags="-s -w" -o ../$MODULE_DIR/ddp ./cmd/ddp
-          cd ..
-
-          # Copy frontend files
-          mkdir -p $MODULE_DIR/web
-          cp -r web/dist/* $MODULE_DIR/web/
-
-          # Copy README
-          cp magisk/README.md $MODULE_DIR/
-
-          # Package module
-          cd $MODULE_DIR
-          zip -r "../daidai-panel-magisk-${{ inputs.version }}-arm.zip" .
-          cd ..
-
-          echo "ARM模块构建完成: daidai-panel-magisk-${{ inputs.version }}-arm.zip"
-
       - name: Upload Magisk Modules
         uses: actions/upload-artifact@v4
         with:
           name: daidai-panel-magisk-${{ inputs.version }}
           path: |
             daidai-panel-magisk-${{ inputs.version }}-arm64.zip
-            daidai-panel-magisk-${{ inputs.version }}-arm.zip
           retention-days: 30
