@@ -58,12 +58,15 @@ mkdir -p "$PANEL_DIR/data/backups"
 mkdir -p "$PANEL_DIR/data/deps"
 
 # 首次安装时生成默认 config.yaml
+# Magisk 环境没有 nginx，daidai-server 需要同时托管前端 → 单端口 5700，
+# 并通过 web_dir 指向模块内置的前端静态文件目录。
 if [ ! -f "$PANEL_DIR/config.yaml" ]; then
   ui_print "- 生成默认 config.yaml ..."
-  cat > "$PANEL_DIR/config.yaml" <<'EOF'
+  cat > "$PANEL_DIR/config.yaml" <<EOF
 server:
-  port: 5701
+  port: 5700
   mode: release
+  web_dir: /data/adb/modules/daidai-panel/web
 
 database:
   path: ./data/daidai.db
@@ -83,6 +86,16 @@ cors:
     - http://localhost:5700
     - http://127.0.0.1:5700
 EOF
+else
+  ui_print "- 检测到已有 config.yaml，自动迁移到单端口 5700 + web_dir ..."
+  # 若来自 v2.0.6 首发版本的 5701 配置，升级到单端口方案
+  sed -i -e 's/^  port: 5701/  port: 5700/' "$PANEL_DIR/config.yaml" 2>/dev/null
+  # 若未设置 web_dir，注入一条；若已设置则覆盖为当前模块路径（保证 updater 升级后路径正确）
+  if grep -q '^\s*web_dir:' "$PANEL_DIR/config.yaml"; then
+    sed -i -E "s|^(\s*web_dir:).*|\1 /data/adb/modules/daidai-panel/web|" "$PANEL_DIR/config.yaml"
+  else
+    sed -i -E "s|^(\s*mode:.*)$|\1\n  web_dir: /data/adb/modules/daidai-panel/web|" "$PANEL_DIR/config.yaml"
+  fi
 fi
 
 # 权限设置：

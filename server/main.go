@@ -198,6 +198,7 @@ func main() {
 	engine.Use(gin.Recovery())
 
 	router.Setup(engine)
+	setupStaticFrontend(engine, cfg.Server.WebDir)
 
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
 	listener, err := net.Listen("tcp", addr)
@@ -215,4 +216,49 @@ func main() {
 
 func verifyInstalledDeps() {
 	service.ReconcileDependenciesAfterRestart()
+}
+
+// setupStaticFrontend lets the Go backend double as a frontend host when a
+// web directory is configured (e.g. the Magisk module bundles `web/` next to
+// the binary and has no nginx). Docker deployments leave WebDir empty and
+// keep using nginx.
+func setupStaticFrontend(engine *gin.Engine, webDir string) {
+	if strings.TrimSpace(webDir) == "" {
+		return
+	}
+
+	absDir, err := filepath.Abs(webDir)
+	if err != nil {
+		log.Printf("web_dir 解析失败: %v", err)
+		return
+	}
+
+	indexPath := filepath.Join(absDir, "index.html")
+	if _, err := os.Stat(indexPath); err != nil {
+		log.Printf("web_dir=%s 缺少 index.html，跳过前端托管", absDir)
+		return
+	}
+
+	engine.StaticFile("/", indexPath)
+	engine.StaticFile("/favicon.svg", filepath.Join(absDir, "favicon.svg"))
+
+	for _, sub := range []string{"assets", "monaco", "sponsor-portal"} {
+		subDir := filepath.Join(absDir, sub)
+		if info, err := os.Stat(subDir); err == nil && info.IsDir() {
+			engine.Static("/"+sub, subDir)
+		}
+	}
+
+	// SPA fallback: 非 API 的路径在后端没有命中时一律回 index.html，
+	// 交给前端 vue-router 处理。
+	engine.NoRoute(func(c *gin.Context) {
+		p := c.Request.URL.Path
+		if strings.HasPrefix(p, "/api/") {
+			c.JSON(404, gin.H{"error": "route not found"})
+			return
+		}
+		c.File(indexPath)
+	})
+
+	log.Printf("前端静态目录已挂载: %s", absDir)
 }

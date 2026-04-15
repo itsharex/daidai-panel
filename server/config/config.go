@@ -20,8 +20,9 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Port int    `yaml:"port"`
-	Mode string `yaml:"mode"`
+	Port   int    `yaml:"port"`
+	Mode   string `yaml:"mode"`
+	WebDir string `yaml:"web_dir"`
 }
 
 type DatabaseConfig struct {
@@ -64,6 +65,9 @@ func Load(path string) (*Config, error) {
 	}
 	if envDBPath := os.Getenv("DB_PATH"); envDBPath != "" {
 		cfg.Database.Path = envDBPath
+	}
+	if envWebDir := os.Getenv("WEB_DIR"); envWebDir != "" {
+		cfg.Server.WebDir = envWebDir
 	}
 
 	if cfg.JWT.Secret == "" {

@@ -40,14 +40,14 @@ else
 fi
 
 # --- 端口监听 ---------------------------------------------------------
-PORT_INFO=$(netstat -ltn 2>/dev/null | grep -E ':5700|:5701' | head -n2)
+PORT_INFO=$(netstat -ltn 2>/dev/null | grep -E ':5700' | head -n2)
 if [ -n "$PORT_INFO" ]; then
   ui_print "- 监听端口:"
   echo "$PORT_INFO" | while IFS= read -r line; do
     ui_print "    $line"
   done
 else
-  ui_print "- 监听端口: 未检测到 (5700/5701 未监听)"
+  ui_print "- 监听端口: 未检测到 (5700 未监听)"
 fi
 
 # --- 访问地址 ---------------------------------------------------------
