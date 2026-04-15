@@ -6,6 +6,98 @@
         <span class="page-subtitle">安装和管理 Node.js、Python3、Linux 软件包依赖</span>
       </div>
     </div>
+
+    <!-- Android 面具版：一键安装 Python / Node 解释器 -->
+    <el-card v-if="androidStatus && androidStatus.supported" class="android-runtime-card" shadow="never">
+      <template #header>
+        <div class="android-runtime-header">
+          <span>
+            <el-icon><Cpu /></el-icon>
+            Android 脚本运行时 <el-tag size="small" type="info">面具版</el-tag>
+          </span>
+          <span class="android-runtime-meta">
+            架构 {{ androidStatus.arch }} · 安装目录 {{ androidStatus.bin_dir }}
+            <el-tag v-if="androidStatus.termux_detected" size="small" type="success">已检测 Termux</el-tag>
+          </span>
+        </div>
+      </template>
+
+      <div class="android-runtime-tip">
+        <el-alert type="info" :closable="false" show-icon>
+          面具环境没有 apt/apk，脚本解释器需要手动安装。点击下方按钮会把运行时下载解压到
+          <code>{{ androidStatus.bin_dir }}</code>，随后 Python/Node 脚本即可运行。
+          如果装了 Termux，面板也会自动识别 <code>/data/data/com.termux/files/usr/bin</code> 里的解释器。
+        </el-alert>
+      </div>
+
+      <el-row :gutter="16" class="android-runtime-grid">
+        <el-col v-for="item in androidStatus.runtimes" :key="item.name" :xs="24" :sm="12">
+          <div class="runtime-item">
+            <div class="runtime-item__head">
+              <b>{{ item.name }}</b>
+              <el-tag v-if="item.installed" type="success" size="small">已安装</el-tag>
+              <el-tag v-else type="warning" size="small">未安装</el-tag>
+            </div>
+            <div class="runtime-item__meta">
+              <div v-if="item.installed">
+                <div>路径: <code>{{ item.path }}</code></div>
+                <div v-if="item.version">版本: {{ item.version }}</div>
+              </div>
+              <div v-else>
+                <template v-if="presetFor(item.name)">
+                  将下载 {{ presetFor(item.name)?.label }}（约
+                  {{ presetFor(item.name)?.size_mb }}MB）
+                  <div v-if="presetFor(item.name)?.note" class="runtime-item__note">
+                    提示：{{ presetFor(item.name)?.note }}
+                  </div>
+                </template>
+                <template v-else>
+                  当前架构 {{ androidStatus.arch }} 暂无预置下载源
+                </template>
+              </div>
+            </div>
+            <div class="runtime-item__actions">
+              <el-button
+                v-if="!item.installed"
+                type="primary"
+                size="small"
+                :loading="androidInstallingName === item.name"
+                :disabled="!presetFor(item.name)"
+                @click="installAndroidRuntime(item.name)"
+              >
+                一键安装
+              </el-button>
+              <el-button
+                v-else
+                size="small"
+                :loading="androidInstallingName === item.name"
+                @click="installAndroidRuntime(item.name)"
+              >
+                重新安装
+              </el-button>
+              <el-button
+                v-if="item.installed"
+                type="danger"
+                size="small"
+                plain
+                @click="uninstallAndroidRuntime(item.name)"
+              >
+                移除
+              </el-button>
+            </div>
+          </div>
+        </el-col>
+      </el-row>
+
+      <div v-if="androidInstallLog.length" class="android-runtime-log">
+        <div class="android-runtime-log__title">
+          安装日志
+          <el-button link size="small" @click="androidInstallLog = []">清空</el-button>
+        </div>
+        <pre>{{ androidInstallLog.join('\n') }}</pre>
+      </div>
+    </el-card>
+
     <el-tabs v-model="activeTab" @tab-change="loadData">
       <el-tab-pane label="Node.js" name="nodejs" />
       <el-tab-pane label="Python3" name="python" />
@@ -272,10 +364,124 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, onActivated, watch, computed } from 'vue'
 import { depsApi, type MirrorsResponse } from '@/api/deps'
+import {
+  androidRuntimeApi,
+  type AndroidRuntimeStatus,
+  type AndroidRuntimePreset,
+} from '@/api/androidRuntime'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { openAuthorizedEventStream, type EventStreamConnection } from '@/utils/sse'
 import { usePageActivity } from '@/composables/usePageActivity'
 import { useResponsive } from '@/composables/useResponsive'
+
+// ---------- Android 面具版脚本运行时 ----------
+const androidStatus = ref<AndroidRuntimeStatus | null>(null)
+const androidInstallingName = ref<string>('')
+const androidInstallLog = ref<string[]>([])
+let androidInstallAbort: AbortController | null = null
+
+async function loadAndroidStatus() {
+  try {
+    const res = await androidRuntimeApi.status()
+    androidStatus.value = res.data
+  } catch (e) {
+    androidStatus.value = null
+  }
+}
+
+function presetFor(name: string): AndroidRuntimePreset | undefined {
+  return androidStatus.value?.presets?.find((p) => p.name === name)
+}
+
+async function installAndroidRuntime(name: string) {
+  if (androidInstallingName.value) return
+  const preset = presetFor(name)
+  if (!preset) {
+    ElMessage.warning('当前架构没有预置下载源')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `将从 ${preset.url} 下载约 ${preset.size_mb}MB 并解压到 /data/adb/daidai-panel/bin/${name}，是否继续？`,
+      '安装确认',
+      { confirmButtonText: '开始安装', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+
+  androidInstallingName.value = name
+  androidInstallLog.value = [`[${new Date().toLocaleTimeString()}] 准备安装 ${name}...`]
+  androidInstallAbort = new AbortController()
+
+  try {
+    const token = localStorage.getItem('access_token') || ''
+    const resp = await fetch('/api/v1/android-runtime/install', {
+      method: 'POST',
+      signal: androidInstallAbort.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: token ? `Bearer ${token}` : '',
+      },
+      body: JSON.stringify({ name }),
+    })
+    if (!resp.ok) {
+      const text = await resp.text()
+      androidInstallLog.value.push(`HTTP ${resp.status}: ${text}`)
+      ElMessage.error('安装失败: HTTP ' + resp.status)
+      return
+    }
+    const reader = resp.body?.getReader()
+    if (!reader) {
+      ElMessage.error('无法建立流式连接')
+      return
+    }
+    const decoder = new TextDecoder()
+    let buf = ''
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buf += decoder.decode(value, { stream: true })
+      let idx
+      while ((idx = buf.indexOf('\n\n')) >= 0) {
+        const line = buf.slice(0, idx)
+        buf = buf.slice(idx + 2)
+        const m = line.match(/^data:\s?(.*)$/)
+        if (m && m[1] !== undefined) androidInstallLog.value.push(m[1].replace(/\\n/g, '\n'))
+      }
+    }
+    ElMessage.success(`${name} 安装完成`)
+    await loadAndroidStatus()
+  } catch (e: any) {
+    if (e?.name !== 'AbortError') {
+      androidInstallLog.value.push('异常: ' + (e?.message || String(e)))
+      ElMessage.error('安装过程异常')
+    }
+  } finally {
+    androidInstallingName.value = ''
+    androidInstallAbort = null
+  }
+}
+
+async function uninstallAndroidRuntime(name: string) {
+  try {
+    await ElMessageBox.confirm(
+      `确定移除 /data/adb/daidai-panel/bin/${name}？`,
+      '确认',
+      { type: 'warning' },
+    )
+  } catch {
+    return
+  }
+  try {
+    await androidRuntimeApi.uninstall(name)
+    ElMessage.success('已移除')
+    await loadAndroidStatus()
+  } catch (e: any) {
+    ElMessage.error('移除失败: ' + (e?.message || String(e)))
+  }
+}
+// ---------- /Android 面具版 ----------
 
 const activeTab = ref('nodejs')
 const depsList = ref<any[]>([])
@@ -670,6 +876,7 @@ onMounted(async () => {
   mounted = true
   createType.value = activeTab.value
   loadData()
+  loadAndroidStatus()
   const types = ['nodejs', 'python', 'linux'] as const
   const countRefs = { nodejs: nodejsCount, python: pythonCount, linux: linuxCount }
   for (const t of types) {
@@ -868,5 +1075,60 @@ onBeforeUnmount(() => {
 @keyframes spin {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
+}
+
+.android-runtime-card {
+  margin-bottom: 16px;
+  border: 1px solid var(--el-border-color-lighter);
+}
+.android-runtime-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.android-runtime-header .el-icon { vertical-align: middle; margin-right: 6px; }
+.android-runtime-meta {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.android-runtime-tip { margin-bottom: 12px; }
+.android-runtime-grid { margin-top: 8px; }
+.runtime-item {
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  background: var(--el-fill-color-lighter);
+}
+.runtime-item__head { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+.runtime-item__meta { font-size: 12px; color: var(--el-text-color-secondary); line-height: 1.6; }
+.runtime-item__note { color: var(--el-color-warning); margin-top: 4px; }
+.runtime-item__actions { margin-top: 10px; display: flex; gap: 8px; }
+.android-runtime-log {
+  margin-top: 12px;
+  border-top: 1px dashed var(--el-border-color-lighter);
+  padding-top: 10px;
+}
+.android-runtime-log__title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+  margin-bottom: 6px;
+}
+.android-runtime-log pre {
+  background: var(--el-fill-color);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 12px;
+  max-height: 240px;
+  overflow: auto;
+  margin: 0;
 }
 </style>

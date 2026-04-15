@@ -2,134 +2,147 @@
 ##########################################################################
 # 呆呆面板 Magisk 模块 - late_start service
 #
-# 该脚本在系统 late_start service 阶段被 Magisk 执行，此时
-# /data 已挂载，网络子系统通常也已准备好，适合启动面板后端。
+# 进入 Alpine 容器启动 daidai-server，单端口 5700（API + 前端静态资源
+# 都由 daidai-server 自己托管，无需 nginx）。
 ##########################################################################
 
-MODDIR=${0%/*}
-PANEL_DIR=/data/adb/daidai-panel
-LOG_FILE="$PANEL_DIR/service.log"
+export PATH=/data/adb/ap/bin:/data/adb/ksu/bin:/data/adb/magisk:$PATH
 
-# ------------------------------------------------------------------
-# 组装运行时 PATH
-#   1. 模块自身（daidai-server / ddp）
-#   2. Termux 常见路径（如果用户装了 Termux，脚本就能直接用 python/node/git 等）
-#   3. 常见静态运行时目录，方便高级用户自行摆放 busybox / python-static
-#   4. 系统默认 PATH
-# ------------------------------------------------------------------
-MODULE_PATHS="$MODDIR"
-
-TERMUX_PATHS=""
-for p in \
-  /data/data/com.termux/files/usr/bin \
-  /data/data/com.termux/files/usr/local/bin \
-  /data/user/0/com.termux/files/usr/bin; do
-  if [ -d "$p" ]; then
-    TERMUX_PATHS="${TERMUX_PATHS:+$TERMUX_PATHS:}$p"
-  fi
-done
-
-EXTRA_PATHS=""
-for p in /data/local/tmp/bin /sbin /system/bin /system/xbin /vendor/bin; do
-  [ -d "$p" ] && EXTRA_PATHS="${EXTRA_PATHS:+$EXTRA_PATHS:}$p"
-done
-
-# 用户可放自己的运行时二进制到 $PANEL_DIR/bin
-if [ -d "$PANEL_DIR/bin" ]; then
-  MODULE_PATHS="$PANEL_DIR/bin:$MODULE_PATHS"
+# rootfs 位置探测
+rootfs=/data/daidai
+if [ ! -d "$rootfs" ]; then
+  rootfs=/data/local/daidai
 fi
 
-export PATH="$MODULE_PATHS${TERMUX_PATHS:+:$TERMUX_PATHS}${EXTRA_PATHS:+:$EXTRA_PATHS}:$PATH"
-export HOME="$PANEL_DIR"
+# 模块目录探测
+MODDIR=${MODDIR:-/data/adb/modules/daidai-panel}
+[ ! -d "$MODDIR" ] && MODDIR=/data/adb/magisk/modules/daidai-panel
+[ ! -d "$MODDIR" ] && MODDIR=/sbin/.magisk/modules/daidai-panel
+[ ! -d "$MODDIR" ] && MODDIR=$(dirname "$0")
+RURIMA=$MODDIR/system/bin/rurima
 
-# 让 Termux 的动态库也能加载（python/node 可能依赖）
-if [ -n "$TERMUX_PATHS" ]; then
-  for ldp in \
-    /data/data/com.termux/files/usr/lib \
-    /data/user/0/com.termux/files/usr/lib; do
-    if [ -d "$ldp" ]; then
-      export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}$ldp"
-    fi
-  done
-fi
+PERSIST_DIR=/data/adb/daidai-panel
+LOG_FILE="$PERSIST_DIR/service.log"
 
-mkdir -p "$PANEL_DIR"
+mkdir -p "$PERSIST_DIR"
 
 log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE" 2>/dev/null
 }
 
-# 简单滚动：日志超过 2MB 后切成 .old
+# 日志滚动
 if [ -f "$LOG_FILE" ]; then
   size=$(stat -c%s "$LOG_FILE" 2>/dev/null || echo 0)
-  if [ "${size:-0}" -gt 2097152 ]; then
-    mv -f "$LOG_FILE" "$LOG_FILE.old" 2>/dev/null
-  fi
+  [ "${size:-0}" -gt 2097152 ] && mv -f "$LOG_FILE" "$LOG_FILE.old" 2>/dev/null
 fi
 
 log "========================================="
-log "呆呆面板模块启动 (MODDIR=$MODDIR)"
+log "呆呆面板模块启动 (MODDIR=$MODDIR, rootfs=$rootfs)"
 log "========================================="
-log "PATH=$PATH"
 
-# 探测常用脚本运行时，只做记录，缺失不阻塞启动
-for cmd in sh bash python3 python node npm pnpm yarn ts-node go git curl wget; do
-  p=$(command -v "$cmd" 2>/dev/null)
-  if [ -n "$p" ]; then
-    log "runtime: $cmd -> $p"
-  else
-    log "runtime: $cmd -> (缺失)"
-  fi
-done
+echo "noSuspend" > /sys/power/wake_lock 2>/dev/null
+dumpsys deviceidle disable 2>/dev/null || true
 
-# 等待 /data 真正可写（极少数场景下 service 阶段早于 encryption unlock）
-for i in 1 2 3 4 5 6 7 8 9 10; do
-  if [ -w /data/adb ]; then
-    break
-  fi
-  log "等待 /data/adb 就绪... ($i/10)"
-  sleep 3
-done
-
-# 等待网络（尽量，失败也不阻塞）
-for i in 1 2 3 4 5 6; do
-  ip=$(ip route get 1.1.1.1 2>/dev/null | awk '/src/ {print $NF}' | head -n1)
-  if [ -n "$ip" ]; then
-    log "网络已就绪 (src=$ip)"
+# 等网络就绪（尽量，失败也不阻塞）
+for i in 1 2 3 4 5; do
+  if busybox nslookup m.baidu.com >/dev/null 2>&1; then
+    log "网络已就绪"
     break
   fi
   sleep 5
 done
 
-if [ ! -x "$MODDIR/daidai-server" ]; then
-  log "!! 找不到或无法执行 $MODDIR/daidai-server"
+if [ ! -f "$RURIMA" ]; then
+  log "!! 找不到 rurima 二进制: $RURIMA"
   exit 1
 fi
 
-# 避免重复启动
-if pgrep -f "$MODDIR/daidai-server" >/dev/null 2>&1; then
-  log "面板进程已在运行，跳过启动"
+chmod +x "$RURIMA" 2>/dev/null
+
+if [ ! -d "$rootfs" ]; then
+  log "!! 找不到 rootfs: $rootfs，模块可能未完成安装，请重装"
+  exit 1
+fi
+
+# KernelSU 下 /data 可能以 ro 挂载，确保可写
+if [ -d "/data/adb/ksu" ]; then
+  mount -o remount,rw /data 2>/dev/null
+fi
+
+# 把最新的前端和 daidai-server 同步进容器
+mkdir -p $rootfs/app/web $rootfs/app/Dumb-Panel $rootfs/usr/local/bin
+cp -rf $MODDIR/web/* $rootfs/app/web/ 2>/dev/null
+cp -f  $MODDIR/system/bin/daidai-server $rootfs/usr/local/bin/daidai-server 2>/dev/null
+chmod 755 $rootfs/usr/local/bin/daidai-server 2>/dev/null
+
+if [ -f $MODDIR/system/bin/ddp ]; then
+  cp -f  $MODDIR/system/bin/ddp $rootfs/usr/local/bin/ddp 2>/dev/null
+  chmod 755 $rootfs/usr/local/bin/ddp 2>/dev/null
+fi
+
+cp -f $MODDIR/module.prop $rootfs/app/module.prop 2>/dev/null
+
+log "进入 Alpine 容器启动 daidai-server..."
+
+"$RURIMA" ruri -p -N -S -A $rootfs /bin/ash << 'CONTAINER_EOF'
+export DAIDAI_DIR=/app/Dumb-Panel
+export LANG=C.UTF-8
+export HOME=/root
+export SHELL=/bin/bash
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/app
+export NODE_PATH=/usr/local/lib/node_modules
+
+mkdir -p $DAIDAI_DIR/scripts $DAIDAI_DIR/logs $DAIDAI_DIR/deps/nodejs $DAIDAI_DIR/deps/python $DAIDAI_DIR/backups
+chmod 777 $DAIDAI_DIR
+
+# Python 虚拟环境（第一次进入时创建）
+if [ ! -d "$DAIDAI_DIR/deps/python/venv" ]; then
+  python3 -m venv $DAIDAI_DIR/deps/python/venv 2>/dev/null || true
+fi
+
+# 每次启动都用当前 config 模板覆盖（用户自定义请编辑容器外 /data/adb/daidai-panel/config.yaml 再用 ddp 同步）
+cat > $DAIDAI_DIR/config.yaml << 'YAML'
+server:
+  port: 5700
+  mode: release
+  web_dir: /app/web
+
+database:
+  path: /app/Dumb-Panel/daidai.db
+
+jwt:
+  secret: ""
+  access_token_expire: 480h
+  refresh_token_expire: 1440h
+
+data:
+  dir: /app/Dumb-Panel
+  scripts_dir: /app/Dumb-Panel/scripts
+  log_dir: /app/Dumb-Panel/logs
+
+cors:
+  origins:
+    - http://localhost:5700
+    - http://127.0.0.1:5700
+YAML
+
+# 避免重复拉起
+if pgrep -f /usr/local/bin/daidai-server >/dev/null 2>&1; then
+  echo "daidai-server 已在运行" >> $DAIDAI_DIR/service.log
   exit 0
 fi
 
-# 以 $PANEL_DIR 为工作目录，配合 config.yaml 中的相对路径
-cd "$PANEL_DIR" || {
-  log "无法进入数据目录 $PANEL_DIR"
-  exit 1
-}
-
-# 如果用户把 config.yaml 删除了，补一份，避免启动失败
-if [ ! -f "$PANEL_DIR/config.yaml" ] && [ -f "$MODDIR/config.yaml" ]; then
-  cp -f "$MODDIR/config.yaml" "$PANEL_DIR/config.yaml"
-fi
-
-log "启动 daidai-server..."
-nohup "$MODDIR/daidai-server" >> "$PANEL_DIR/server.log" 2>&1 &
-PID=$!
+cd $DAIDAI_DIR
+nohup /usr/local/bin/daidai-server > $DAIDAI_DIR/daidai.log 2>&1 &
+echo "daidai-server 已拉起 PID=$!" >> $DAIDAI_DIR/service.log
+exit 0
+CONTAINER_EOF
 
 sleep 2
-if kill -0 "$PID" 2>/dev/null; then
-  log "面板启动成功 (PID=$PID)，访问 http://127.0.0.1:5700"
+
+# 容器内启动后简单验证
+if "$RURIMA" ruri -p -N -S -A $rootfs /bin/ash -c "pgrep -f /usr/local/bin/daidai-server >/dev/null 2>&1"; then
+  log "面板启动成功，访问 http://127.0.0.1:5700"
 else
-  log "!! 面板启动失败，请查看 $PANEL_DIR/server.log"
+  log "!! 面板启动失败，查看 $rootfs/app/Dumb-Panel/daidai.log"
 fi

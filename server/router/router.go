@@ -31,6 +31,7 @@ func Setup(engine *gin.Engine) {
 	aiCodeHandler := handler.NewAICodeHandler()
 	platformTokenHandler := handler.NewPlatformTokenHandler()
 	sponsorHandler := handler.NewSponsorHandler()
+	androidRuntimeHandler := handler.NewAndroidRuntimeHandler()
 
 	authHandler.RegisterRoutes(v1)
 	authHandler.RegisterRoutes(legacy)
@@ -82,6 +83,9 @@ func Setup(engine *gin.Engine) {
 
 	sponsorHandler.RegisterRoutes(v1)
 	sponsorHandler.RegisterRoutes(legacy)
+
+	androidRuntimeHandler.RegisterRoutes(v1)
+	androidRuntimeHandler.RegisterRoutes(legacy)
 
 	engine.GET("/api/v1/version", func(c *gin.Context) {
 		c.JSON(200, gin.H{
