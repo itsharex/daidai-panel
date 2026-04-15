@@ -515,24 +515,37 @@ async function handleBatchReinstall() {
 async function handleDelete(row: any) {
   try {
     await ElMessageBox.confirm(`确认卸载 ${row.name}？`, '提示', { type: 'warning' })
+  } catch { return }
+  try {
     await depsApi.delete(row.id)
     ElMessage.success('卸载中')
     loadData()
-  } catch {}
+  } catch (err: any) {
+    ElMessage.error(err?.response?.data?.error || '卸载失败')
+  }
 }
 
 async function handleForceDelete(row: any) {
   try {
     await ElMessageBox.confirm(`确认强制卸载 ${row.name}？\n强制卸载会跳过依赖检查直接删除`, '强制卸载', { type: 'warning' })
+  } catch { return }
+  try {
     await depsApi.delete(row.id, true)
     ElMessage.success('强制卸载中')
     loadData()
-  } catch {}
+  } catch (err: any) {
+    ElMessage.error(err?.response?.data?.error || '强制卸载失败')
+  }
 }
 
 async function handleReinstall(row: any) {
-  try { await depsApi.reinstall(row.id); ElMessage.success('重新安装中'); loadData() }
-  catch { ElMessage.error('操作失败') }
+  try {
+    await depsApi.reinstall(row.id)
+    ElMessage.success('重新安装中')
+    loadData()
+  } catch (err: any) {
+    ElMessage.error(err?.response?.data?.error || '操作失败')
+  }
 }
 
 async function handleExport() {
@@ -549,8 +562,8 @@ async function handleExport() {
     document.body.removeChild(anchor)
     window.URL.revokeObjectURL(url)
     ElMessage.success('依赖清单已导出')
-  } catch {
-    ElMessage.error('导出失败')
+  } catch (err: any) {
+    ElMessage.error(err?.response?.data?.error || '导出失败')
   } finally {
     exporting.value = false
   }

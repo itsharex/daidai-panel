@@ -278,7 +278,15 @@ function queueDesktopTableReady() {
   })
 }
 
+let loadDataDepth = 0
 async function loadData() {
+  if (loadDataDepth >= 3) {
+    // 防止空页重算递归堆叠，超过 3 层直接中止
+    loadDataDepth = 0
+    loading.value = false
+    return
+  }
+  loadDataDepth += 1
   loading.value = true
   selectedIds.value = []
   try {
@@ -330,10 +338,11 @@ async function loadData() {
         return
       }
     }
-  } catch {
-    ElMessage.error('加载环境变量失败')
+  } catch (err: any) {
+    ElMessage.error(err?.response?.data?.error || '加载环境变量失败')
   } finally {
     loading.value = false
+    loadDataDepth = Math.max(0, loadDataDepth - 1)
   }
 
   await nextTick()

@@ -311,7 +311,9 @@ const loadApps = async () => {
   try {
     const res = await openApiApi.list()
     apps.value = (res as any).data || []
-  } catch {} finally {
+  } catch (err: any) {
+    ElMessage.error(err?.response?.data?.error || '加载应用列表失败')
+  } finally {
     loading.value = false
   }
 }
@@ -350,8 +352,8 @@ const submitForm = async () => {
     }
     dialogVisible.value = false
     loadApps()
-  } catch {
-    ElMessage.error('操作失败')
+  } catch (err: any) {
+    ElMessage.error(err?.response?.data?.error || '操作失败')
   }
 }
 
@@ -390,27 +392,36 @@ const toggleEnabled = async (app: any, val: boolean) => {
     ElMessage.success(val ? '已启用' : '已禁用')
   } catch (err: any) {
     if (err === 'cancel' || err?.toString?.() === 'cancel') return
-    ElMessage.error('操作失败')
+    ElMessage.error(err?.response?.data?.error || '操作失败')
   }
 }
 
 const resetSecret = async (app: any) => {
   try {
     await ElMessageBox.confirm('确认重置密钥？旧密钥将立即失效。', '警告', { type: 'warning' })
+  } catch { return }
+  try {
     const res = await openApiApi.resetSecret(app.id)
     secretData.value = (res as any).data || {}
     secretDialogVisible.value = true
     delete revealedSecrets[app.id]
-  } catch {}
+    ElMessage.success('密钥已重置')
+  } catch (err: any) {
+    ElMessage.error(err?.response?.data?.error || '重置失败')
+  }
 }
 
 const deleteApp = async (app: any) => {
   try {
     await ElMessageBox.confirm(`确认删除应用 "${app.name}"？`, '提示', { type: 'warning' })
+  } catch { return }
+  try {
     await openApiApi.delete(app.id)
     ElMessage.success('删除成功')
     loadApps()
-  } catch {}
+  } catch (err: any) {
+    ElMessage.error(err?.response?.data?.error || '删除失败')
+  }
 }
 
 const showLogs = (app: any) => {
@@ -428,7 +439,9 @@ const loadLogs = async () => {
     })
     callLogs.value = (res as any).data || []
     logTotal.value = (res as any).total || 0
-  } catch {}
+  } catch (err: any) {
+    ElMessage.error(err?.response?.data?.error || '加载调用日志失败')
+  }
 }
 
 onMounted(loadApps)

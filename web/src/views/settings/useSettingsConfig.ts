@@ -15,6 +15,7 @@ const defaultAICodeCustomPromptTemplate = [
 ].join('\n')
 
 export function useSettingsConfig() {
+  // 此开关原为功能上线门控，当前已全量启用（保留常量以兼容消费方）
   const captchaFeatureImplemented = true
   const configsLoading = ref(false)
   const configsSaving = ref(false)
@@ -25,7 +26,7 @@ export function useSettingsConfig() {
     max_concurrent_tasks: 5,
     command_timeout: 86400,
     log_retention_days: 7,
-    max_log_content_size: 102400,
+    max_log_content_size: 102400000,
     random_delay: '',
     random_delay_extensions: '',
     auto_install_deps: true,
@@ -163,8 +164,8 @@ export function useSettingsConfig() {
         ai_custom_is_full_url: readConfigBool(cfgs, 'ai_custom_is_full_url', false)
       }
       applyPanelAppearance(configForm.value)
-    } catch {
-      ElMessage.error('加载配置失败')
+    } catch (err: any) {
+      ElMessage.error(err?.response?.data?.error || '加载配置失败')
     } finally {
       configsLoading.value = false
     }
@@ -181,8 +182,10 @@ export function useSettingsConfig() {
       await configApi.batchSet(configs)
       applyPanelAppearance(configForm.value)
       ElMessage.success('配置已保存')
-    } catch {
-      ElMessage.error('保存失败')
+    } catch (err: any) {
+      ElMessage.error(err?.response?.data?.error || '保存失败')
+      // 保存失败后从后端重新拉取该组的真实值，避免陈旧本地状态被下一次保存再次带出
+      void loadSystemConfigs()
     } finally {
       configsSaving.value = false
     }

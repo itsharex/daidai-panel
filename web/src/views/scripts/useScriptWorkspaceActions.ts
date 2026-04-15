@@ -77,8 +77,8 @@ export function useScriptWorkspaceActions({
       originalContent.value = fileContent.value
       ElMessage.success('保存成功')
       return true
-    } catch {
-      ElMessage.error('保存失败')
+    } catch (err: any) {
+      ElMessage.error(err?.response?.data?.error || '保存失败')
       return false
     } finally {
       saving.value = false

@@ -136,91 +136,112 @@ jobs:
           npm ci
           npm run build
 
-      - name: Build Magisk Module - ARM64
+      - name: Compute versionCode
+        id: vercode
+        shell: bash
         run: |
-          MODULE_DIR=magisk-build
-          rm -rf $MODULE_DIR
-          mkdir -p $MODULE_DIR
+          # 把 "2.0.6" -> "20006" 这样的 versionCode，方便 Magisk 比较
+          V="${{ steps.version.outputs.VERSION }}"
+          IFS='.' read -r MAJ MIN PATCH <<< "$V"
+          MAJ=${MAJ:-0}; MIN=${MIN:-0}; PATCH=${PATCH:-0}
+          CODE=$(( MAJ * 10000 + MIN * 100 + PATCH ))
+          echo "VERSIONCODE=${CODE}" >> "$GITHUB_OUTPUT"
 
-          # Copy module files
-          sed "s/VERSION_PLACEHOLDER/${{ steps.version.outputs.VERSION }}/g; s/VERSIONCODE_PLACEHOLDER/$(echo '${{ steps.version.outputs.VERSION }}' | tr -d '.' | head -c 4)/g" magisk/module.json > $MODULE_DIR/module.json
-          cp magisk/system.prop $MODULE_DIR/
-          cp magisk/service.sh $MODULE_DIR/
-          cp magisk/uninstall.sh $MODULE_DIR/
-          cp -r magisk/META-INF $MODULE_DIR/
-
-          # Build backend for Android ARM64
-          cd server
-          CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build \
-            -ldflags="-s -w -X daidai-panel/handler.Version=${{ steps.version.outputs.VERSION }}" \
-            -o ../$MODULE_DIR/daidai-server .
-
-          # Build ddp command tool
-          go build -ldflags="-s -w" -o ../$MODULE_DIR/ddp ./cmd/ddp
-          cd ..
-
-          # Copy frontend files
-          mkdir -p $MODULE_DIR/web
-          cp -r web/dist/* $MODULE_DIR/web/
-
-          # Copy README
-          cp magisk/README.md $MODULE_DIR/
-
-          # Package module
-          cd $MODULE_DIR
-          zip -r "../daidai-panel-magisk-${{ steps.version.outputs.VERSION }}-arm64.zip" .
-          cd ..
-
-          echo "ARM64模块构建完成: daidai-panel-magisk-${{ steps.version.outputs.VERSION }}-arm64.zip"
-
-      - name: Build Magisk Module - ARM (32-bit)
+      - name: Build Magisk Module (universal arm64 + amd64)
+        shell: bash
         run: |
-          MODULE_DIR=magisk-build-arm
-          rm -rf $MODULE_DIR
-          mkdir -p $MODULE_DIR
+          set -euo pipefail
+          STAGING=magisk-staging
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          VERSIONCODE="${{ steps.vercode.outputs.VERSIONCODE }}"
+          OUT="daidai-panel-magisk-v${VERSION}.zip"
 
-          # Copy module files
-          sed "s/VERSION_PLACEHOLDER/${{ steps.version.outputs.VERSION }}/g; s/VERSIONCODE_PLACEHOLDER/$(echo '${{ steps.version.outputs.VERSION }}' | tr -d '.' | head -c 4)/g" magisk/module.json > $MODULE_DIR/module.json
-          cp magisk/system.prop $MODULE_DIR/
-          cp magisk/service.sh $MODULE_DIR/
-          cp magisk/uninstall.sh $MODULE_DIR/
-          cp -r magisk/META-INF $MODULE_DIR/
+          rm -rf "$STAGING"
+          mkdir -p "$STAGING/bin" "$STAGING/web"
 
-          # Build backend for Android ARM (32-bit)
-          cd server
-          CGO_ENABLED=0 GOOS=android GOARCH=arm go build \
-            -ldflags="-s -w -X daidai-panel/handler.Version=${{ steps.version.outputs.VERSION }}" \
-            -o ../$MODULE_DIR/daidai-server .
+          # 1) 拷贝模块文件
+          cp -f  Magisk/module.prop    "$STAGING/"
+          cp -f  Magisk/customize.sh   "$STAGING/"
+          cp -f  Magisk/service.sh     "$STAGING/"
+          cp -f  Magisk/uninstall.sh   "$STAGING/"
+          cp -f  Magisk/action.sh      "$STAGING/"
+          cp -f  Magisk/README.md      "$STAGING/"
+          cp -rf Magisk/META-INF       "$STAGING/"
+          cp -rf Magisk/scripts        "$STAGING/"
 
-          # Build ddp command tool
-          go build -ldflags="-s -w" -o ../$MODULE_DIR/ddp ./cmd/ddp
-          cd ..
+          # 2) 写入真实版本号 / versionCode
+          sed -i \
+            -e "s|^version=.*|version=v${VERSION}|" \
+            -e "s|^versionCode=.*|versionCode=${VERSIONCODE}|" \
+            "$STAGING/module.prop"
 
-          # Copy frontend files
-          mkdir -p $MODULE_DIR/web
-          cp -r web/dist/* $MODULE_DIR/web/
+          # 3) 编译后端（Android root 环境下，GOOS=linux 静态二进制即可）
+          pushd server >/dev/null
+          for arch in arm64 amd64; do
+            echo "::group::Build daidai-server ($arch)"
+            CGO_ENABLED=0 GOOS=linux GOARCH=$arch \
+              go build -trimpath \
+                -ldflags="-s -w -X daidai-panel/handler.Version=${VERSION}" \
+                -o "../$STAGING/bin/daidai-server-${arch}" .
+            CGO_ENABLED=0 GOOS=linux GOARCH=$arch \
+              go build -trimpath \
+                -ldflags="-s -w -X daidai-panel/handler.Version=${VERSION}" \
+                -o "../$STAGING/bin/ddp-${arch}" ./cmd/ddp
+            echo "::endgroup::"
+          done
+          popd >/dev/null
 
-          # Copy README
-          cp magisk/README.md $MODULE_DIR/
+          # 4) 前端静态资源
+          cp -rf web/dist/* "$STAGING/web/"
 
-          # Package module
-          cd $MODULE_DIR
-          zip -r "../daidai-panel-magisk-${{ steps.version.outputs.VERSION }}-arm.zip" .
-          cd ..
+          # 5) 默认 config.yaml（service.sh 在数据目录缺失时会回退到这份）
+          if [ -f server/config.yaml ]; then
+            cp -f server/config.yaml "$STAGING/config.yaml"
+          fi
 
-          echo "ARM模块构建完成: daidai-panel-magisk-${{ steps.version.outputs.VERSION }}-arm.zip"
+          # 6) 打包 ZIP（zip 内部路径不能有 staging/ 前缀）
+          pushd "$STAGING" >/dev/null
+          zip -r9 "../${OUT}" . -x "*.DS_Store"
+          popd >/dev/null
 
-      - name: Upload Magisk Modules to Release
+          ls -lh "${OUT}"
+          echo "ZIPFILE=${OUT}" >> "$GITHUB_ENV"
+
+      - name: Sync update.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          VERSIONCODE="${{ steps.vercode.outputs.VERSIONCODE }}"
+          REPO="${GITHUB_REPOSITORY}"
+
+          # 优先使用仓库内的 release notes，若缺失则回退到 GitHub Release 页
+          CHANGELOG_URL="https://raw.githubusercontent.com/${REPO}/main/docs/release-notes/v${VERSION}.md"
+          if [ ! -f "docs/release-notes/v${VERSION}.md" ]; then
+            CHANGELOG_URL="https://github.com/${REPO}/releases/tag/v${VERSION}"
+          fi
+
+          cat > Magisk/update.json <<EOF
+          {
+            "version": "v${VERSION}",
+            "versionCode": ${VERSIONCODE},
+            "zipUrl": "https://github.com/${REPO}/releases/download/v${VERSION}/daidai-panel-magisk-v${VERSION}.zip",
+            "changelog": "${CHANGELOG_URL}"
+          }
+          EOF
+          echo "-- update.json --"
+          cat Magisk/update.json
+
+      - name: Upload Magisk Module to Release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           gh release upload "${GITHUB_REF_NAME}" \
-            daidai-panel-magisk-${{ steps.version.outputs.VERSION }}-arm64.zip \
-            daidai-panel-magisk-${{ steps.version.outputs.VERSION }}-arm.zip \
+            "${ZIPFILE}" \
+            Magisk/update.json \
             --clobber
-
-          echo "Magisk 模块已上传到 Release"
+          echo "Magisk 模块与 update.json 已上传到 Release ${GITHUB_REF_NAME}"
 
   docker-alpine:
     runs-on: ubuntu-latest

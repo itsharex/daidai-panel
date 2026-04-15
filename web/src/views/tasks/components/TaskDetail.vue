@@ -22,6 +22,7 @@ const statusText = computed(() => {
 
 const statusType = computed(() => {
   if (props.task?.status === 0) return 'info'
+  if (props.task?.status === 0.5) return 'warning'
   if (props.task?.status === 2) return 'warning'
   return 'success'
 })

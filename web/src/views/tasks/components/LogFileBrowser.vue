@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { taskApi } from '@/api/task'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useResponsive } from '@/composables/useResponsive'
+import { ansiToHtml, normalizeAnsi } from '@/utils/ansi'
 
 const props = defineProps<{
   visible: boolean
@@ -52,6 +53,10 @@ const renderedFileContent = computed(() => {
   }
 
   return lines.join('\n')
+})
+
+const renderedFileHtml = computed(() => {
+  return ansiToHtml(normalizeAnsi(renderedFileContent.value))
 })
 
 watch(() => props.visible, (visible) => {
@@ -158,7 +163,7 @@ function handleClose() {
           <el-icon :size="48" color="var(--el-text-color-placeholder)"><Document /></el-icon>
           <span>选择文件查看内容</span>
         </div>
-        <pre v-else class="content-text">{{ renderedFileContent || '(空文件)' }}</pre>
+        <pre v-else class="content-text" v-html="renderedFileHtml || '(空文件)'"></pre>
       </div>
     </div>
   </el-dialog>

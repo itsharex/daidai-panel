@@ -243,10 +243,22 @@ func (s *Scheduler) executeTaskInner(taskID uint) {
 	}
 
 	var envVarRecords []model.EnvVar
-	database.DB.Where("enabled = ?", true).Find(&envVarRecords)
-	envVars := make(map[string]string)
+	// 使用稳定排序并按 name 分组合并，与 runtime_exec.BuildManagedRuntimeEnvMap 保持一致；
+	// 避免原实现"后者覆盖前者"导致同名变量只有 1 个账号生效。
+	database.DB.Where("enabled = ?", true).
+		Order("sort_order DESC, position ASC, created_at ASC, id ASC").
+		Find(&envVarRecords)
+	envGrouped := make(map[string][]string)
+	envOrder := make([]string, 0, len(envVarRecords))
 	for _, e := range envVarRecords {
-		envVars[e.Name] = e.Value
+		if _, ok := envGrouped[e.Name]; !ok {
+			envOrder = append(envOrder, e.Name)
+		}
+		envGrouped[e.Name] = append(envGrouped[e.Name], e.Value)
+	}
+	envVars := make(map[string]string, len(envGrouped))
+	for _, name := range envOrder {
+		envVars[name] = joinTaskEnvValues(envGrouped[name])
 	}
 
 	timeout := task.Timeout
