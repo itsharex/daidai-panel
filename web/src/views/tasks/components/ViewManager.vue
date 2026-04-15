@@ -2,15 +2,19 @@
 import { ref, watch, onMounted } from 'vue'
 import { taskViewApi, type TaskView, type TaskViewFilter, type TaskViewSortRule } from '@/api/taskView'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Delete, Close } from '@element-plus/icons-vue'
+import { Plus, Delete, Close, Edit } from '@element-plus/icons-vue'
+import { useResponsive } from '@/composables/useResponsive'
 
 const emit = defineEmits<{
   'view-change': [filters: TaskViewFilter[], sortRules: TaskViewSortRule[]]
 }>()
 
+const { dialogFullscreen } = useResponsive()
 const views = ref<TaskView[]>([])
 const activeViewId = ref<number | null>(null)
-const showCreateDialog = ref(false)
+const showDialog = ref(false)
+const isEditMode = ref(false)
+const editingViewId = ref<number | null>(null)
 
 const filterFields = [
   { value: 'command', label: '命令' },
@@ -21,11 +25,18 @@ const filterFields = [
   { value: 'subscription', label: '订阅' }
 ]
 
+const statusOptions = [
+  { label: '已启用 / 空闲中', value: '1' },
+  { label: '已禁用', value: '0' },
+  { label: '运行中', value: '2' },
+  { label: '排队中', value: '0.5' },
+]
+
 const filterOperators = [
   { value: 'contains', label: '包含' },
   { value: 'not_contains', label: '不包含' },
-  { value: 'equals', label: '属于' },
-  { value: 'not_equals', label: '不属于' }
+  { value: 'equals', label: '等于' },
+  { value: 'not_equals', label: '不等于' }
 ]
 
 const sortDirections = [
@@ -66,12 +77,36 @@ function selectView(viewId: number | null) {
 }
 
 function openCreateDialog() {
+  isEditMode.value = false
+  editingViewId.value = null
   editForm.value = {
     name: '',
     filters: [{ field: 'command', operator: 'contains', value: '' }],
     sortRules: []
   }
-  showCreateDialog.value = true
+  showDialog.value = true
+}
+
+function openEditDialog(view: TaskView) {
+  isEditMode.value = true
+  editingViewId.value = view.id
+  let filters: TaskViewFilter[] = []
+  let sortRules: TaskViewSortRule[] = []
+  try {
+    filters = JSON.parse(view.filters || '[]')
+  } catch { /* ignore */ }
+  try {
+    sortRules = JSON.parse(view.sort_rules || '[]')
+  } catch { /* ignore */ }
+  if (filters.length === 0) {
+    filters = [{ field: 'command', operator: 'contains', value: '' }]
+  }
+  editForm.value = {
+    name: view.name,
+    filters,
+    sortRules
+  }
+  showDialog.value = true
 }
 
 function addFilter() {
@@ -90,6 +125,10 @@ function removeSortRule(index: number) {
   editForm.value.sortRules.splice(index, 1)
 }
 
+function isStatusField(filter: TaskViewFilter) {
+  return filter.field === 'status'
+}
+
 async function handleSave() {
   if (!editForm.value.name.trim()) {
     ElMessage.warning('请输入视图名称')
@@ -101,16 +140,26 @@ async function handleSave() {
     return
   }
   try {
-    await taskViewApi.create({
+    const payload = {
       name: editForm.value.name,
       filters: JSON.stringify(validFilters),
       sort_rules: JSON.stringify(editForm.value.sortRules)
-    })
-    ElMessage.success('视图创建成功')
-    showCreateDialog.value = false
+    }
+    if (isEditMode.value && editingViewId.value) {
+      await taskViewApi.update(editingViewId.value, payload)
+      ElMessage.success('视图更新成功')
+      // If editing the active view, re-apply its filters
+      if (activeViewId.value === editingViewId.value) {
+        emit('view-change', validFilters, editForm.value.sortRules)
+      }
+    } else {
+      await taskViewApi.create(payload)
+      ElMessage.success('视图创建成功')
+    }
+    showDialog.value = false
     await loadViews()
   } catch {
-    ElMessage.error('创建失败')
+    ElMessage.error(isEditMode.value ? '更新失败' : '创建失败')
   }
 }
 
@@ -141,23 +190,31 @@ defineExpose({ loadViews })
       >
         全部
       </el-button>
-      <el-button
+      <div
         v-for="view in views"
         :key="view.id"
-        :type="activeViewId === view.id ? 'primary' : 'default'"
-        size="small"
-        @click="selectView(view.id)"
+        class="view-tab-item"
+        :class="{ active: activeViewId === view.id }"
       >
-        {{ view.name }}
-        <el-icon class="view-delete-icon" @click.stop="handleDelete(view.id)"><Close /></el-icon>
-      </el-button>
+        <el-button
+          :type="activeViewId === view.id ? 'primary' : 'default'"
+          size="small"
+          @click="selectView(view.id)"
+        >
+          {{ view.name }}
+        </el-button>
+        <div class="view-tab-actions">
+          <el-icon class="view-action-icon" @click.stop="openEditDialog(view)"><Edit /></el-icon>
+          <el-icon class="view-action-icon view-action-icon--danger" @click.stop="handleDelete(view.id)"><Close /></el-icon>
+        </div>
+      </div>
       <el-button size="small" @click="openCreateDialog">
         <el-icon><Plus /></el-icon>
       </el-button>
     </div>
 
-    <el-dialog v-model="showCreateDialog" title="创建视图" width="600px">
-      <el-form label-width="90px">
+    <el-dialog v-model="showDialog" :title="isEditMode ? '编辑视图' : '创建视图'" width="600px" :fullscreen="dialogFullscreen">
+      <el-form :label-width="dialogFullscreen ? 'auto' : '90px'" :label-position="dialogFullscreen ? 'top' : 'right'">
         <el-form-item label="视图名称" required>
           <el-input v-model="editForm.name" placeholder="请输入视图名称" />
         </el-form-item>
@@ -165,16 +222,25 @@ defineExpose({ loadViews })
         <el-form-item label="筛选条件" required>
           <div class="filter-list">
             <div v-for="(filter, index) in editForm.filters" :key="index" class="filter-row">
-              <el-select v-model="filter.field" style="width: 120px" size="small">
+              <el-select v-model="filter.field" style="width: 120px" size="small" @change="filter.value = ''">
                 <el-option v-for="f in filterFields" :key="f.value" :label="f.label" :value="f.value" />
               </el-select>
               <el-select v-model="filter.operator" style="width: 100px" size="small">
                 <el-option v-for="op in filterOperators" :key="op.value" :label="op.label" :value="op.value" />
               </el-select>
-              <el-input v-model="filter.value" placeholder="请输入内容" size="small" style="flex: 1" />
+              <el-select
+                v-if="isStatusField(filter)"
+                v-model="filter.value"
+                placeholder="选择状态"
+                size="small"
+                style="flex: 1"
+              >
+                <el-option v-for="opt in statusOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
+              </el-select>
+              <el-input v-else v-model="filter.value" placeholder="请输入内容" size="small" style="flex: 1" />
               <el-button v-if="editForm.filters.length > 1" :icon="Delete" size="small" circle @click="removeFilter(index)" />
             </div>
-            <el-button size="small" type="primary" link @click="addFilter">+新增筛选条件</el-button>
+            <el-button size="small" type="primary" link @click="addFilter">+ 新增筛选条件</el-button>
           </div>
         </el-form-item>
 
@@ -189,13 +255,13 @@ defineExpose({ loadViews })
               </el-select>
               <el-button :icon="Delete" size="small" circle @click="removeSortRule(index)" />
             </div>
-            <el-button size="small" type="primary" link @click="addSortRule">+新增排序方式</el-button>
+            <el-button size="small" type="primary" link @click="addSortRule">+ 新增排序方式</el-button>
           </div>
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="showCreateDialog = false">取消</el-button>
-        <el-button type="primary" @click="handleSave">确定</el-button>
+        <el-button @click="showDialog = false">取消</el-button>
+        <el-button type="primary" @click="handleSave">{{ isEditMode ? '保存' : '创建' }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -213,15 +279,39 @@ defineExpose({ loadViews })
   align-items: center;
 }
 
-.view-delete-icon {
-  margin-left: 4px;
-  font-size: 12px;
-  opacity: 0.6;
+.view-tab-item {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+
+  .view-tab-actions {
+    display: none;
+    align-items: center;
+    gap: 2px;
+    margin-left: 2px;
+  }
+
+  &:hover .view-tab-actions {
+    display: inline-flex;
+  }
+}
+
+.view-action-icon {
+  font-size: 14px;
+  padding: 2px;
+  border-radius: 4px;
   cursor: pointer;
+  color: var(--el-text-color-secondary);
+  transition: all 0.15s;
 
   &:hover {
-    opacity: 1;
+    color: var(--el-color-primary);
+    background: var(--el-color-primary-light-9);
+  }
+
+  &--danger:hover {
     color: var(--el-color-danger);
+    background: var(--el-color-danger-light-9);
   }
 }
 
@@ -234,5 +324,11 @@ defineExpose({ loadViews })
   gap: 8px;
   align-items: center;
   margin-bottom: 8px;
+}
+
+@media (max-width: 768px) {
+  .filter-row {
+    flex-wrap: wrap;
+  }
 }
 </style>

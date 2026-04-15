@@ -122,15 +122,25 @@ runpy.run_path(script_path, run_name="__main__")
 
 func BuildManagedRuntimeEnvMap(workDir, scriptsDir string, defaultChannelID *uint, ttl time.Duration) (map[string]string, error) {
 	var envVarRecords []model.EnvVar
-	database.DB.Where("enabled = ?", true).Find(&envVarRecords)
+	// 按稳定顺序读取：置顶 > 组内位置 > 创建时间 > id；避免无 ORDER BY 导致同名变量的相对顺序抖动
+	database.DB.Where("enabled = ?", true).
+		Order("sort_order DESC, position ASC, created_at ASC, id ASC").
+		Find(&envVarRecords)
 
-	envMap := make(map[string]string)
+	// 先按 name 分组保持顺序，再用 joinTaskEnvValues 做带转义合并，
+	// 解决值内含 '&' 时脚本按 '&' 切分会错位的问题（与 splitTaskEnvValues 对称）。
+	grouped := make(map[string][]string)
+	order := make([]string, 0, len(envVarRecords))
 	for _, ev := range envVarRecords {
-		if existing, ok := envMap[ev.Name]; ok {
-			envMap[ev.Name] = existing + "&" + ev.Value
-		} else {
-			envMap[ev.Name] = ev.Value
+		if _, ok := grouped[ev.Name]; !ok {
+			order = append(order, ev.Name)
 		}
+		grouped[ev.Name] = append(grouped[ev.Name], ev.Value)
+	}
+
+	envMap := make(map[string]string, len(grouped))
+	for _, name := range order {
+		envMap[name] = joinTaskEnvValues(grouped[name])
 	}
 
 	runtimePaths := currentManagedRuntimePaths()

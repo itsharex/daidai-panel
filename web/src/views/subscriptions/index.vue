@@ -21,7 +21,15 @@ const showLogDialog = ref(false)
 const isCreate = ref(true)
 const qlCommand = ref('')
 
-const GITHUB_MIRROR = 'http://gh.301.ee/'
+const GITHUB_MIRROR_STORAGE_KEY = 'subscription.github_mirror'
+const DEFAULT_GITHUB_MIRROR = 'https://gh-proxy.com/'
+const githubMirror = ref(localStorage.getItem(GITHUB_MIRROR_STORAGE_KEY) || DEFAULT_GITHUB_MIRROR)
+
+function normalizeMirror(u: string): string {
+  const t = u.trim()
+  if (!t) return ''
+  return t.endsWith('/') ? t : t + '/'
+}
 
 const editForm = ref({
   id: 0,
@@ -71,8 +79,8 @@ async function loadData() {
     })
     subList.value = res.data || []
     total.value = res.total || 0
-  } catch {
-    ElMessage.error('加载订阅列表失败')
+  } catch (err: any) {
+    ElMessage.error(err?.response?.data?.error || '加载订阅列表失败')
   } finally {
     loading.value = false
   }
@@ -117,11 +125,37 @@ function openCreate() {
 
 function addGithubMirror(url: string): string {
   if (!url) return url
+  const mirror = normalizeMirror(githubMirror.value)
+  if (!mirror) return url
   const githubPattern = /^https?:\/\/github\.com\//
-  if (githubPattern.test(url) && !url.includes(GITHUB_MIRROR)) {
-    return url.replace(/^https?:\/\/github\.com\//, GITHUB_MIRROR + 'https://github.com/')
+  // 已经包含镜像（任何协议）就不再重复包裹
+  const mirrorHost = mirror.replace(/^https?:\/\//, '').replace(/\/$/, '')
+  if (mirrorHost && url.includes(mirrorHost)) return url
+  if (githubPattern.test(url)) {
+    return url.replace(/^https?:\/\/github\.com\//, mirror + 'https://github.com/')
   }
   return url
+}
+
+async function handleConfigMirror() {
+  try {
+    const { value } = await ElMessageBox.prompt(
+      '请输入 GitHub 镜像加速地址（留空则使用默认值）',
+      'GitHub 镜像配置',
+      {
+        inputValue: githubMirror.value,
+        inputPlaceholder: DEFAULT_GITHUB_MIRROR,
+        inputPattern: /^(https?:\/\/.+)?$/,
+        inputErrorMessage: '请输入有效的 URL（需以 http:// 或 https:// 开头）',
+        confirmButtonText: '保存',
+        cancelButtonText: '取消',
+      }
+    )
+    const mirror = (value || '').trim() || DEFAULT_GITHUB_MIRROR
+    githubMirror.value = normalizeMirror(mirror)
+    localStorage.setItem(GITHUB_MIRROR_STORAGE_KEY, githubMirror.value)
+    ElMessage.success('镜像地址已保存')
+  } catch { /* cancelled */ }
 }
 
 function deriveSubscriptionSaveDir(url: string): string {
@@ -222,11 +256,13 @@ async function handleSave() {
     ElMessage.warning('名称和 URL 不能为空')
     return
   }
-  const githubDirect = /^https?:\/\/github\.com\//.test(editForm.value.url) && !editForm.value.url.includes(GITHUB_MIRROR)
+  const mirror = normalizeMirror(githubMirror.value)
+  const mirrorHost = mirror.replace(/^https?:\/\//, '').replace(/\/$/, '')
+  const githubDirect = /^https?:\/\/github\.com\//.test(editForm.value.url) && mirrorHost && !editForm.value.url.includes(mirrorHost)
   if (githubDirect) {
     try {
       await ElMessageBox.confirm(
-        '检测到 GitHub 直连地址，是否自动添加镜像加速？\n加速地址: ' + GITHUB_MIRROR,
+        '检测到 GitHub 直连地址，是否自动添加镜像加速？\n加速地址: ' + mirror,
         '镜像加速',
         { confirmButtonText: '添加加速', cancelButtonText: '保持原样', type: 'info' }
       )
@@ -244,8 +280,8 @@ async function handleSave() {
     }
     showEditDialog.value = false
     loadData()
-  } catch {
-    ElMessage.error(isCreate.value ? '创建失败' : '更新失败')
+  } catch (err: any) {
+    ElMessage.error(err?.response?.data?.error || (isCreate.value ? '创建失败' : '更新失败'))
   }
 }
 
@@ -277,7 +313,7 @@ async function handleToggle(row: any) {
     loadData()
   } catch (err: any) {
     if (err === 'cancel' || err?.toString?.() === 'cancel') return
-    ElMessage.error('操作失败')
+    ElMessage.error(err?.response?.data?.error || '操作失败')
   }
 }
 
@@ -424,8 +460,8 @@ async function loadLogs() {
     const res = await subscriptionApi.logs(logSubId.value, { page: logPage.value, page_size: 10 })
     logList.value = res.data || []
     logTotal.value = res.total || 0
-  } catch {
-    ElMessage.error('加载日志失败')
+  } catch (err: any) {
+    ElMessage.error(err?.response?.data?.error || '加载日志失败')
   } finally {
     logLoading.value = false
   }
@@ -470,6 +506,9 @@ function viewLogDetail(log: any) {
         </el-button>
         <el-button @click="handleBatchDelete" :disabled="selectedIds.length === 0">
           <el-icon><Delete /></el-icon>批量删除
+        </el-button>
+        <el-button @click="handleConfigMirror" title="配置 GitHub 镜像加速地址">
+          <el-icon><Setting /></el-icon>镜像设置
         </el-button>
       </div>
     </div>
@@ -707,7 +746,7 @@ function viewLogDetail(log: any) {
         </el-table-column>
         <el-table-column prop="content" label="内容" show-overflow-tooltip />
         <el-table-column prop="duration" label="耗时" width="100">
-          <template #default="{ row }">{{ row.duration.toFixed(1) }}s</template>
+          <template #default="{ row }">{{ typeof row.duration === 'number' ? row.duration.toFixed(1) + 's' : '-' }}</template>
         </el-table-column>
         <el-table-column prop="created_at" label="时间" width="170">
           <template #default="{ row }">{{ new Date(row.created_at).toLocaleString() }}</template>

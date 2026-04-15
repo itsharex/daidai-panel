@@ -240,7 +240,7 @@ async function handleCopyResult() {
     await copyText(text)
     ElMessage.success('已复制')
   } catch {
-    ElMessage.error('复制失败')
+    ElMessage.error('复制失败，请切换 HTTPS 或手动复制')
   }
 }
 

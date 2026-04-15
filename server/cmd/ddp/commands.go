@@ -16,6 +16,8 @@ import (
 	"daidai-panel/database"
 	"daidai-panel/handler"
 	"daidai-panel/model"
+	"daidai-panel/pkg/crypto"
+	"daidai-panel/pkg/validator"
 	"daidai-panel/service"
 )
 
@@ -57,6 +59,12 @@ func run(args []string) int {
 		err = runSubscription(rt, args[1:])
 	case "reset-login":
 		err = runResetLogin(rt, args[1:])
+	case "reset-password":
+		err = runResetPassword(rt, args[1:])
+	case "reset-username":
+		err = runResetUsername(rt, args[1:])
+	case "list-users":
+		err = runListUsers(rt)
 	case "disable-2fa":
 		err = runDisable2FA(rt, args[1:])
 	default:
@@ -681,7 +689,6 @@ func runResetLogin(rt *cliRuntime, args []string) error {
 
 	query := database.DB.Model(&model.LoginAttempt{})
 	switch {
-	case all:
 	case username != "" && ip != "":
 		query = query.Where("username = ? AND ip = ?", username, ip)
 	case username != "":
@@ -689,7 +696,13 @@ func runResetLogin(rt *cliRuntime, args []string) error {
 	case ip != "":
 		query = query.Where("ip = ?", ip)
 	default:
+		// 未提供任何过滤，视为全量清空
 		all = true
+	}
+
+	if all {
+		// GORM 要求显式 WHERE 才允许全表删除
+		query = query.Where("1 = 1")
 	}
 
 	result := query.Delete(&model.LoginAttempt{})
@@ -726,6 +739,219 @@ func runDisable2FA(rt *cliRuntime, args []string) error {
 
 	service.DisableTwoFactor(user.ID)
 	fmt.Printf("已禁用用户 %s 的 2FA\n", user.Username)
+	return nil
+}
+
+// runResetPassword 重置指定用户的密码。
+//
+// 用法:
+//
+//	ddp reset-password <用户名> <新密码>
+//	ddp reset-password --user <用户名> --password <新密码>
+//	未指定用户名时，若系统中只有一个用户会自动选中该用户。
+func runResetPassword(rt *cliRuntime, args []string) error {
+	if err := rt.bootstrap(); err != nil {
+		return err
+	}
+
+	var username, newPassword string
+	positional := make([]string, 0, 2)
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--user", "-u":
+			if i+1 >= len(args) {
+				return fmt.Errorf("--user 需要参数")
+			}
+			username = strings.TrimSpace(args[i+1])
+			i++
+		case "--password", "-p":
+			if i+1 >= len(args) {
+				return fmt.Errorf("--password 需要参数")
+			}
+			newPassword = args[i+1]
+			i++
+		default:
+			positional = append(positional, args[i])
+		}
+	}
+
+	if username == "" && len(positional) > 0 {
+		username = strings.TrimSpace(positional[0])
+		positional = positional[1:]
+	}
+	if newPassword == "" && len(positional) > 0 {
+		newPassword = positional[0]
+		positional = positional[1:]
+	}
+	if len(positional) > 0 {
+		return fmt.Errorf("多余的参数: %v", positional)
+	}
+
+	if newPassword == "" {
+		return fmt.Errorf("用法: ddp reset-password <用户名> <新密码>")
+	}
+	if !validator.ValidatePassword(newPassword) {
+		return fmt.Errorf("新密码长度需在 6-128 位之间")
+	}
+
+	var user model.User
+	if username == "" {
+		var users []model.User
+		if err := database.DB.Find(&users).Error; err != nil {
+			return err
+		}
+		if len(users) == 0 {
+			return fmt.Errorf("数据库中没有用户，请先通过面板初始化")
+		}
+		if len(users) > 1 {
+			names := make([]string, 0, len(users))
+			for _, u := range users {
+				names = append(names, u.Username)
+			}
+			return fmt.Errorf("系统中存在多个用户 (%s)，请显式指定用户名", strings.Join(names, ", "))
+		}
+		user = users[0]
+	} else {
+		if err := database.DB.Where("username = ?", username).First(&user).Error; err != nil {
+			return fmt.Errorf("用户不存在: %s", username)
+		}
+	}
+
+	hash, err := crypto.HashPassword(newPassword)
+	if err != nil {
+		return fmt.Errorf("密码哈希失败: %w", err)
+	}
+
+	if err := database.DB.Model(&user).Update("password", hash).Error; err != nil {
+		return fmt.Errorf("更新密码失败: %w", err)
+	}
+
+	// 同步清除登录失败记录，避免还在锁定中
+	_ = database.DB.Where("username = ?", user.Username).Delete(&model.LoginAttempt{}).Error
+
+	fmt.Printf("已重置用户 %s 的密码\n", user.Username)
+	return nil
+}
+
+// runResetUsername 重命名指定用户。
+//
+// 用法:
+//
+//	ddp reset-username <旧用户名> <新用户名>
+//	ddp reset-username --new <新用户名>   (系统仅有一个用户时)
+func runResetUsername(rt *cliRuntime, args []string) error {
+	if err := rt.bootstrap(); err != nil {
+		return err
+	}
+
+	var oldName, newName string
+	positional := make([]string, 0, 2)
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--old":
+			if i+1 >= len(args) {
+				return fmt.Errorf("--old 需要参数")
+			}
+			oldName = strings.TrimSpace(args[i+1])
+			i++
+		case "--new":
+			if i+1 >= len(args) {
+				return fmt.Errorf("--new 需要参数")
+			}
+			newName = strings.TrimSpace(args[i+1])
+			i++
+		default:
+			positional = append(positional, args[i])
+		}
+	}
+
+	if oldName == "" && len(positional) > 0 {
+		oldName = strings.TrimSpace(positional[0])
+		positional = positional[1:]
+	}
+	if newName == "" && len(positional) > 0 {
+		newName = strings.TrimSpace(positional[0])
+		positional = positional[1:]
+	}
+	if len(positional) > 0 {
+		return fmt.Errorf("多余的参数: %v", positional)
+	}
+
+	if newName == "" {
+		return fmt.Errorf("用法: ddp reset-username <旧用户名> <新用户名>")
+	}
+	if !validator.ValidateUsername(newName) {
+		return fmt.Errorf("新用户名不合法：需 3-32 位字母/数字/下划线")
+	}
+
+	var user model.User
+	if oldName == "" {
+		var users []model.User
+		if err := database.DB.Find(&users).Error; err != nil {
+			return err
+		}
+		if len(users) == 0 {
+			return fmt.Errorf("数据库中没有用户")
+		}
+		if len(users) > 1 {
+			names := make([]string, 0, len(users))
+			for _, u := range users {
+				names = append(names, u.Username)
+			}
+			return fmt.Errorf("系统中存在多个用户 (%s)，请显式指定旧用户名", strings.Join(names, ", "))
+		}
+		user = users[0]
+	} else {
+		if err := database.DB.Where("username = ?", oldName).First(&user).Error; err != nil {
+			return fmt.Errorf("用户不存在: %s", oldName)
+		}
+	}
+
+	if user.Username == newName {
+		fmt.Printf("用户名未变更（仍为 %s）\n", newName)
+		return nil
+	}
+
+	var existing model.User
+	if err := database.DB.Where("username = ?", newName).First(&existing).Error; err == nil {
+		return fmt.Errorf("新用户名 %s 已被占用", newName)
+	}
+
+	oldUsername := user.Username
+	if err := database.DB.Model(&user).Update("username", newName).Error; err != nil {
+		return fmt.Errorf("更新用户名失败: %w", err)
+	}
+
+	// 同步清除历史登录失败记录
+	_ = database.DB.Where("username = ?", oldUsername).Delete(&model.LoginAttempt{}).Error
+
+	fmt.Printf("已将用户 %s 重命名为 %s\n", oldUsername, newName)
+	return nil
+}
+
+// runListUsers 列出所有用户，方便忘记用户名时查询。
+func runListUsers(rt *cliRuntime) error {
+	if err := rt.bootstrap(); err != nil {
+		return err
+	}
+
+	var users []model.User
+	if err := database.DB.Order("id ASC").Find(&users).Error; err != nil {
+		return err
+	}
+	if len(users) == 0 {
+		fmt.Println("数据库中没有用户")
+		return nil
+	}
+
+	fmt.Printf("%-4s  %-24s  %-10s  %s\n", "ID", "用户名", "角色", "最后登录")
+	for _, u := range users {
+		last := "-"
+		if u.LastLoginAt != nil {
+			last = u.LastLoginAt.Format("2006-01-02 15:04:05")
+		}
+		fmt.Printf("%-4d  %-24s  %-10s  %s\n", u.ID, u.Username, u.Role, last)
+	}
 	return nil
 }
 

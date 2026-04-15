@@ -51,7 +51,7 @@ function syncRulesFromModel(value: string) {
   const expressions = splitExpressions(value)
   rules.value = expressions.length > 0
     ? expressions.map(expression => createRule(expression))
-    : [createRule('* * * * *')]
+    : [createRule('0 0 * * *')]
 
   rules.value.forEach((_, index) => {
     void parseRule(index)
@@ -114,7 +114,7 @@ function handleRuleInput(index: number) {
 }
 
 function addRule(afterIndex = rules.value.length - 1) {
-  rules.value.splice(afterIndex + 1, 0, createRule('* * * * *'))
+  rules.value.splice(afterIndex + 1, 0, createRule('0 0 * * *'))
   emitRules()
   void parseRule(afterIndex + 1)
 }

@@ -33,6 +33,9 @@ func printHelp() {
   ddp sub logs <订阅ID或名称> [--lines N]
   ddp sub pull <订阅ID或名称>
   ddp reset-login [用户名] [--ip IP] [--all]
+  ddp reset-password [<用户名>] <新密码>
+  ddp reset-username [<旧用户名>] <新用户名>
+  ddp list-users
   ddp disable-2fa <用户名>
   ddp disable-2fa --all
 
@@ -54,5 +57,8 @@ func printHelp() {
   ddp sub list --type git-repo
   ddp sub pull 我的订阅
   ddp reset-login --all
+  ddp reset-password admin NewPass123
+  ddp reset-username admin newadmin
+  ddp list-users
   ddp disable-2fa admin`)
 }

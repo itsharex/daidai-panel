@@ -20,7 +20,7 @@ const emit = defineEmits<{
 const form = ref({
   name: '',
   command: '',
-  cron_expression: '* * * * *',
+  cron_expression: '0 0 * * *',
   task_type: 'cron',
   timeout: 86400,
   random_delay_seconds: null as number | null,
@@ -94,7 +94,7 @@ watch(() => props.visible, (val) => {
 
 watch(() => form.value.task_type, (value) => {
   if (value === 'cron' && !form.value.cron_expression) {
-    form.value.cron_expression = '* * * * *'
+    form.value.cron_expression = '0 0 * * *'
   }
 })
 
@@ -125,7 +125,10 @@ function removeLabel(label: string) {
 }
 
 function handleSubmit() {
-  if (!form.value.name || !form.value.command) return
+  if (!form.value.name || !form.value.command) {
+    ElMessage.warning('请填写任务名称和执行命令')
+    return
+  }
   if (randomDelayMode.value === 'custom') {
     if (form.value.random_delay_seconds == null || form.value.random_delay_seconds <= 0) {
       ElMessage.warning('请输入大于 0 的随机延迟秒数')

@@ -126,7 +126,7 @@ const configFields = computed(() => {
       { key: 'duplicate_check_interval', label: '去重间隔(秒)', type: 'input', placeholder: '默认 1800，最大 14400' },
     ]
     case 'bark': return [
-      { key: 'key', label: 'Device Key', type: 'input', placeholder: 'Bark App 中的推送 Key' },
+      { key: 'key', label: 'Device Key', type: 'input', placeholder: '打开 Bark App 复制推送地址中的 Key，如 https://api.day.app/xxxxxx 中的 xxxxxx' },
       { key: 'server', label: '服务器 (可选)', type: 'input', placeholder: '默认 https://api.day.app' },
       { key: 'sound', label: '推送声音 (可选)', type: 'input', placeholder: '如 birdsong，留空使用默认' },
       { key: 'group', label: '推送分组 (可选)', type: 'input', placeholder: '消息分组名称' },
@@ -257,8 +257,8 @@ async function loadChannels() {
   try {
     const res = await notificationApi.list()
     channels.value = res.data || []
-  } catch {
-    ElMessage.error('加载通知渠道失败')
+  } catch (err: any) {
+    ElMessage.error(err?.response?.data?.error || '加载通知渠道失败')
   } finally {
     channelLoading.value = false
   }
@@ -276,8 +276,8 @@ async function loadSSHKeys() {
   try {
     const res = await sshKeyApi.list()
     sshKeys.value = res.data || []
-  } catch {
-    ElMessage.error('加载 SSH 密钥失败')
+  } catch (err: any) {
+    ElMessage.error(err?.response?.data?.error || '加载 SSH 密钥失败')
   } finally {
     sshKeyLoading.value = false
   }
@@ -303,9 +303,47 @@ function openEditChannel(row: any) {
   showChannelDialog.value = true
 }
 
+// 配置中属于 JSON 结构的字段 key（需要 JSON.parse 校验）
+const JSON_CONFIG_KEYS = new Set([
+  'headers',
+  'news_articles',
+  'mpnews_articles',
+  'template_card_payload',
+])
+
+// email 端口校验 key
+const NUMERIC_CONFIG_KEYS = new Set(['smtp_port', 'port'])
+
+function validateConfigFields(): string | null {
+  for (const field of configFields.value) {
+    const key = (field as any).key
+    const val = (configData.value[key] ?? '').toString().trim()
+    if (!val) continue
+    if (JSON_CONFIG_KEYS.has(key)) {
+      try {
+        JSON.parse(val)
+      } catch (e: any) {
+        return `字段「${(field as any).label || key}」不是合法 JSON：${e?.message || ''}`
+      }
+    }
+    if (NUMERIC_CONFIG_KEYS.has(key)) {
+      const n = Number(val)
+      if (!Number.isInteger(n) || n <= 0 || n > 65535) {
+        return `字段「${(field as any).label || key}」应为 1-65535 的端口号`
+      }
+    }
+  }
+  return null
+}
+
 async function handleSaveChannel() {
   if (!channelForm.value.name.trim()) {
     ElMessage.warning('名称不能为空')
+    return
+  }
+  const validationErr = validateConfigFields()
+  if (validationErr) {
+    ElMessage.warning(validationErr)
     return
   }
   syncConfigToForm()
@@ -319,8 +357,8 @@ async function handleSaveChannel() {
     }
     showChannelDialog.value = false
     loadChannels()
-  } catch {
-    ElMessage.error(isCreateChannel.value ? '创建失败' : '更新失败')
+  } catch (err: any) {
+    ElMessage.error(err?.response?.data?.error || (isCreateChannel.value ? '创建失败' : '更新失败'))
   }
 }
 
@@ -352,16 +390,27 @@ async function handleToggleChannel(row: any) {
     loadChannels()
   } catch (err: any) {
     if (err === 'cancel' || err?.toString?.() === 'cancel') return
-    ElMessage.error('操作失败')
+    ElMessage.error(err?.response?.data?.error || '操作失败')
   }
 }
 
 async function handleTestChannel(id: number) {
   try {
-    await notificationApi.test(id)
-    ElMessage.success('测试通知发送成功')
+    const res: any = await notificationApi.test(id)
+    const detail = res?.message || res?.data?.message
+    ElMessage.success(detail ? `测试通知发送成功：${detail}` : '测试通知发送成功')
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.error || '测试发送失败')
+    const data = e?.response?.data
+    const mainError = data?.error || '测试发送失败'
+    const detail = data?.detail || data?.message || e?.message
+    if (detail && detail !== mainError) {
+      ElMessageBox.alert(String(detail), mainError, {
+        confirmButtonText: '知道了',
+        type: 'error',
+      }).catch(() => {})
+    } else {
+      ElMessage.error(mainError)
+    }
   }
 }
 

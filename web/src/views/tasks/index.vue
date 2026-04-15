@@ -311,6 +311,7 @@ async function handleRun(task: any) {
     syncStatusPolling()
     void loadTasks()
   } catch (err: any) {
+    if (err === 'cancel' || err?.toString?.() === 'cancel') return
     ElMessage.error(err?.response?.data?.error || '启动失败')
   }
 }
@@ -350,12 +351,13 @@ async function handleToggle(task: any) {
 }
 
 async function handleDelete(task: any) {
-  await ElMessageBox.confirm(`确定删除任务 "${task.name}"？`, '确认删除', { type: 'warning' })
   try {
+    await ElMessageBox.confirm(`确定删除任务 "${task.name}"？`, '确认删除', { type: 'warning' })
     await taskApi.delete(task.id)
     ElMessage.success('任务已删除')
     loadTasks()
   } catch (err: any) {
+    if (err === 'cancel' || err?.toString?.() === 'cancel') return
     ElMessage.error(err?.response?.data?.error || '删除失败')
   }
 }
@@ -429,18 +431,22 @@ async function handleBatchPin() {
     ElMessage.warning('请先选择任务')
     return
   }
-  try {
-    for (const id of selectedIds.value) {
-      await taskApi.pin(id)
-    }
-    ElMessage.success('批量置顶成功')
-    loadTasks()
-  } catch (err: any) {
-    ElMessage.error(err?.response?.data?.error || '操作失败')
+  // 并发发送，单条失败不阻塞其他任务
+  const results = await Promise.allSettled(selectedIds.value.map(id => taskApi.pin(id)))
+  const failed = results.filter(r => r.status === 'rejected')
+  if (failed.length === 0) {
+    ElMessage.success(`批量置顶成功（${results.length} 个）`)
+  } else if (failed.length === results.length) {
+    const first = failed[0] as PromiseRejectedResult
+    ElMessage.error((first.reason as any)?.response?.data?.error || '批量置顶全部失败')
+  } else {
+    ElMessage.warning(`已置顶 ${results.length - failed.length} 个，${failed.length} 个失败`)
   }
+  loadTasks()
 }
 
 async function handleCleanLogs() {
+  let daysStr: string
   try {
     const { value } = await ElMessageBox.prompt('清理多少天前的日志？', '日志清理', {
       confirmButtonText: '确定',
@@ -449,9 +455,16 @@ async function handleCleanLogs() {
       inputErrorMessage: '请输入有效的天数',
       inputValue: '30',
     })
-    await taskApi.cleanLogs(Number(value))
+    daysStr = value
+  } catch {
+    return
+  }
+  try {
+    await taskApi.cleanLogs(Number(daysStr))
     ElMessage.success('日志清理成功')
-  } catch {}
+  } catch (err: any) {
+    ElMessage.error(err?.response?.data?.error || '日志清理失败')
+  }
 }
 
 async function handleExport() {
@@ -464,8 +477,8 @@ async function handleExport() {
     a.download = `tasks_export_${new Date().toISOString().slice(0, 10)}.json`
     a.click()
     URL.revokeObjectURL(url)
-  } catch {
-    ElMessage.error('导出失败')
+  } catch (err: any) {
+    ElMessage.error(err?.response?.data?.error || '导出失败')
   }
 }
 
@@ -480,8 +493,23 @@ async function handleImport(event: Event) {
   if (!file) return
   try {
     const text = await file.text()
-    const data = JSON.parse(text)
+    let data: any
+    try {
+      data = JSON.parse(text)
+    } catch (e: any) {
+      ElMessage.error(`JSON 解析失败：${e?.message || '文件格式错误'}`)
+      return
+    }
     const tasksData = Array.isArray(data) ? data : data.data || data.tasks
+    if (!Array.isArray(tasksData)) {
+      ElMessage.error('导入数据结构无效：期望数组或 {data: [...]} / {tasks: [...]}')
+      return
+    }
+    const invalid = tasksData.find(t => !t || typeof t !== 'object' || !t.name)
+    if (invalid) {
+      ElMessage.error('导入数据中存在缺少 name 字段的任务')
+      return
+    }
     const res = await taskApi.import(tasksData)
     ElMessage.success(res.message)
     if (res.errors?.length) {

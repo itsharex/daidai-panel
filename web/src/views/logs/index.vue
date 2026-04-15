@@ -6,6 +6,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { openAuthorizedEventStream, type EventStreamConnection } from '@/utils/sse'
 import { usePageActivity } from '@/composables/usePageActivity'
 import { useResponsive } from '@/composables/useResponsive'
+import { extractError } from '@/utils/error'
 
 const logs = ref<any[]>([])
 const total = ref(0)
@@ -48,8 +49,8 @@ async function loadLogs() {
     const res = await logApi.list(params)
     logs.value = res.data
     total.value = res.total
-  } catch {
-    ElMessage.error('加载日志失败')
+  } catch (err) {
+    ElMessage.error(extractError(err, '加载日志失败'))
   } finally {
     loading.value = false
     syncAutoRefresh()
@@ -171,8 +172,8 @@ async function viewDetail(log: any) {
       const res = await logApi.detail(log.id)
       detailLog.value = res
       detailContent.value = res.content || '(无日志内容)'
-    } catch {
-      ElMessage.error('获取日志详情失败')
+    } catch (err) {
+      ElMessage.error(extractError(err, '获取日志详情失败'))
     }
   }
 }
@@ -184,25 +185,85 @@ function closeLogSSE() {
   }
 }
 
+function downloadCurrentLog() {
+  if (!detailContent.value) {
+    ElMessage.warning('暂无内容可下载')
+    return
+  }
+  const taskName = detailLog.value?.task_name || 'log'
+  const logId = detailLog.value?.id ?? 'detail'
+  const filename = `${taskName}-${logId}.log`.replace(/[\\/:*?"<>|]/g, '_')
+  const blob = new Blob([detailContent.value], { type: 'text/plain;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+  ElMessage.success('已下载')
+}
+
+async function copyCurrentLog() {
+  if (!detailContent.value) {
+    ElMessage.warning('暂无内容可复制')
+    return
+  }
+  try {
+    await navigator.clipboard.writeText(detailContent.value)
+    ElMessage.success('已复制到剪贴板')
+  } catch {
+    // fallback
+    const ta = document.createElement('textarea')
+    ta.value = detailContent.value
+    ta.style.position = 'fixed'
+    ta.style.left = '-9999px'
+    document.body.appendChild(ta)
+    ta.select()
+    try { document.execCommand('copy'); ElMessage.success('已复制到剪贴板') }
+    catch { ElMessage.error('复制失败，请切换 HTTPS 或手动复制') }
+    document.body.removeChild(ta)
+  }
+}
+
 async function handleDelete(log: any) {
-  await ElMessageBox.confirm('确定删除此日志记录？', '确认', { type: 'warning' })
+  try {
+    await ElMessageBox.confirm('确定删除此日志记录？', '确认', { type: 'warning' })
+  } catch {
+    return
+  }
   try {
     await logApi.delete(log.id)
     ElMessage.success('已删除')
     loadLogs()
-  } catch {
-    ElMessage.error('删除失败')
+  } catch (err: any) {
+    ElMessage.error(err?.response?.data?.error || '删除失败')
   }
 }
 
 async function handleClean() {
-  await ElMessageBox.confirm('确定清理 7 天前的日志记录？', '清理日志', { type: 'warning' })
+  let daysInput: string
   try {
-    const res = await logApi.clean(7)
+    const res = await ElMessageBox.prompt('请输入保留天数（将清理该天数之前的日志）', '清理日志', {
+      inputValue: '7',
+      inputPattern: /^[1-9]\d*$/,
+      inputErrorMessage: '请输入正整数',
+      confirmButtonText: '清理',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+    daysInput = res.value
+  } catch {
+    return
+  }
+  const days = parseInt(daysInput, 10)
+  try {
+    const res = await logApi.clean(days)
     ElMessage.success(res.message)
     loadLogs()
-  } catch {
-    ElMessage.error('清理失败')
+  } catch (err: any) {
+    ElMessage.error(err?.response?.data?.error || '清理失败')
   }
 }
 
@@ -256,8 +317,8 @@ async function browseLogFiles(log: any) {
   try {
     const res = await taskApi.logFiles(log.task_id)
     logFiles.value = res || []
-  } catch {
-    ElMessage.error('获取日志文件列表失败')
+  } catch (err) {
+    ElMessage.error(extractError(err, '获取日志文件列表失败'))
   } finally {
     logFilesLoading.value = false
   }
@@ -269,19 +330,23 @@ async function viewLogFile(file: any) {
     fileContentData.value = res.content || '(空文件)'
     fileContentName.value = file.filename
     showFileContent.value = true
-  } catch {
-    ElMessage.error('读取日志文件失败')
+  } catch (err) {
+    ElMessage.error(extractError(err, '读取日志文件失败'))
   }
 }
 
 async function deleteLogFile(file: any) {
-  await ElMessageBox.confirm(`确定删除日志文件 ${file.filename}？`, '确认', { type: 'warning' })
+  try {
+    await ElMessageBox.confirm(`确定删除日志文件 ${file.filename}？`, '确认', { type: 'warning' })
+  } catch {
+    return
+  }
   try {
     await taskApi.deleteLogFile(currentTaskId.value, file.filename)
     ElMessage.success('已删除')
     logFiles.value = logFiles.value.filter((f: any) => f.filename !== file.filename)
-  } catch {
-    ElMessage.error('删除失败')
+  } catch (err) {
+    ElMessage.error(extractError(err, '删除失败'))
   }
 }
 
@@ -452,6 +517,11 @@ onBeforeUnmount(() => {
         </el-descriptions>
       </div>
       <pre ref="logContentRef" class="log-content dd-log-surface">{{ detailContent }}</pre>
+      <template #footer>
+        <el-button @click="copyCurrentLog" :disabled="!detailContent"><el-icon><DocumentCopy /></el-icon>复制</el-button>
+        <el-button @click="downloadCurrentLog" :disabled="!detailContent"><el-icon><Download /></el-icon>下载</el-button>
+        <el-button @click="detailVisible = false">关闭</el-button>
+      </template>
     </el-dialog>
 
     <el-dialog v-model="showFileBrowser" title="日志文件" width="650px" :fullscreen="dialogFullscreen">

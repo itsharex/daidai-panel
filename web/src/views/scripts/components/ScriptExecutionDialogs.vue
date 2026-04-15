@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Edit, RefreshRight, Select, Tickets, VideoPause, VideoPlay } from '@element-plus/icons-vue'
-import { defineAsyncComponent } from 'vue'
+import { computed, defineAsyncComponent } from 'vue'
+import { ansiToHtml, normalizeAnsi } from '@/utils/ansi'
 
 const MonacoEditor = defineAsyncComponent(() => import('@/components/MonacoEditor.vue'))
 
@@ -11,7 +12,7 @@ const showDebugDialog = defineModel<boolean>('showDebugDialog', { required: true
 const debugCode = defineModel<string>('debugCode', { required: true })
 const debugCodeChanged = defineModel<boolean>('debugCodeChanged', { required: true })
 
-defineProps<{
+const props = defineProps<{
   isMobile: boolean
   editorLanguage: string
   debugFileName: string
@@ -30,6 +31,9 @@ defineProps<{
   onRunCode: () => void | Promise<void>
   onStopRunner: () => void | Promise<void>
 }>()
+
+const debugLogsHtml = computed(() => ansiToHtml(normalizeAnsi(props.debugLogs.join('\n'))))
+const runnerLogsHtml = computed(() => ansiToHtml(normalizeAnsi(props.runnerLogs.join('\n'))))
 
 function markDebugCodeChanged() {
   debugCodeChanged.value = true
@@ -73,7 +77,7 @@ function markDebugCodeChanged() {
           <div v-if="runnerError" class="debug-error">
             <el-alert type="error" :title="runnerError === 'failed' ? `退出码: ${runnerExitCode}` : runnerError" :closable="false" show-icon />
           </div>
-          <pre v-if="runnerLogs.length > 0" class="debug-logs">{{ runnerLogs.join('\n') }}</pre>
+          <pre v-if="runnerLogs.length > 0" class="debug-logs" v-html="runnerLogsHtml"></pre>
           <el-empty v-if="!runnerLogs.length && !runnerError" description="点击运行按钮执行代码" :image-size="80" />
         </div>
       </div>
@@ -121,7 +125,7 @@ function markDebugCodeChanged() {
           <div v-if="debugError" class="debug-error">
             <el-alert type="error" :title="`退出码: ${debugExitCode}`" :closable="false" show-icon />
           </div>
-          <pre v-if="debugLogs.length > 0" class="debug-logs">{{ debugLogs.join('\n') }}</pre>
+          <pre v-if="debugLogs.length > 0" class="debug-logs" v-html="debugLogsHtml"></pre>
           <el-empty v-if="!debugLogs.length && !debugError" description="点击运行按钮开始调试" :image-size="80" />
         </div>
       </div>

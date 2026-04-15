@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { taskApi } from '@/api/task'
 import { openAuthorizedEventStream, type EventStreamConnection } from '@/utils/sse'
 import { useResponsive } from '@/composables/useResponsive'
+import { ansiToHtml, normalizeAnsi } from '@/utils/ansi'
 
 const props = defineProps<{
   visible: boolean
@@ -35,6 +36,10 @@ const renderedLogText = computed(() => {
     lines.push(logTail.value)
   }
   return lines.join('\n')
+})
+
+const renderedLogHtml = computed(() => {
+  return ansiToHtml(normalizeAnsi(renderedLogText.value))
 })
 
 watch(() => props.visible, (visible) => {
@@ -340,7 +345,7 @@ function handleClose() {
       <div ref="logContainerRef" class="log-container dd-log-surface" v-loading="loading">
         <div v-if="error" class="log-error">{{ error }}</div>
         <div v-else-if="!hasLogs && !loading" class="log-empty">暂无日志输出</div>
-        <pre v-else class="log-content">{{ renderedLogText }}</pre>
+        <pre v-else class="log-content" v-html="renderedLogHtml"></pre>
       </div>
     </div>
   </el-dialog>

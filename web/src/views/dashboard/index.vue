@@ -17,7 +17,8 @@
           <div class="stat-card-content">
             <div class="stat-label">{{ card.label }}</div>
             <div class="stat-value" :style="{ color: card.color }">
-              <CountUp :end-val="card.value" :duration="1.5" />
+              <template v-if="card.value === null">-</template>
+              <CountUp v-else :end-val="card.value" :duration="1.5" />
             </div>
           </div>
           <div class="stat-icon-box" :style="{ '--icon-color': card.color }">
@@ -160,6 +161,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, onActivated, defineComponent, h, watch, defineAsyncComponent } from 'vue'
 import { systemApi } from '@/api/system'
+import { ElMessage } from 'element-plus'
 import {
   Timer, Check, ArrowRight, VideoPlay,
 } from '@element-plus/icons-vue'
@@ -224,7 +226,7 @@ const statCards = computed(() => {
     { label: '任务总数', value: d.task_count || 0, icon: Timer, color: '#409EFF', bg: 'linear-gradient(135deg, #e6f4ff, #f0f5ff)', link: '/tasks' },
     { label: '正在运行', value: d.running_tasks || 0, icon: VideoPlay, color: '#E6A23C', bg: 'linear-gradient(135deg, #fffbe6, #fff1b8)', link: '/tasks' },
     { label: '今日执行', value: d.today_logs || 0, icon: Check, color: '#fa541c', bg: 'linear-gradient(135deg, #fff2e8, #fff7e6)', link: '/logs' },
-    { label: '成功率', value: d.today_logs ? Math.round((d.success_logs || 0) / d.today_logs * 100) : 0, icon: Check, color: '#67C23A', bg: 'linear-gradient(135deg, #f6ffed, #fcffe6)', link: '/logs' },
+    { label: '成功率', value: d.today_logs ? Math.round((d.success_logs || 0) / d.today_logs * 100) : null, icon: Check, color: '#67C23A', bg: 'linear-gradient(135deg, #f6ffed, #fcffe6)', link: '/logs' },
   ]
 })
 
@@ -255,14 +257,18 @@ const loadDashboard = async () => {
   try {
     const res = await systemApi.dashboard() as any
     dashboardData.value = res.data || {}
-  } catch {}
+  } catch {
+    ElMessage.error('加载仪表盘数据失败')
+  }
 }
 
 const loadSysInfo = async () => {
   try {
     const res = await systemApi.info() as any
     sysInfo.value = res.data || {}
-  } catch {}
+  } catch {
+    ElMessage.error('加载系统信息失败')
+  }
 }
 
 function activateTrendChart() {
@@ -311,6 +317,8 @@ onMounted(() => {
 })
 
 onActivated(() => {
+  loadDashboard()
+  loadSysInfo()
   scheduleTrendChartRender()
 })
 

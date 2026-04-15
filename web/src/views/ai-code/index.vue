@@ -205,12 +205,38 @@ watch(
   { immediate: true }
 )
 
+const AI_CODE_PROMPT_STORAGE_KEY = 'ai-code.prompt'
+const AI_CODE_PROMPT_TOUCHED_KEY = 'ai-code.prompt.touched'
+const DEFAULT_AI_CODE_PROMPT = '请生成一个可直接运行的新脚本，并在必要时补齐注释与错误处理。'
+
+// 监听用户修改 prompt：只要用户手动编辑过，就记录 touched 标志，下次不再覆盖
+watch(prompt, (val) => {
+  try {
+    if (val && val.trim()) {
+      localStorage.setItem(AI_CODE_PROMPT_STORAGE_KEY, val)
+      localStorage.setItem(AI_CODE_PROMPT_TOUCHED_KEY, '1')
+    } else if (localStorage.getItem(AI_CODE_PROMPT_TOUCHED_KEY) === '1') {
+      // 用户主动清空，也记录为已触碰过
+      localStorage.setItem(AI_CODE_PROMPT_STORAGE_KEY, '')
+    }
+  } catch { /* localStorage disabled */ }
+})
+
 onMounted(() => {
   window.addEventListener('resize', handleResize)
   void loadTree()
   void loadAIConfig()
-  if (!prompt.value.trim()) {
-    prompt.value = '请生成一个可直接运行的新脚本，并在必要时补齐注释与错误处理。'
+  const touched = (() => {
+    try { return localStorage.getItem(AI_CODE_PROMPT_TOUCHED_KEY) === '1' } catch { return false }
+  })()
+  if (touched) {
+    // 用户曾修改过，恢复保存值（即使是空字符串）
+    try {
+      const saved = localStorage.getItem(AI_CODE_PROMPT_STORAGE_KEY)
+      if (saved !== null) prompt.value = saved
+    } catch { /* ignore */ }
+  } else if (!prompt.value.trim()) {
+    prompt.value = DEFAULT_AI_CODE_PROMPT
   }
 })
 

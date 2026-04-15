@@ -295,6 +295,7 @@ docker run -d \
 - 推送 Alpine 运行时镜像：`linzixuanzz/daidai-panel:latest`
 - 推送 Alpine 版本镜像：`linzixuanzz/daidai-panel:2.0.4`
 - 推送 Debian 运行时镜像：`linzixuanzz/daidai-panel:debian`
+- 构建并上传 Magisk 模块 ZIP：`daidai-panel-magisk-v<版本>.zip`（同时更新 `Magisk/update.json`，Magisk 管理器可直接检查新版本）
 
 发布前请先准备对应版本的更新日志文件，例如：
 
@@ -367,6 +368,9 @@ docker exec -it daidai-panel ddp backup list
 docker exec -it daidai-panel ddp task run 12
 docker exec -it daidai-panel ddp sub pull 我的订阅
 docker exec -it daidai-panel ddp reset-login --all
+docker exec -it daidai-panel ddp list-users
+docker exec -it daidai-panel ddp reset-password admin NewPass123
+docker exec -it daidai-panel ddp reset-username admin newadmin
 docker exec -it daidai-panel ddp disable-2fa admin
 ```
 
@@ -387,7 +391,12 @@ docker exec -it daidai-panel ddp disable-2fa admin
 - `ddp task stop <任务ID或名称>`：终止当前已启动且有 PID 的任务进程
 - `ddp sub pull <订阅ID或名称>`：立即执行一次订阅拉取，并实时输出日志
 - `ddp reset-login`：重置登录失败次数，可按用户名、IP 或全部清除
+- `ddp list-users`：列出面板全部用户（忘记用户名时使用）
+- `ddp reset-password [用户名] <新密码>`：重置指定用户密码；仅一个用户时可省略用户名
+- `ddp reset-username [旧用户名] <新用户名>`：重命名用户；仅一个用户时可省略旧用户名
 - `ddp disable-2fa`：禁用指定用户或全部用户的 2FA
+
+> **忘记密码怎么办**：进入宿主机执行 `docker exec -it daidai-panel ddp list-users` 查出用户名，然后 `ddp reset-password <用户名> <新密码>` 即可，不再需要删除数据重装。
 
 如果你直接给镜像传命令参数，也可以工作，例如：
 

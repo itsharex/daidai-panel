@@ -184,9 +184,11 @@ async function handleChangePassword() {
       newPassword: '',
       confirmPassword: '',
     }
+    // 稍作停留让用户看到成功提示后再登出
+    const LOGOUT_DELAY_MS = 1200
     setTimeout(() => {
       authStore.logout()
-    }, 1200)
+    }, LOGOUT_DELAY_MS)
   } catch (err: any) {
     ElMessage.error(err?.response?.data?.error || '密码修改失败')
   } finally {
@@ -241,7 +243,8 @@ onMounted(async () => {
   if (!authStore.user) {
     try {
       await authStore.fetchUser()
-    } catch {
+    } catch (err: any) {
+      ElMessage.error(err?.response?.data?.error || '获取用户信息失败，请重新登录')
       return
     }
   }

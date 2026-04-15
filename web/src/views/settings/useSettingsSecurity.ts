@@ -381,8 +381,9 @@ export function useSettingsSecurity() {
       await systemApi.deleteBackup(filename)
       ElMessage.success('删除成功')
       void loadBackups()
-    } catch {
-      // cancelled
+    } catch (err: any) {
+      if (err === 'cancel' || err?.toString?.() === 'cancel') return
+      ElMessage.error('删除备份失败')
     }
   }
 
@@ -404,8 +405,8 @@ export function useSettingsSecurity() {
       ElMessage.warning('两次输入的密码不一致')
       return
     }
-    if (newPassword.value.length < 6) {
-      ElMessage.warning('密码至少 6 位')
+    if (newPassword.value.length < 8) {
+      ElMessage.warning('密码至少 8 位')
       return
     }
     try {
@@ -490,9 +491,14 @@ export function useSettingsSecurity() {
     try {
       await ElMessageBox.confirm('确定要撤销该会话吗？被撤销的设备将需要重新登录。', '确认', { type: 'warning' })
       await securityApi.revokeSession(id)
-      ElMessage.success('会话已撤销，即将重新登录')
-      authStore.clearAuth()
-      setTimeout(() => void router.push('/login'), 500)
+      ElMessage.success('会话已撤销')
+      try {
+        await loadSessions()
+      } catch {
+        // If loading sessions fails (401), current session was revoked
+        authStore.clearAuth()
+        void router.push('/login')
+      }
     } catch (err: any) {
       if (err === 'cancel' || err?.toString?.() === 'cancel') return
       ElMessage.error('操作失败')

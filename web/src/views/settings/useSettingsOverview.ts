@@ -21,6 +21,8 @@ export function useSettingsOverview() {
   let updateStatusPollTimer: ReturnType<typeof setTimeout> | null = null
   let updateAvailabilityDelayTimer: ReturnType<typeof setTimeout> | null = null
   let updateAvailabilityTimer: ReturnType<typeof setTimeout> | null = null
+  let restartDelayTimer: ReturnType<typeof setTimeout> | null = null
+  let restartPollTimer: ReturnType<typeof setInterval> | null = null
 
   function formatBytes(bytes: number): string {
     if (!bytes) return '0 B'
@@ -279,22 +281,35 @@ export function useSettingsOverview() {
     }
   }
 
+  function stopRestartPolling() {
+    if (restartDelayTimer) {
+      clearTimeout(restartDelayTimer)
+      restartDelayTimer = null
+    }
+    if (restartPollTimer) {
+      clearInterval(restartPollTimer)
+      restartPollTimer = null
+    }
+  }
+
   function waitForRestart() {
+    stopRestartPolling()
     let attempts = 0
-    setTimeout(() => {
-      const poll = setInterval(async () => {
+    restartDelayTimer = setTimeout(() => {
+      restartDelayTimer = null
+      restartPollTimer = setInterval(async () => {
         attempts++
         try {
           const res = await fetch('/', { method: 'HEAD' })
           if (res.ok) {
-            clearInterval(poll)
+            stopRestartPolling()
             window.location.reload()
           }
         } catch {
           // ignore
         }
         if (attempts >= 60) {
-          clearInterval(poll)
+          stopRestartPolling()
           ElMessage.warning('重启超时，请手动刷新页面')
         }
       }, 2000)
@@ -391,6 +406,7 @@ export function useSettingsOverview() {
   onBeforeUnmount(() => {
     stopUpdateStatusPolling()
     stopUpdateAvailabilityChecks()
+    stopRestartPolling()
   })
 
   return {
