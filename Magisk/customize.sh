@@ -31,11 +31,19 @@ UPDATE_FLAG="$PERSIST_DIR/.updated_from"
 detect_ksu() { [ -d "/data/adb/ksu" ]; }
 
 get_current_version() {
-  if [ -f "/data/adb/$MODID/module.prop" ]; then
-    grep '^versionCode=' "/data/adb/$MODID/module.prop" 2>/dev/null | cut -d'=' -f2
-  else
-    echo "0"
-  fi
+  # 已启用模块的 module.prop —— 按 Magisk / KernelSU / APatch 常见路径依次查找
+  for candidate in \
+    "/data/adb/modules/$MODID/module.prop" \
+    "/data/adb/ksu/modules/$MODID/module.prop" \
+    "/data/adb/ap/modules/$MODID/module.prop" \
+    "$PERSIST_DIR/module.prop"
+  do
+    if [ -f "$candidate" ]; then
+      grep '^versionCode=' "$candidate" 2>/dev/null | cut -d'=' -f2
+      return
+    fi
+  done
+  echo "0"
 }
 
 # ---- 架构检查 ------------------------------------------------------------
@@ -99,11 +107,14 @@ if [ "$current_ver" != "0" ] && [ "$current_ver" -lt "$new_ver" ] 2>/dev/null; t
   ui_print "- 检测到版本更新: $current_ver -> $new_ver"
   ui_print "- 正在保留用户数据..."
   if [ -d "$rootfs/app/Dumb-Panel" ]; then
-    mkdir -p $TMPDIR/backup_data
-    cp -rf $rootfs/app/Dumb-Panel/* $TMPDIR/backup_data/ 2>/dev/null
+    mkdir -p "$TMPDIR/backup_data" || abort "! 无法创建数据备份目录 $TMPDIR/backup_data"
+    if ! cp -rf "$rootfs/app/Dumb-Panel/." "$TMPDIR/backup_data/" 2>/dev/null; then
+      abort "! 用户数据备份失败（$TMPDIR 空间可能不足），已中止升级以保护数据"
+    fi
+    ui_print "- 数据已备份到 $TMPDIR/backup_data"
   fi
   mkdir -p "$PERSIST_DIR"
-  echo "$current_ver" > $UPDATE_FLAG
+  echo "$current_ver" > "$UPDATE_FLAG"
 fi
 
 # 极少数情况下 /data 挂载异常，提示用户重启后重试
@@ -210,12 +221,47 @@ cp -f $MODPATH/module.prop $rootfs/app/module.prop 2>/dev/null
 # ---- 持久化数据目录 ------------------------------------------------------
 mkdir -p "$PERSIST_DIR"
 
+# 把新版本的 module.prop 也落一份到持久化目录，作为 get_current_version() 的兜底，
+# 下次升级就算管理器路径差异也能读到正确的旧版本号。
+cp -f "$MODPATH/module.prop" "$PERSIST_DIR/module.prop" 2>/dev/null || true
+
+# ---- 默认端口配置（用户可编辑 ports.conf 自定义端口，重启模块后生效） ----
+if [ ! -f "$PERSIST_DIR/ports.conf" ]; then
+  cat > "$PERSIST_DIR/ports.conf" << 'PCONF'
+# 呆呆面板端口配置 —— 修改后重启模块生效
+#
+# PANEL_PORT: 面板 HTTP 端口（浏览器访问端口），默认 5700
+#             后端绑定的是 0.0.0.0:PANEL_PORT，局域网 / 穿透都能直连
+# SSH_PORT:   容器内 SSH 端口（adb/termux 登入容器调试），默认 22
+# EXTRA_CORS_ORIGINS:
+#             额外的 CORS 白名单；默认 127.0.0.1 / localhost 已放行，
+#             且"同源请求"会被中间件自动放行，绝大多数内网穿透不需要改它。
+#             以下两种情况再补：
+#               1) 穿透侧端口与面板端口不同（例如 frp 公网 6700 → 内网 5700）
+#               2) 用跨域模式访问（浏览器 Origin 与后端 Host 不一致）
+#             用英文逗号分隔，建议加引号，示例：
+#               EXTRA_CORS_ORIGINS="https://panel.example.com,https://xx.trycloudflare.com"
+PANEL_PORT=5700
+SSH_PORT=22
+EXTRA_CORS_ORIGINS=""
+PCONF
+fi
+
+# 读一下当前配置，用于提示
+CUR_PANEL_PORT=5700
+CUR_SSH_PORT=22
+# shellcheck disable=SC1090
+. "$PERSIST_DIR/ports.conf" 2>/dev/null || true
+CUR_PANEL_PORT="${PANEL_PORT:-5700}"
+CUR_SSH_PORT="${SSH_PORT:-22}"
+
 # ---- 收尾 --------------------------------------------------------------
 "$RURIMA" ruri -w -U $rootfs 2>/dev/null || true
 
 ui_print ""
 ui_print "- 安装完成！"
-ui_print "- 重启后面板将自动启动，访问 http://127.0.0.1:5700"
+ui_print "- 重启后面板将自动启动，访问 http://127.0.0.1:${CUR_PANEL_PORT}"
+ui_print "- 端口配置: $PERSIST_DIR/ports.conf (PANEL_PORT=${CUR_PANEL_PORT}, SSH_PORT=${CUR_SSH_PORT})"
 ui_print "- rootfs 位置: $rootfs"
 ui_print "- 数据目录:   $rootfs/app/Dumb-Panel"
 ui_print ""

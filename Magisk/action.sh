@@ -8,6 +8,7 @@
 MODDIR=${0%/*}
 PERSIST_DIR=/data/adb/daidai-panel
 SERVICE_LOG="$PERSIST_DIR/service.log"
+PORTS_CONF="$PERSIST_DIR/ports.conf"
 RURIMA=$MODDIR/system/bin/rurima
 
 rootfs=/data/daidai
@@ -16,6 +17,13 @@ rootfs=/data/daidai
 SERVER_LOG="$rootfs/app/Dumb-Panel/daidai.log"
 TAIL_LINES=60
 
+# 端口配置（有则读，无则默认）
+PANEL_PORT=5700
+SSH_PORT=22
+EXTRA_CORS_ORIGINS=""
+# shellcheck disable=SC1090
+[ -f "$PORTS_CONF" ] && . "$PORTS_CONF" 2>/dev/null
+
 if ! command -v ui_print >/dev/null 2>&1; then
   ui_print() { echo "$1"; }
 fi
@@ -23,6 +31,11 @@ fi
 ui_print "========================================="
 ui_print " 呆呆面板 - 运行状态"
 ui_print "========================================="
+ui_print "- 端口配置: PANEL=${PANEL_PORT} (绑定 0.0.0.0)  SSH=${SSH_PORT}"
+ui_print "           ($PORTS_CONF)"
+if [ -n "$EXTRA_CORS_ORIGINS" ]; then
+  ui_print "- 额外 CORS: $EXTRA_CORS_ORIGINS"
+fi
 
 # ---- 进程状态（容器内） -------------------------------------------------
 PID=""
@@ -37,18 +50,18 @@ else
   ui_print "- 状态: 未运行"
 fi
 
-# ---- 端口监听（宿主侧 0.0.0.0:5700） -----------------------------------
-PORT_INFO=$(netstat -ltn 2>/dev/null | grep ':5700' | head -n2)
+# ---- 端口监听（宿主侧 PANEL_PORT） -------------------------------------
+PORT_INFO=$(netstat -ltn 2>/dev/null | grep ":${PANEL_PORT}\b" | head -n2)
 if [ -n "$PORT_INFO" ]; then
   ui_print "- 监听端口:"
   echo "$PORT_INFO" | while IFS= read -r line; do
     ui_print "    $line"
   done
 else
-  ui_print "- 监听端口: 未检测到 (5700 未监听)"
+  ui_print "- 监听端口: 未检测到 (${PANEL_PORT} 未监听)"
 fi
 
-ui_print "- 访问地址: http://127.0.0.1:5700"
+ui_print "- 访问地址: http://127.0.0.1:${PANEL_PORT}"
 ui_print "- rootfs  : $rootfs"
 ui_print "- 数据目录: $rootfs/app/Dumb-Panel"
 

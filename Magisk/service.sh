@@ -2,8 +2,8 @@
 ##########################################################################
 # 呆呆面板 Magisk 模块 - late_start service
 #
-# 进入 Alpine 容器启动 daidai-server，单端口 5700（API + 前端静态资源
-# 都由 daidai-server 自己托管，无需 nginx）。
+# 进入 Alpine 容器启动 daidai-server（端口可通过 ports.conf 配置）。
+# 前端静态资源由 daidai-server 直接托管，不再依赖 nginx。
 ##########################################################################
 
 export PATH=/data/adb/ap/bin:/data/adb/ksu/bin:/data/adb/magisk:$PATH
@@ -23,6 +23,7 @@ RURIMA=$MODDIR/system/bin/rurima
 
 PERSIST_DIR=/data/adb/daidai-panel
 LOG_FILE="$PERSIST_DIR/service.log"
+PORTS_CONF="$PERSIST_DIR/ports.conf"
 
 mkdir -p "$PERSIST_DIR"
 
@@ -36,8 +37,44 @@ if [ -f "$LOG_FILE" ]; then
   [ "${size:-0}" -gt 2097152 ] && mv -f "$LOG_FILE" "$LOG_FILE.old" 2>/dev/null
 fi
 
+# ---- 端口配置（用户可编辑 ports.conf 自定义） ---------------------------
+# 第一次运行时若文件缺失，自动补一份默认值
+if [ ! -f "$PORTS_CONF" ]; then
+  cat > "$PORTS_CONF" << 'PCONF'
+# 呆呆面板端口配置 —— 修改后重启模块生效
+PANEL_PORT=5700
+SSH_PORT=22
+PCONF
+fi
+
+PANEL_PORT=5700
+SSH_PORT=22
+EXTRA_CORS_ORIGINS=""
+# shellcheck disable=SC1090
+. "$PORTS_CONF" 2>/dev/null || true
+
+# 合法性校验（必须是 1..65535 之间的整数）
+validate_port() {
+  case "$1" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  [ "$1" -ge 1 ] && [ "$1" -le 65535 ]
+}
+if ! validate_port "$PANEL_PORT"; then
+  log "!! ports.conf 中 PANEL_PORT='$PANEL_PORT' 非法，回退为 5700"
+  PANEL_PORT=5700
+fi
+if ! validate_port "$SSH_PORT"; then
+  log "!! ports.conf 中 SSH_PORT='$SSH_PORT' 非法，回退为 22"
+  SSH_PORT=22
+fi
+
 log "========================================="
 log "呆呆面板模块启动 (MODDIR=$MODDIR, rootfs=$rootfs)"
+log "端口: PANEL_PORT=$PANEL_PORT (绑定 0.0.0.0), SSH_PORT=$SSH_PORT (来源: $PORTS_CONF)"
+if [ -n "$EXTRA_CORS_ORIGINS" ]; then
+  log "额外 CORS 来源: $EXTRA_CORS_ORIGINS"
+fi
 log "========================================="
 
 echo "noSuspend" > /sys/power/wake_lock 2>/dev/null
@@ -82,9 +119,21 @@ fi
 
 cp -f $MODDIR/module.prop $rootfs/app/module.prop 2>/dev/null
 
-log "进入 Alpine 容器启动 daidai-server..."
+# 把持久化的 ports.conf 同步进容器，容器启动脚本直接 source
+mkdir -p $rootfs/tmp
+cp -f "$PORTS_CONF" "$rootfs/tmp/ports.conf" 2>/dev/null
 
-"$RURIMA" ruri -p -N -S -A $rootfs /bin/ash << 'CONTAINER_EOF'
+# ---- 生成容器启动脚本（全字面 heredoc，变量由容器内 . /tmp/ports.conf 注入） ----
+STARTUP=$rootfs/tmp/daidai-startup.sh
+
+cat > "$STARTUP" << 'CONTAINER_EOF'
+#!/bin/ash
+# 默认值 + 用户 ports.conf 覆盖（同文件已由宿主 service.sh 校验过合法性）
+PANEL_PORT=5700
+SSH_PORT=22
+EXTRA_CORS_ORIGINS=""
+[ -f /tmp/ports.conf ] && . /tmp/ports.conf
+
 export DAIDAI_DIR=/app/Dumb-Panel
 export LANG=C.UTF-8
 export HOME=/root
@@ -100,10 +149,12 @@ if [ ! -d "$DAIDAI_DIR/deps/python/venv" ]; then
   python3 -m venv $DAIDAI_DIR/deps/python/venv 2>/dev/null || true
 fi
 
-# 每次启动都用当前 config 模板覆盖（用户自定义请编辑容器外 /data/adb/daidai-panel/config.yaml 再用 ddp 同步）
-cat > $DAIDAI_DIR/config.yaml << 'YAML'
+# 按配置写入 config.yaml（每次启动都覆盖，保证端口与 ports.conf 一致）
+# 后端用 net.Listen(":PORT") 绑定 0.0.0.0，穿透/局域网直连均可；
+# CORS 列表只影响浏览器跨域检查，"同源请求"已由中间件自动放行。
+cat > $DAIDAI_DIR/config.yaml << YAML
 server:
-  port: 5700
+  port: ${PANEL_PORT}
   mode: release
   web_dir: /app/web
 
@@ -122,11 +173,35 @@ data:
 
 cors:
   origins:
-    - http://localhost:5700
-    - http://127.0.0.1:5700
+    - http://localhost:${PANEL_PORT}
+    - http://127.0.0.1:${PANEL_PORT}
 YAML
 
-# 避免重复拉起
+# 追加 EXTRA_CORS_ORIGINS（穿透 / 反代 / 公网域名场景显式放行）
+if [ -n "${EXTRA_CORS_ORIGINS}" ]; then
+  echo "${EXTRA_CORS_ORIGINS}" | tr ',;' '\n' | while IFS= read -r origin; do
+    # 去首尾空白
+    origin=$(echo "$origin" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    [ -z "$origin" ] && continue
+    echo "    - ${origin}" >> $DAIDAI_DIR/config.yaml
+  done
+fi
+
+# ---- SSH: 按 SSH_PORT 更新 sshd_config 并启动 ------------------------
+if [ -f /etc/ssh/sshd_config ]; then
+  # 清除已有 Port 行（包括注释的），再追加当前端口
+  sed -i -E '/^[#[:space:]]*Port[[:space:]]+/d' /etc/ssh/sshd_config
+  echo "Port ${SSH_PORT}" >> /etc/ssh/sshd_config
+  # 没有 host key 的话先生成一下
+  [ -f /etc/ssh/ssh_host_rsa_key ] || ssh-keygen -A >/dev/null 2>&1
+  # 启动 sshd（已在跑就跳过）
+  if ! pgrep -x sshd >/dev/null 2>&1; then
+    mkdir -p /run/sshd
+    /usr/sbin/sshd >/dev/null 2>&1 || true
+  fi
+fi
+
+# 避免重复拉起 daidai-server
 if pgrep -f /usr/local/bin/daidai-server >/dev/null 2>&1; then
   echo "daidai-server 已在运行" >> $DAIDAI_DIR/service.log
   exit 0
@@ -134,15 +209,20 @@ fi
 
 cd $DAIDAI_DIR
 nohup /usr/local/bin/daidai-server > $DAIDAI_DIR/daidai.log 2>&1 &
-echo "daidai-server 已拉起 PID=$!" >> $DAIDAI_DIR/service.log
+echo "daidai-server 已拉起 PID=$! (port=${PANEL_PORT})" >> $DAIDAI_DIR/service.log
 exit 0
 CONTAINER_EOF
+chmod +x "$STARTUP" 2>/dev/null
+
+log "进入 Alpine 容器启动 daidai-server (panel=$PANEL_PORT, ssh=$SSH_PORT)..."
+
+"$RURIMA" ruri -p -N -S -A $rootfs /bin/ash /tmp/daidai-startup.sh
 
 sleep 2
 
 # 容器内启动后简单验证
 if "$RURIMA" ruri -p -N -S -A $rootfs /bin/ash -c "pgrep -f /usr/local/bin/daidai-server >/dev/null 2>&1"; then
-  log "面板启动成功，访问 http://127.0.0.1:5700"
+  log "面板启动成功，访问 http://127.0.0.1:${PANEL_PORT}"
 else
   log "!! 面板启动失败，查看 $rootfs/app/Dumb-Panel/daidai.log"
 fi
