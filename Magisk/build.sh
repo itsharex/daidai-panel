@@ -143,7 +143,14 @@ if [ -d "$MODDIR/META-INF" ]; then
 fi
 
 # 同步版本号到 module.prop
-sed -i.bak "s/^version=.*/version=v${VERSION}/" "$STAGING/module.prop"
+# versionCode: 2.0.6 -> 20006 (MAJ*10000 + MIN*100 + PATCH)，与 CI 保持一致
+IFS='.' read -r _MAJ _MIN _PATCH <<<"$VERSION"
+_MAJ=${_MAJ:-0}; _MIN=${_MIN:-0}; _PATCH=${_PATCH:-0}
+VERSIONCODE=$(( _MAJ * 10000 + _MIN * 100 + _PATCH ))
+sed -i.bak \
+  -e "s|^version=.*|version=v${VERSION}|" \
+  -e "s|^versionCode=.*|versionCode=${VERSIONCODE}|" \
+  "$STAGING/module.prop"
 rm -f "$STAGING/module.prop.bak"
 
 # 前端静态资源

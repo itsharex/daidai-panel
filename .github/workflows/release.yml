@@ -151,58 +151,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          STAGING=magisk-staging
           VERSION="${{ steps.version.outputs.VERSION }}"
-          VERSIONCODE="${{ steps.vercode.outputs.VERSIONCODE }}"
+
+          # 直接复用 Magisk/build.sh —— 保证本地打包与 CI 产物结构一致
+          # 该脚本会同时编译 arm64 / amd64 后端、拷贝 system/bin/rurima、apk/、
+          # 同步 version 与 versionCode、打包 ZIP 到 dist/ 目录。
+          bash Magisk/build.sh "$VERSION" all
+
           OUT="daidai-panel-magisk-v${VERSION}.zip"
-
-          rm -rf "$STAGING"
-          mkdir -p "$STAGING/bin" "$STAGING/web"
-
-          # 1) 拷贝模块文件
-          cp -f  Magisk/module.prop    "$STAGING/"
-          cp -f  Magisk/customize.sh   "$STAGING/"
-          cp -f  Magisk/service.sh     "$STAGING/"
-          cp -f  Magisk/uninstall.sh   "$STAGING/"
-          cp -f  Magisk/action.sh      "$STAGING/"
-          cp -f  Magisk/README.md      "$STAGING/"
-          cp -rf Magisk/META-INF       "$STAGING/"
-          cp -rf Magisk/scripts        "$STAGING/"
-
-          # 2) 写入真实版本号 / versionCode
-          sed -i \
-            -e "s|^version=.*|version=v${VERSION}|" \
-            -e "s|^versionCode=.*|versionCode=${VERSIONCODE}|" \
-            "$STAGING/module.prop"
-
-          # 3) 编译后端（Android root 环境下，GOOS=linux 静态二进制即可）
-          pushd server >/dev/null
-          for arch in arm64 amd64; do
-            echo "::group::Build daidai-server ($arch)"
-            CGO_ENABLED=0 GOOS=linux GOARCH=$arch \
-              go build -trimpath \
-                -ldflags="-s -w -X daidai-panel/handler.Version=${VERSION}" \
-                -o "../$STAGING/bin/daidai-server-${arch}" .
-            CGO_ENABLED=0 GOOS=linux GOARCH=$arch \
-              go build -trimpath \
-                -ldflags="-s -w -X daidai-panel/handler.Version=${VERSION}" \
-                -o "../$STAGING/bin/ddp-${arch}" ./cmd/ddp
-            echo "::endgroup::"
-          done
-          popd >/dev/null
-
-          # 4) 前端静态资源
-          cp -rf web/dist/* "$STAGING/web/"
-
-          # 5) 默认 config.yaml（service.sh 在数据目录缺失时会回退到这份）
-          if [ -f server/config.yaml ]; then
-            cp -f server/config.yaml "$STAGING/config.yaml"
-          fi
-
-          # 6) 打包 ZIP（zip 内部路径不能有 staging/ 前缀）
-          pushd "$STAGING" >/dev/null
-          zip -r9 "../${OUT}" . -x "*.DS_Store"
-          popd >/dev/null
+          cp -f "dist/${OUT}" "${OUT}"
 
           ls -lh "${OUT}"
           echo "ZIPFILE=${OUT}" >> "$GITHUB_ENV"
