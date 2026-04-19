@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -91,6 +92,91 @@ func TestBuildTaskExecutionNotificationUsesUnifiedSuccessLayout(t *testing.T) {
 	}
 	if got := context["result_summary"]; got != "定时任务「电信签到」执行成功" {
 		t.Fatalf("expected success result_summary, got %q", got)
+	}
+}
+
+func TestBuildTaskExecutionNotificationIncludesSuccessLogExcerpt(t *testing.T) {
+	task := &model.Task{ID: 11, Name: "慧生活798"}
+	endedAt := time.Date(2026, 4, 18, 0, 42, 31, 535000000, time.Local)
+
+	output := strings.Join([]string{
+		"=== 开始执行 [2026-04-18 00:31:36] ===",
+		"[执行前置脚本]",
+		"慧生活798 2026-04-18 00:31:36",
+		"共 3 个账号",
+		"[账号 1/3] abcd...wxyz",
+		"  当前积分: 1234",
+		"  签到: 成功",
+		"  广告: 5/5",
+		"  视频: 5/5",
+		"  今日积分: +80",
+		"完成 3/3 个账号 00:42:31",
+		"=== 执行结束 [2026-04-18 00:42:31] 耗时 655.20 秒 退出码 0 ===",
+	}, "\n")
+
+	_, content, context := buildTaskExecutionNotification(task, 602, true, 0, 655.2, endedAt, output)
+
+	if !strings.Contains(content, "执行日志:") {
+		t.Fatalf("expected content to include 执行日志 section, got %q", content)
+	}
+	if !strings.Contains(content, "今日积分: +80") {
+		t.Fatalf("expected content to include recent script output, got %q", content)
+	}
+	if strings.Contains(content, "[执行前置脚本]") {
+		t.Fatalf("did not expect panel meta lines in excerpt, got %q", content)
+	}
+	if strings.Contains(content, "=== 开始执行") {
+		t.Fatalf("did not expect banner lines in excerpt, got %q", content)
+	}
+	if got := context["log_excerpt"]; !strings.Contains(got, "今日积分: +80") {
+		t.Fatalf("expected log_excerpt context populated with script output, got %q", got)
+	}
+	if got := context["success_log"]; got == "" {
+		t.Fatal("expected success_log context to be populated")
+	}
+}
+
+func TestSummarizeTaskSuccessOutputDropsBannersAndMeta(t *testing.T) {
+	output := strings.Join([]string{
+		"=== 开始执行 [2026-04-18 00:00:00] ===",
+		"[执行前置脚本]",
+		"[第 1 次重试，等待 5 秒]",
+		"[检测到缺失依赖: requests，正在自动安装...]",
+		"[安装成功: requests]",
+		"[依赖已安装 (1/5)，自动重试执行]",
+		"签到: 成功",
+		"今日积分: +80",
+		"=== 执行结束 [2026-04-18 00:00:10] 耗时 10.00 秒 退出码 0 ===",
+	}, "\n")
+
+	summary := summarizeTaskSuccessOutput(output)
+	if strings.Contains(summary, "=== 开始执行") || strings.Contains(summary, "=== 执行结束") {
+		t.Fatalf("expected banner lines removed, got %q", summary)
+	}
+	for _, meta := range []string{"[执行前置脚本]", "[第 1 次重试", "[检测到缺失依赖", "[安装成功", "[依赖已安装"} {
+		if strings.Contains(summary, meta) {
+			t.Fatalf("expected panel meta %q removed, got %q", meta, summary)
+		}
+	}
+	if !strings.Contains(summary, "签到: 成功") || !strings.Contains(summary, "今日积分: +80") {
+		t.Fatalf("expected user output retained, got %q", summary)
+	}
+}
+
+func TestSummarizeTaskSuccessOutputTruncatesLongLogs(t *testing.T) {
+	var builder strings.Builder
+	for i := 0; i < 200; i++ {
+		builder.WriteString(fmt.Sprintf("line %d 内容\n", i))
+	}
+	summary := summarizeTaskSuccessOutput(builder.String())
+	if got := strings.Count(summary, "\n"); got > 30 {
+		t.Fatalf("expected at most 30 lines in summary, got %d newlines", got)
+	}
+	if len([]rune(summary)) > 1500 {
+		t.Fatalf("expected summary truncated to 1500 runes, got %d", len([]rune(summary)))
+	}
+	if !strings.Contains(summary, "line 199 内容") {
+		t.Fatalf("expected tail of log retained, got %q", summary)
 	}
 }
 

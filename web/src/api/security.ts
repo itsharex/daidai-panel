@@ -71,8 +71,8 @@ export const securityApi = {
     return request.post('/security/2fa/verify', { code }) as Promise<{ message: string }>
   },
 
-  disable2FA() {
-    return request.delete('/security/2fa') as Promise<{ message: string }>
+  disable2FA(code: string) {
+    return request.delete('/security/2fa', { data: { code } }) as Promise<{ message: string }>
   },
 
   get2FAStatus() {

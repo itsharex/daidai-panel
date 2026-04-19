@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { ElMessage } from 'element-plus'
 import { taskApi } from '@/api/task'
 import { openAuthorizedEventStream, type EventStreamConnection } from '@/utils/sse'
 import { useResponsive } from '@/composables/useResponsive'
@@ -19,9 +20,12 @@ const logLines = ref<string[]>([])
 const logTail = ref('')
 const done = ref(false)
 const error = ref<string | null>(null)
+const emptyMessage = ref<string | null>(null)
 const loading = ref(false)
 const logContainerRef = ref<HTMLElement>()
 const autoScroll = ref(false)
+const fontSize = ref<'sm' | 'md' | 'lg'>('md')
+const wrap = ref(true)
 const { dialogFullscreen } = useResponsive()
 let eventSource: EventStreamConnection | null = null
 let logBuffer: string[] = []
@@ -41,6 +45,21 @@ const renderedLogText = computed(() => {
 const renderedLogHtml = computed(() => {
   return ansiToHtml(normalizeAnsi(renderedLogText.value))
 })
+
+const lineCount = computed(() => {
+  if (!renderedLogText.value) return 0
+  return renderedLogText.value.split('\n').length
+})
+
+const byteLabel = computed(() => {
+  if (!renderedLogText.value) return ''
+  const bytes = new Blob([renderedLogText.value]).size
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+})
+
+const fontSizeClass = computed(() => `log-font-${fontSize.value}`)
 
 watch(() => props.visible, (visible) => {
   if (visible && props.taskId) {
@@ -67,6 +86,7 @@ async function startStream() {
   resetLogOutput()
   done.value = false
   error.value = null
+  emptyMessage.value = null
   loading.value = true
   autoScroll.value = false
   scheduleScrollToTop()
@@ -123,7 +143,7 @@ async function fetchLatestLog(retryCount = 0) {
   try {
     const res = await taskApi.latestLog(props.taskId!) as any
     if (!res) {
-      error.value = '暂无日志记录'
+      emptyMessage.value = '该任务还没有日志记录'
       return
     }
     if (res.content) {
@@ -131,7 +151,7 @@ async function fetchLatestLog(retryCount = 0) {
       appendLogChunk(String(res.content))
       scheduleScrollToTop()
     } else {
-      error.value = '日志已过期，文件已被清理'
+      emptyMessage.value = '日志已过期，文件已被清理'
     }
   } catch (err: any) {
     if (err?.response?.status === 404) {
@@ -142,7 +162,7 @@ async function fetchLatestLog(retryCount = 0) {
         }, 500)
         return
       }
-      error.value = '暂无日志记录'
+      emptyMessage.value = '该任务还没有日志记录'
     } else {
       error.value = '获取日志失败'
     }
@@ -288,6 +308,56 @@ function handleVisibilityChange() {
   }
 }
 
+function cycleFontSize() {
+  if (fontSize.value === 'sm') fontSize.value = 'md'
+  else if (fontSize.value === 'md') fontSize.value = 'lg'
+  else fontSize.value = 'sm'
+}
+
+async function handleCopy() {
+  if (!hasLogs.value) {
+    ElMessage.warning('暂无内容可复制')
+    return
+  }
+  try {
+    await navigator.clipboard.writeText(renderedLogText.value)
+    ElMessage.success('已复制')
+  } catch {
+    const ta = document.createElement('textarea')
+    ta.value = renderedLogText.value
+    ta.style.position = 'fixed'
+    ta.style.left = '-9999px'
+    document.body.appendChild(ta)
+    ta.select()
+    try {
+      document.execCommand('copy')
+      ElMessage.success('已复制')
+    } catch {
+      ElMessage.error('复制失败')
+    }
+    document.body.removeChild(ta)
+  }
+}
+
+function handleDownload() {
+  if (!hasLogs.value) {
+    ElMessage.warning('暂无内容可下载')
+    return
+  }
+  const safeName = (props.taskName || 'task').replace(/[\\/:*?"<>|]/g, '_')
+  const filename = `${safeName}-${props.taskId ?? 'log'}.log`
+  const blob = new Blob([renderedLogText.value], { type: 'text/plain;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+  ElMessage.success('已下载')
+}
+
 onMounted(() => {
   document.addEventListener('visibilitychange', handleVisibilityChange)
 })
@@ -305,253 +375,605 @@ function handleClose() {
 <template>
   <el-dialog
     :model-value="visible"
-    :title="`任务日志 - ${taskName}`"
-    width="85%"
+    width="88%"
     :fullscreen="dialogFullscreen"
     top="5vh"
+    align-center
+    :show-close="false"
+    class="log-viewer-dialog"
+    destroy-on-close
     @close="handleClose"
   >
-    <div class="log-viewer">
-      <div class="log-toolbar">
-        <div class="toolbar-copy">
-          <div class="toolbar-title">实时输出</div>
-          <div class="toolbar-subtitle">{{ autoScroll ? '新日志会自动滚动到底部' : '已暂停自动滚动，可手动查看历史输出' }}</div>
-        </div>
-        <div class="toolbar-actions">
-          <el-checkbox v-model="autoScroll" size="small">自动滚动</el-checkbox>
-          <transition name="status-switch" mode="out-in">
-            <div v-if="!done" key="running" class="status-chip status-chip-running">
-              <span class="status-orb" aria-hidden="true">
+    <template #header>
+      <div class="viewer-hero">
+        <div class="viewer-hero-main">
+          <div class="viewer-hero-title-row">
+            <transition name="status-switch" mode="out-in">
+              <span v-if="!done" key="running" class="status-orb status-orb--running" aria-label="运行中">
                 <span class="status-orb-core"></span>
+                <span class="status-orb-ripple"></span>
               </span>
-              <span class="status-copy">
-                <span class="status-label">运行中</span>
-                <span class="status-meta">实时采集中</span>
+              <span v-else-if="error" key="error" class="status-orb status-orb--error" aria-label="错误">
+                <el-icon :size="12"><Warning /></el-icon>
               </span>
-            </div>
-            <div v-else key="done" class="status-chip status-chip-done">
-              <span class="status-icon" aria-hidden="true">
-                <el-icon :size="14"><CircleCheckFilled /></el-icon>
+              <span v-else-if="emptyMessage" key="empty" class="status-orb status-orb--empty" aria-label="无日志">
+                <el-icon :size="12"><InfoFilled /></el-icon>
               </span>
-              <span class="status-copy">
-                <span class="status-label">已完成</span>
-                <span class="status-meta">日志已收齐</span>
+              <span v-else key="done" class="status-orb status-orb--done" aria-label="已完成">
+                <el-icon :size="12"><Check /></el-icon>
               </span>
-            </div>
-          </transition>
+            </transition>
+            <h2 class="viewer-hero-title" :title="taskName">{{ taskName || '任务日志' }}</h2>
+            <span v-if="taskId" class="viewer-hero-id">#{{ taskId }}</span>
+            <span
+              class="viewer-hero-status"
+              :class="{
+                'viewer-hero-status--running': !done && !error && !emptyMessage,
+                'viewer-hero-status--done': done && !error && !emptyMessage,
+                'viewer-hero-status--empty': !!emptyMessage && !error,
+                'viewer-hero-status--error': !!error
+              }"
+            >
+              {{ error ? '异常' : emptyMessage ? '无日志' : done ? '已完成' : '运行中' }}
+            </span>
+          </div>
+          <div class="viewer-hero-meta">
+            <span class="viewer-hero-meta-item">{{ lineCount }} 行</span>
+            <span v-if="byteLabel" class="viewer-hero-meta-item">{{ byteLabel }}</span>
+            <span class="viewer-hero-meta-item">
+              {{ autoScroll ? '自动跟随底部' : '已暂停自动滚动' }}
+            </span>
+          </div>
+        </div>
+
+        <div class="viewer-hero-actions">
+          <el-tooltip content="切换字号" placement="bottom">
+            <button class="tool-btn" @click="cycleFontSize" aria-label="切换字号">
+              <el-icon :size="15"><Operation /></el-icon>
+              <span class="tool-btn-label">{{ fontSize.toUpperCase() }}</span>
+            </button>
+          </el-tooltip>
+          <el-tooltip :content="wrap ? '关闭自动换行' : '开启自动换行'" placement="bottom">
+            <button
+              class="tool-btn"
+              :class="{ 'tool-btn--active': wrap }"
+              @click="wrap = !wrap"
+              aria-label="切换换行"
+            >
+              <el-icon :size="15"><Switch /></el-icon>
+              <span class="tool-btn-label">Wrap</span>
+            </button>
+          </el-tooltip>
+          <el-tooltip content="复制全部" placement="bottom">
+            <button class="tool-btn" :disabled="!hasLogs" @click="handleCopy" aria-label="复制">
+              <el-icon :size="15"><DocumentCopy /></el-icon>
+            </button>
+          </el-tooltip>
+          <el-tooltip content="下载日志" placement="bottom">
+            <button class="tool-btn" :disabled="!hasLogs" @click="handleDownload" aria-label="下载">
+              <el-icon :size="15"><Download /></el-icon>
+            </button>
+          </el-tooltip>
+          <div class="auto-scroll-toggle">
+            <el-switch v-model="autoScroll" size="small" inline-prompt active-text="跟随" inactive-text="暂停" />
+          </div>
+          <button class="tool-btn tool-btn--close" @click="handleClose" aria-label="关闭">
+            <el-icon :size="16"><Close /></el-icon>
+          </button>
         </div>
       </div>
+    </template>
 
-      <div ref="logContainerRef" class="log-container dd-log-surface" v-loading="loading">
-        <div v-if="error" class="log-error">{{ error }}</div>
-        <div v-else-if="!hasLogs && !loading" class="log-empty">暂无日志输出</div>
-        <pre v-else class="log-content" v-html="renderedLogHtml"></pre>
+    <div class="viewer-body" :class="fontSizeClass">
+      <div ref="logContainerRef" class="viewer-log dd-log-surface" v-loading="loading">
+        <div v-if="error" class="viewer-message viewer-message--error">
+          <el-icon :size="22"><Warning /></el-icon>
+          <span>{{ error }}</span>
+        </div>
+        <div v-else-if="emptyMessage && !hasLogs" class="viewer-message viewer-message--empty">
+          <el-icon :size="22"><InfoFilled /></el-icon>
+          <span>{{ emptyMessage }}</span>
+          <span class="viewer-message-hint">任务执行一次后就会出现日志</span>
+        </div>
+        <div v-else-if="!hasLogs && !loading" class="viewer-message">
+          <el-icon :size="22"><Loading /></el-icon>
+          <span>等待日志输出...</span>
+        </div>
+        <pre v-else class="viewer-log-content" :class="{ 'viewer-log-content--nowrap': !wrap }" v-html="renderedLogHtml"></pre>
+      </div>
+
+      <div class="viewer-statusbar">
+        <div class="viewer-statusbar-group">
+          <span class="viewer-statusbar-item">{{ lineCount }} 行</span>
+          <span v-if="byteLabel" class="viewer-statusbar-item">{{ byteLabel }}</span>
+          <span class="viewer-statusbar-item">Wrap {{ wrap ? 'ON' : 'OFF' }}</span>
+        </div>
+        <div class="viewer-statusbar-group">
+          <span v-if="!done && !error && !emptyMessage" class="viewer-statusbar-item viewer-statusbar-item--live">实时采集中</span>
+          <span v-else-if="error" class="viewer-statusbar-item viewer-statusbar-item--error">{{ error }}</span>
+          <span v-else-if="emptyMessage" class="viewer-statusbar-item viewer-statusbar-item--empty">暂无日志</span>
+          <span v-else class="viewer-statusbar-item">UTF-8</span>
+        </div>
       </div>
     </div>
   </el-dialog>
 </template>
 
 <style scoped lang="scss">
-.log-viewer {
-  display: flex;
-  flex-direction: column;
-  height: 75vh;
-  min-height: 500px;
+:deep(.log-viewer-dialog) {
+  --viewer-border-soft: color-mix(in srgb, var(--el-border-color-light) 85%, transparent);
+
+  .el-dialog {
+    border-radius: 16px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    max-height: 90vh;
+    margin: 0 auto;
+  }
+
+  .el-dialog__header {
+    padding: 0;
+    margin: 0;
+    border-bottom: 1px solid var(--viewer-border-soft);
+    flex-shrink: 0;
+  }
+
+  .el-dialog__body {
+    padding: 0;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
 }
 
-.log-toolbar {
+/* =============== Hero =============== */
+.viewer-hero {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  padding: 14px 18px;
+  background: linear-gradient(180deg,
+    color-mix(in srgb, #6366f1 6%, transparent) 0%,
+    transparent 100%);
   flex-wrap: wrap;
-  padding: 14px 16px;
-  background:
-    linear-gradient(135deg, rgba(23, 37, 84, 0.08), rgba(15, 118, 110, 0.06)),
-    var(--el-fill-color-lighter);
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  border-radius: 14px;
-  margin-bottom: 12px;
 }
 
-.log-container {
-  flex: 1;
-  overflow-y: auto;
-  padding: 14px;
-  font-family: var(--dd-font-mono);
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.log-content {
-  margin: 0;
-  color: #d4d4d4;
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-
-.log-error, .log-empty {
-  color: #8c8c8c;
-  text-align: center;
-  padding: 40px 20px;
-}
-
-.toolbar-copy {
+.viewer-hero-main {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
 }
 
-.toolbar-title {
-  font-size: 14px;
+.viewer-hero-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.viewer-hero-title {
+  font-size: 16px;
   font-weight: 700;
   color: var(--el-text-color-primary);
+  margin: 0;
+  letter-spacing: 0.2px;
+  font-family: var(--dd-font-ui);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 360px;
 }
 
-.toolbar-subtitle {
+.viewer-hero-id {
+  font-family: var(--dd-font-mono);
+  font-size: 11.5px;
+  color: var(--el-text-color-placeholder);
+  letter-spacing: 0.3px;
+}
+
+.viewer-hero-status {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  font-family: var(--dd-font-mono);
+  border-radius: 999px;
+
+  &--running {
+    background: color-mix(in srgb, var(--el-color-warning) 14%, transparent);
+    color: var(--el-color-warning);
+  }
+
+  &--done {
+    background: color-mix(in srgb, #22c55e 14%, transparent);
+    color: color-mix(in srgb, #22c55e 80%, var(--el-text-color-primary));
+  }
+
+  &--error {
+    background: color-mix(in srgb, var(--el-color-danger) 14%, transparent);
+    color: var(--el-color-danger);
+  }
+
+  &--empty {
+    background: color-mix(in srgb, var(--el-color-info) 18%, transparent);
+    color: var(--el-color-info);
+  }
+}
+
+.viewer-hero-meta {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
   font-size: 12px;
   color: var(--el-text-color-secondary);
 }
 
-.toolbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-left: auto;
-  flex-wrap: wrap;
+.viewer-hero-meta-item {
+  font-family: var(--dd-font-ui);
 }
 
-.status-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  padding: 7px 14px;
-  border-radius: 999px;
-  border: 1px solid transparent;
-  min-height: 40px;
-  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
-}
-
-.status-chip-running {
-  background: linear-gradient(135deg, rgba(245, 158, 11, 0.18), rgba(251, 191, 36, 0.08));
-  border-color: rgba(245, 158, 11, 0.24);
-}
-
-.status-chip-done {
-  background: linear-gradient(135deg, rgba(22, 163, 74, 0.16), rgba(74, 222, 128, 0.08));
-  border-color: rgba(34, 197, 94, 0.24);
-}
-
-.status-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  line-height: 1.1;
-}
-
-.status-label {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--el-text-color-primary);
-}
-
-.status-meta {
-  font-size: 11px;
-  color: var(--el-text-color-secondary);
-}
-
-.status-orb,
-.status-icon {
+/* Status orb */
+.status-orb {
   position: relative;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
   flex-shrink: 0;
 }
 
-.status-orb::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  background: rgba(245, 158, 11, 0.22);
-  animation: runningRipple 1.8s ease-out infinite;
+.status-orb--running {
+  background: color-mix(in srgb, var(--el-color-warning) 14%, transparent);
+}
+
+.status-orb--done {
+  background: color-mix(in srgb, #22c55e 14%, transparent);
+  color: color-mix(in srgb, #22c55e 80%, var(--el-text-color-primary));
+}
+
+.status-orb--error {
+  background: color-mix(in srgb, var(--el-color-danger) 14%, transparent);
+  color: var(--el-color-danger);
+}
+
+.status-orb--empty {
+  background: color-mix(in srgb, var(--el-color-info) 18%, transparent);
+  color: var(--el-color-info);
 }
 
 .status-orb-core {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #f59e0b;
-  box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.16);
-  animation: runningCore 1.4s ease-in-out infinite;
+  background: var(--el-color-warning);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--el-color-warning) 22%, transparent);
+  animation: orb-core 1.4s ease-in-out infinite;
 }
 
-.status-icon {
+.status-orb-ripple {
+  position: absolute;
+  inset: 0;
   border-radius: 50%;
-  background: rgba(34, 197, 94, 0.14);
-  color: #16a34a;
-  animation: doneGlow 2.4s ease-in-out infinite;
+  background: color-mix(in srgb, var(--el-color-warning) 40%, transparent);
+  animation: orb-ripple 1.8s ease-out infinite;
 }
 
 .status-switch-enter-active,
 .status-switch-leave-active {
-  transition: all 0.22s ease;
+  transition: transform 0.2s ease, opacity 0.2s ease;
 }
 
 .status-switch-enter-from,
 .status-switch-leave-to {
   opacity: 0;
-  transform: translateY(-4px) scale(0.96);
+  transform: scale(0.85);
 }
 
-@keyframes runningRipple {
-  0% {
-    transform: scale(0.78);
-    opacity: 0.7;
+/* Hero actions */
+.viewer-hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.tool-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--viewer-border-soft, var(--el-border-color-light));
+  background: var(--el-bg-color);
+  color: var(--el-text-color-regular);
+  border-radius: 8px;
+  font-size: 12px;
+  font-family: var(--dd-font-mono);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+
+  &:hover:not(:disabled):not(.tool-btn--close) {
+    color: var(--el-color-primary);
+    border-color: color-mix(in srgb, var(--el-color-primary) 40%, var(--el-border-color-light));
+    background: color-mix(in srgb, var(--el-color-primary) 6%, transparent);
   }
-  100% {
-    transform: scale(1.35);
-    opacity: 0;
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  &--active {
+    background: color-mix(in srgb, var(--el-color-primary) 10%, transparent);
+    color: var(--el-color-primary);
+    border-color: color-mix(in srgb, var(--el-color-primary) 40%, transparent);
+  }
+
+  &--close {
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    color: var(--el-text-color-secondary);
+    border-color: transparent;
+    border-radius: 10px;
+    margin-left: 6px;
+    position: relative;
+    overflow: hidden;
+    transition: color 0.25s, transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.25s;
+
+    .el-icon {
+      position: relative;
+      z-index: 1;
+      transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    &::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      background: linear-gradient(135deg, #ef4444, #dc2626);
+      opacity: 0;
+      transform: scale(0.55);
+      transition: opacity 0.2s ease, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    &:hover:not(:disabled) {
+      color: #fff;
+      transform: scale(1.06);
+      border-color: transparent;
+      background: transparent;
+      box-shadow: 0 8px 20px -8px rgba(239, 68, 68, 0.55);
+
+      &::before {
+        opacity: 1;
+        transform: scale(1);
+      }
+
+      .el-icon {
+        transform: rotate(90deg);
+      }
+    }
+
+    &:active {
+      transform: scale(0.94);
+    }
+
+    &:focus-visible {
+      outline: 2px solid color-mix(in srgb, #ef4444 60%, transparent);
+      outline-offset: 2px;
+    }
   }
 }
 
-@keyframes runningCore {
-  0%,
-  100% {
-    transform: scale(0.92);
-  }
-  50% {
-    transform: scale(1.08);
+@media (prefers-reduced-motion: reduce) {
+  .tool-btn--close {
+    transition: none;
+
+    .el-icon,
+    &::before {
+      transition: none;
+    }
+
+    &:hover .el-icon {
+      transform: none;
+    }
   }
 }
 
-@keyframes doneGlow {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.1);
+.tool-btn-label {
+  font-weight: 600;
+  letter-spacing: 0.4px;
+}
+
+.auto-scroll-toggle {
+  margin-left: 4px;
+}
+
+/* =============== Body =============== */
+.viewer-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+
+  &.log-font-sm {
+    --viewer-log-font-size: 12px;
   }
-  50% {
-    box-shadow: 0 0 0 6px rgba(34, 197, 94, 0.04);
+  &.log-font-md {
+    --viewer-log-font-size: 13.5px;
+  }
+  &.log-font-lg {
+    --viewer-log-font-size: 15px;
   }
 }
 
+.viewer-log {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 18px 22px;
+  font-family: var(--dd-font-mono);
+  font-size: var(--viewer-log-font-size, 13.5px);
+  line-height: 1.65;
+  background: var(--dd-log-bg-color, #0f172a);
+  color: var(--dd-log-text-color, #e2e8f0);
+}
+
+.viewer-log-content {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+
+  &--nowrap {
+    white-space: pre;
+    word-break: normal;
+  }
+}
+
+.viewer-message {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 10px;
+  color: color-mix(in srgb, var(--dd-log-text-color, #e2e8f0) 55%, transparent);
+  font-size: 13px;
+
+  &--error {
+    color: color-mix(in srgb, var(--el-color-warning) 90%, transparent);
+  }
+
+  &--empty {
+    color: color-mix(in srgb, var(--dd-log-text-color, #e2e8f0) 70%, transparent);
+  }
+}
+
+.viewer-message-hint {
+  font-size: 11.5px;
+  color: color-mix(in srgb, var(--dd-log-text-color, #e2e8f0) 40%, transparent);
+  letter-spacing: 0.2px;
+}
+
+/* =============== Status bar =============== */
+.viewer-statusbar {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 22px;
+  font-family: var(--dd-font-mono);
+  font-size: 11px;
+  color: var(--el-text-color-placeholder);
+  border-top: 1px solid var(--viewer-border-soft, var(--el-border-color-light));
+  background: color-mix(in srgb, var(--el-fill-color-lighter) 60%, transparent);
+  flex-shrink: 0;
+}
+
+.viewer-statusbar-group {
+  display: inline-flex;
+  gap: 14px;
+}
+
+.viewer-statusbar-item {
+  letter-spacing: 0.4px;
+
+  &--live {
+    color: var(--el-color-warning);
+    font-weight: 600;
+
+    &::before {
+      content: '● ';
+      animation: pulse 1.6s ease-in-out infinite;
+    }
+  }
+
+  &--error {
+    color: var(--el-color-danger);
+  }
+
+  &--empty {
+    color: var(--el-color-info);
+  }
+}
+
+/* =============== Animations =============== */
+@keyframes orb-core {
+  0%, 100% { transform: scale(0.9); }
+  50% { transform: scale(1.1); }
+}
+
+@keyframes orb-ripple {
+  0% { transform: scale(0.7); opacity: 0.7; }
+  100% { transform: scale(1.45); opacity: 0; }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-orb-core,
+  .status-orb-ripple,
+  .viewer-statusbar-item--live::before { animation: none; }
+}
+
+/* =============== Mobile =============== */
 @media (max-width: 768px) {
-  .log-viewer {
-    height: calc(100dvh - 120px);
-    min-height: 0;
+  :deep(.log-viewer-dialog .el-dialog) {
+    border-radius: 0;
   }
 
-  .toolbar-actions {
+  .viewer-hero {
+    padding: 10px 12px;
+    gap: 10px;
+  }
+
+  .viewer-hero-title {
+    font-size: 14.5px;
+    max-width: 60vw;
+  }
+
+  .viewer-hero-actions {
     width: 100%;
-    justify-content: space-between;
-    margin-left: 0;
+    justify-content: flex-end;
+    gap: 4px;
   }
 
-  .status-chip {
-    min-width: 138px;
+  .tool-btn-label {
+    display: none;
+  }
+
+  .viewer-body {
+    &.log-font-md {
+      --viewer-log-font-size: 12.5px;
+    }
+  }
+
+  :deep(.log-viewer-dialog .el-dialog) {
+    max-height: 100dvh;
+    height: 100dvh;
+  }
+
+  .viewer-log {
+    padding: 14px;
+  }
+
+  .viewer-statusbar {
+    padding: 5px 14px;
+    font-size: 10px;
   }
 }
 </style>

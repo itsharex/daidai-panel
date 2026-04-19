@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ElMessageBox } from 'element-plus'
 import ScriptAIAssistantDialog from './components/ScriptAIAssistantDialog.vue'
 import ScriptExecutionDialogs from './components/ScriptExecutionDialogs.vue'
 import ScriptManageDialogs from './components/ScriptManageDialogs.vue'
@@ -177,6 +178,22 @@ function handleDeleteSelectedFile() {
 function openSelectedFileAIDialog() {
   openAIDialogFor(selectedFile.value ? 'modify' : 'generate')
 }
+
+async function handleCancelEdit() {
+  if (hasChanges.value) {
+    try {
+      await ElMessageBox.confirm('当前有未保存的改动，确认放弃修改并退出编辑？', '退出编辑', {
+        confirmButtonText: '放弃改动',
+        cancelButtonText: '继续编辑',
+        type: 'warning'
+      })
+    } catch {
+      return
+    }
+    fileContent.value = originalContent.value
+  }
+  isEditing.value = false
+}
 </script>
 
 <template>
@@ -216,6 +233,7 @@ function openSelectedFileAIDialog() {
       :on-open-ai="openSelectedFileAIDialog"
       :on-add-to-task="handleAddToTask"
       :on-save="handleSave"
+      :on-cancel-edit="handleCancelEdit"
       :on-format="handleFormat"
       :on-load-versions="loadVersions"
       :on-open-rename="openSelectedFileRenameDialog"
@@ -325,22 +343,38 @@ function openSelectedFileAIDialog() {
 
 <style scoped lang="scss">
 .scripts-page {
+  --scripts-accent: #22c55e;
+  --scripts-ai-accent-start: #6366f1;
+  --scripts-ai-accent-end: #8b5cf6;
+  --scripts-surface: var(--el-bg-color);
+  --scripts-surface-muted: color-mix(in srgb, var(--el-fill-color) 70%, transparent);
+  --scripts-border-soft: color-mix(in srgb, var(--el-border-color-light) 85%, transparent);
+
   display: flex;
   height: calc(100dvh - 120px);
   gap: 0;
   font-size: 14px;
+  font-family: var(--dd-font-ui);
+  background: var(--el-bg-color);
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid var(--scripts-border-soft);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
 .scripts-page.mobile {
   flex-direction: column;
   height: calc(100dvh - 100px);
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
 
   :deep(.scripts-sidebar) {
     width: 100%;
     min-width: unset;
     flex: 1;
     border-right: none;
-    border-bottom: 1px solid var(--el-border-color-light);
+    border-bottom: 1px solid var(--scripts-border-soft);
   }
 
   :deep(.scripts-editor) {

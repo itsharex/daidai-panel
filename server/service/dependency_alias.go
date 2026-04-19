@@ -6,8 +6,20 @@ import (
 )
 
 var pythonModulePackageAliases = map[string]string{
-	"crypto": "pycryptodome",
-	"execjs": "pyexecjs",
+	"crypto":   "pycryptodome",
+	"execjs":   "pyexecjs",
+	"socks":    "pysocks",
+	"cv2":      "opencv-python",
+	"bs4":      "beautifulsoup4",
+	"pil":      "pillow",
+	"yaml":     "pyyaml",
+	"serial":   "pyserial",
+	"dateutil": "python-dateutil",
+	"dotenv":   "python-dotenv",
+	"jwt":      "pyjwt",
+	"sklearn":  "scikit-learn",
+	"openssl":  "pyopenssl",
+	"nacl":     "pynacl",
 }
 
 func ResolvePythonAutoInstallPackage(moduleName string) string {

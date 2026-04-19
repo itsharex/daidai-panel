@@ -241,8 +241,11 @@ func (h *EnvHandler) Create(c *gin.Context) {
 		return
 	}
 
-	created := []map[string]interface{}{}
+	results := []map[string]interface{}{}
 	errors := []string{}
+	createdCount := 0
+	updatedCount := 0
+	anyCreated := false
 
 	for i, item := range items {
 		if item.Name == "" {
@@ -254,22 +257,27 @@ func (h *EnvHandler) Create(c *gin.Context) {
 			continue
 		}
 
+		// Business identity: (name, remarks). If the pair already exists we
+		// upsert — overwrite value (+ group if provided). This matches the
+		// plugin flow where the same (name, remarks) marker identifies the
+		// same account across token refreshes.
 		var existing model.EnvVar
-		found := false
-		if item.Remarks != "" {
-			if database.DB.Where("name = ? AND remarks = ?", item.Name, item.Remarks).First(&existing).Error == nil {
-				found = true
-			}
-		}
+		lookupErr := database.DB.
+			Where("name = ? AND remarks = ?", item.Name, item.Remarks).
+			First(&existing).Error
 
-		if found {
+		if lookupErr == nil {
 			updates := map[string]interface{}{"value": item.Value}
 			if item.Group != "" {
 				updates["group"] = normalizeEnvGroupValue(item.Group)
 			}
-			database.DB.Model(&existing).Updates(updates)
+			if err := database.DB.Model(&existing).Updates(updates).Error; err != nil {
+				errors = append(errors, fmt.Sprintf("item %d: %s", i+1, err.Error()))
+				continue
+			}
 			database.DB.First(&existing, existing.ID)
-			created = append(created, existing.ToDict())
+			results = append(results, existing.ToDict())
+			updatedCount++
 			continue
 		}
 
@@ -293,19 +301,40 @@ func (h *EnvHandler) Create(c *gin.Context) {
 			errors = append(errors, fmt.Sprintf("item %d: %s", i+1, err.Error()))
 			continue
 		}
-		created = append(created, env.ToDict())
+		results = append(results, env.ToDict())
+		createdCount++
+		anyCreated = true
 	}
 
-	if len(created) == 1 && len(errors) == 0 {
-		response.Created(c, gin.H{"message": "创建成功", "data": created[0]})
+	if len(results) == 1 && len(errors) == 0 {
+		if anyCreated {
+			response.Created(c, gin.H{"message": "创建成功", "data": results[0]})
+		} else {
+			response.Success(c, gin.H{"message": "已按 name+remarks 合并更新", "data": results[0]})
+		}
 		return
 	}
 
-	response.Created(c, gin.H{
-		"message": fmt.Sprintf("成功创建 %d 个环境变量", len(created)),
-		"data":    created,
+	payload := gin.H{
+		"message": fmt.Sprintf("新增 %d 条，更新 %d 条", createdCount, updatedCount),
+		"data":    results,
 		"errors":  errors,
-	})
+		"created": createdCount,
+		"updated": updatedCount,
+	}
+	if anyCreated {
+		response.Created(c, payload)
+		return
+	}
+	response.Success(c, payload)
+}
+
+type updateEnvRequest struct {
+	Name    *string `json:"name"`
+	Value   *string `json:"value"`
+	Remarks *string `json:"remarks"`
+	Group   *string `json:"group"`
+	Enabled *bool   `json:"enabled"`
 }
 
 func (h *EnvHandler) Update(c *gin.Context) {
@@ -317,35 +346,74 @@ func (h *EnvHandler) Update(c *gin.Context) {
 		return
 	}
 
-	var req map[string]interface{}
+	var req updateEnvRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "请求参数错误")
 		return
 	}
 
-	allowed := map[string]bool{"name": true, "value": true, "remarks": true, "group": true}
 	updates := make(map[string]interface{})
-	for k, v := range req {
-		if allowed[k] {
-			if k == "group" {
-				if group, ok := v.(string); ok {
-					updates[k] = normalizeEnvGroupValue(group)
-				}
-				continue
-			}
-			updates[k] = v
+
+	if req.Name != nil {
+		newName := strings.TrimSpace(*req.Name)
+		if newName == "" {
+			response.BadRequest(c, "变量名不能为空")
+			return
+		}
+		if !envNamePattern.MatchString(newName) {
+			response.BadRequest(c, "变量名格式无效")
+			return
+		}
+		if newName != env.Name {
+			updates["name"] = newName
 		}
 	}
+	if req.Value != nil && *req.Value != env.Value {
+		updates["value"] = *req.Value
+	}
+	if req.Remarks != nil && *req.Remarks != env.Remarks {
+		updates["remarks"] = *req.Remarks
+	}
+	if req.Group != nil {
+		normalized := normalizeEnvGroupValue(*req.Group)
+		if normalized != env.Group {
+			updates["group"] = normalized
+		}
+	}
+	if req.Enabled != nil && *req.Enabled != env.Enabled {
+		updates["enabled"] = *req.Enabled
+	}
 
-	if name, ok := updates["name"].(string); ok {
-		if !envNamePattern.MatchString(name) {
-			response.BadRequest(c, "变量名格式无效")
+	// Guard the (name, remarks) business-identity invariant: if either the
+	// name or the remarks would change, reject when another row already owns
+	// the resulting pair.
+	effectiveName := env.Name
+	if v, ok := updates["name"].(string); ok {
+		effectiveName = v
+	}
+	effectiveRemarks := env.Remarks
+	if v, ok := updates["remarks"].(string); ok {
+		effectiveRemarks = v
+	}
+	if effectiveName != env.Name || effectiveRemarks != env.Remarks {
+		var conflict int64
+		database.DB.Model(&model.EnvVar{}).
+			Where("name = ? AND remarks = ? AND id <> ?", effectiveName, effectiveRemarks, env.ID).
+			Count(&conflict)
+		if conflict > 0 {
+			response.Error(c, http.StatusConflict, "已存在同名且备注相同的变量，请调整 name 或 remarks")
 			return
 		}
 	}
 
-	if len(updates) > 0 {
-		database.DB.Model(&env).Updates(updates)
+	if len(updates) == 0 {
+		response.Success(c, gin.H{"message": "未检测到字段变更", "data": env.ToDict()})
+		return
+	}
+
+	if err := database.DB.Model(&env).Updates(updates).Error; err != nil {
+		response.InternalError(c, "更新失败")
+		return
 	}
 
 	database.DB.First(&env, envID)
@@ -767,16 +835,19 @@ func (h *EnvHandler) Import(c *gin.Context) {
 		}
 
 		if req.Mode == "merge" {
+			// Match the same business identity as POST /envs: (name, remarks).
+			// On hit we overwrite value / group / enabled so imports keep the
+			// row stable across token refreshes instead of accumulating
+			// duplicates when the value changes.
 			var existing model.EnvVar
-			if database.DB.Where("name = ? AND value = ?", name, value).First(&existing).Error == nil {
-				updates := map[string]interface{}{}
-				if remarks != "" {
-					updates["remarks"] = remarks
+			if database.DB.Where("name = ? AND remarks = ?", name, remarks).First(&existing).Error == nil {
+				updates := map[string]interface{}{
+					"value":   value,
+					"enabled": enabled,
 				}
 				if group != "" {
-					updates["group"] = group
+					updates["group"] = normalizeEnvGroupValue(group)
 				}
-				updates["enabled"] = enabled
 				database.DB.Model(&existing).Updates(updates)
 				imported++
 				continue

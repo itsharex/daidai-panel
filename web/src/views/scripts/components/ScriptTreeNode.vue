@@ -1,56 +1,62 @@
 <script setup lang="ts">
-import { Delete, Document, Edit, Folder, MoreFilled } from '@element-plus/icons-vue'
+import { computed } from 'vue'
+import { Delete, Edit, MoreFilled } from '@element-plus/icons-vue'
 import type { TreeNode } from '../types'
 
-defineProps<{
+const props = defineProps<{
   data: TreeNode
   onOpenRename: (path: string) => void
   onDelete: (path: string, isDir: boolean) => void | Promise<void>
 }>()
 
-function getFileIcon(node: TreeNode) {
-  return node.isLeaf ? Document : Folder
-}
-
-function getFileIconColor(node: TreeNode): string {
-  if (!node.isLeaf) return '#e6a23c'
-  const ext = node.title.split('.').pop()?.toLowerCase()
+const dotColor = computed(() => {
+  if (!props.data.isLeaf) return 'var(--scripts-folder-dot, #94a3b8)'
+  const ext = props.data.title.split('.').pop()?.toLowerCase()
   switch (ext) {
     case 'js':
-      return '#f0db4f'
+      return '#facc15'
     case 'ts':
-      return '#3178c6'
+      return '#38bdf8'
     case 'py':
-      return '#4b8bbe'
+      return '#22c55e'
     case 'sh':
-      return '#4eaa25'
+      return '#4ade80'
     case 'json':
-      return '#e37e36'
+      return '#fb923c'
     case 'yaml':
     case 'yml':
-      return '#cb171e'
+      return '#f87171'
     case 'md':
-      return '#083fa1'
+      return '#818cf8'
     case 'html':
-      return '#e34c26'
+      return '#fb7185'
     case 'css':
-      return '#264de4'
+      return '#60a5fa'
+    case 'go':
+      return '#06b6d4'
     default:
-      return 'var(--el-text-color-secondary)'
+      return 'var(--el-text-color-placeholder)'
   }
-}
+})
+
+const extLabel = computed(() => {
+  if (!props.data.isLeaf) return ''
+  const parts = props.data.title.split('.')
+  if (parts.length < 2) return ''
+  return (parts.pop() || '').toUpperCase()
+})
 </script>
 
 <template>
-  <div class="tree-node">
-    <el-icon size="14" :style="{ color: getFileIconColor(data) }">
-      <component :is="getFileIcon(data)" />
-    </el-icon>
+  <div class="tree-node" :class="{ 'is-folder': !data.isLeaf, 'is-leaf': data.isLeaf }">
+    <span class="tree-node-dot" :style="{ background: dotColor }" aria-hidden="true"></span>
     <span class="tree-node-label">{{ data.title }}</span>
-    <span v-if="data.isLeaf && data.title.includes('.')" class="file-ext-badge">{{ data.title.split('.').pop()?.toUpperCase() }}</span>
+    <span v-if="extLabel" class="tree-node-ext">{{ extLabel }}</span>
     <div class="tree-node-actions" @click.stop>
       <el-dropdown trigger="click" size="small">
-        <el-icon class="more-btn" :size="18"><MoreFilled /></el-icon>
+        <button class="more-btn" aria-label="更多操作">
+          <el-icon :size="16"><MoreFilled /></el-icon>
+        </button>
         <template #dropdown>
           <el-dropdown-menu>
             <el-dropdown-item @click="onOpenRename(data.key)">
@@ -70,60 +76,93 @@ function getFileIconColor(node: TreeNode): string {
 .tree-node {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   flex: 1;
+  min-width: 0;
+  padding: 0 2px;
+  font-family: var(--dd-font-ui);
+}
+
+.tree-node-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--el-bg-color) 70%, transparent);
+  transition: transform 0.2s;
+}
+
+.tree-node.is-folder .tree-node-dot {
+  border-radius: 2px;
+  width: 9px;
+  height: 9px;
+  opacity: 0.75;
+}
+
+.tree-node-label {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13.5px;
+  color: var(--el-text-color-primary);
+  letter-spacing: 0.1px;
+}
 
-  .tree-node-label {
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 13px;
-  }
+.tree-node.is-folder .tree-node-label {
+  font-weight: 500;
+}
 
-  .file-ext-badge {
-    font-size: 9px;
-    font-weight: 700;
-    font-family: var(--dd-font-mono);
-    padding: 1px 4px;
-    border-radius: 3px;
-    background: var(--el-fill-color);
+.tree-node-ext {
+  font-size: 9.5px;
+  font-weight: 700;
+  font-family: var(--dd-font-mono);
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--el-fill-color) 85%, transparent);
+  color: var(--el-text-color-secondary);
+  flex-shrink: 0;
+  letter-spacing: 0.4px;
+  line-height: 1.3;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.tree-node-actions {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  flex-shrink: 0;
+
+  .more-btn {
+    cursor: pointer;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    border-radius: 6px;
     color: var(--el-text-color-secondary);
-    flex-shrink: 0;
-    letter-spacing: 0.3px;
-    line-height: 1.4;
-    opacity: 0;
-    transition: opacity 0.2s;
-  }
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s, color 0.15s;
 
-  &:hover .file-ext-badge {
-    opacity: 1;
-  }
+    &:hover {
+      background: var(--el-fill-color);
+      color: var(--el-color-primary);
+    }
 
-  .tree-node-actions {
-    opacity: 0;
-    transition: opacity 0.2s;
-    flex-shrink: 0;
-
-    .more-btn {
-      cursor: pointer;
-      padding: 4px;
-      border-radius: 4px;
-      font-size: 18px;
-      color: var(--el-text-color-secondary);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-
-      &:hover {
-        background: var(--el-fill-color-light);
-        color: var(--el-color-primary);
-      }
+    &:focus-visible {
+      outline: 2px solid color-mix(in srgb, var(--scripts-accent, #22c55e) 70%, transparent);
+      outline-offset: 1px;
     }
   }
+}
 
-  &:hover .tree-node-actions {
+.tree-node:hover {
+  .tree-node-ext,
+  .tree-node-actions {
     opacity: 1;
   }
 }

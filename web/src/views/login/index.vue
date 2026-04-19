@@ -24,6 +24,9 @@ const containerRef = ref<HTMLDivElement>()
 
 const panelVersion = ref('')
 const require2FA = ref(false)
+const show2FADialog = ref(false)
+const totpError = ref('')
+const totpVerifying = ref(false)
 const captchaConfig = ref({
   enabled: false,
   captcha_id: '',
@@ -278,6 +281,26 @@ function resolveLoginErrorMessage(err: any) {
   return err?.message || '操作失败'
 }
 
+function handleTOTPDialogClose() {
+  show2FADialog.value = false
+  require2FA.value = false
+  form.value.totp_code = ''
+  totpError.value = ''
+}
+
+async function handleTOTPSubmit() {
+  if (form.value.totp_code.length !== 6) {
+    totpError.value = '请输入 6 位数字'
+    return
+  }
+  totpVerifying.value = true
+  try {
+    await handleSubmit()
+  } finally {
+    totpVerifying.value = false
+  }
+}
+
 async function handleSubmit() {
   if (!form.value.username || !form.value.password) {
     ElMessage.warning('请输入用户名和密码')
@@ -320,6 +343,8 @@ async function handleSubmit() {
 
     await authStore.login(form.value.username, form.value.password, form.value.totp_code, submittedCaptcha)
     require2FA.value = false
+    show2FADialog.value = false
+    totpError.value = ''
     form.value.totp_code = ''
     captchaConfig.value.required = false
     pendingSubmitAfterCaptcha = false
@@ -335,6 +360,13 @@ async function handleSubmit() {
     const status = err?.response?.status
     if (data?.two_factor_required) {
       require2FA.value = true
+      show2FADialog.value = true
+      if (form.value.totp_code) {
+        totpError.value = data?.error || '两步验证码错误'
+        form.value.totp_code = ''
+      } else {
+        totpError.value = ''
+      }
     }
     if (data?.locked && data?.remaining_seconds > 0) {
       startLockCountdown(data.remaining_seconds)
@@ -476,16 +508,6 @@ const captchaHintText = computed(() => {
                 @keyup.enter="handleSubmit"
               />
             </el-form-item>
-            <el-form-item v-if="require2FA">
-              <el-input
-                v-model="form.totp_code"
-                maxlength="6"
-                placeholder="两步验证码"
-                :prefix-icon="Key"
-                size="large"
-                @keyup.enter="handleSubmit"
-              />
-            </el-form-item>
             <el-form-item v-if="showCaptchaPanel" class="captcha-form-item">
               <div class="captcha-panel">
                 <div class="captcha-panel__header">
@@ -535,10 +557,178 @@ const captchaHintText = computed(() => {
         </template>
       </div>
     </div>
+
+    <!-- 2FA modal: only path to satisfy two_factor_required; no UI bypass. -->
+    <el-dialog
+      v-model="show2FADialog"
+      width="420px"
+      align-center
+      :close-on-click-modal="false"
+      :show-close="false"
+      class="totp-dialog"
+      @close="handleTOTPDialogClose"
+    >
+      <template #header>
+        <div class="totp-dialog-header">
+          <div class="totp-dialog-badge" aria-hidden="true">
+            <el-icon :size="18"><Lock /></el-icon>
+          </div>
+          <div>
+            <div class="totp-dialog-title">两步验证</div>
+            <div class="totp-dialog-sub">请输入认证器 App 上的 6 位动态验证码</div>
+          </div>
+        </div>
+      </template>
+
+      <div class="totp-dialog-body">
+        <el-input
+          v-model="form.totp_code"
+          maxlength="6"
+          placeholder="6 位数字验证码"
+          size="large"
+          class="totp-field"
+          :autofocus="true"
+          @input="totpError = ''"
+          @keyup.enter="handleTOTPSubmit"
+        />
+        <div class="totp-hint" :class="{ 'totp-hint--error': !!totpError }">
+          <template v-if="totpError">{{ totpError }}</template>
+          <template v-else>丢失认证器？请联系管理员在用户管理里重置 2FA。</template>
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="totp-dialog-footer">
+          <el-button @click="handleTOTPDialogClose">取消</el-button>
+          <el-button
+            type="primary"
+            :loading="totpVerifying || loading"
+            :disabled="form.totp_code.length !== 6"
+            class="totp-submit-btn"
+            @click="handleTOTPSubmit"
+          >
+            验证并登录
+          </el-button>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <style scoped lang="scss">
+/* ================= 2FA dialog ================= */
+:deep(.totp-dialog) {
+  .el-dialog {
+    border-radius: 16px;
+    overflow: hidden;
+  }
+
+  .el-dialog__header {
+    padding: 20px 22px 14px;
+    margin: 0;
+    border-bottom: 1px solid var(--el-border-color-lighter);
+  }
+
+  .el-dialog__body {
+    padding: 18px 22px;
+  }
+
+  .el-dialog__footer {
+    padding: 12px 22px 18px;
+  }
+}
+
+.totp-dialog-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.totp-dialog-badge {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  box-shadow: 0 6px 16px -8px rgba(99, 102, 241, 0.55);
+  flex-shrink: 0;
+}
+
+.totp-dialog-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--el-text-color-primary);
+}
+
+.totp-dialog-sub {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  margin-top: 2px;
+}
+
+.totp-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.totp-field {
+  :deep(.el-input__wrapper) {
+    border-radius: 12px;
+    padding: 6px 14px;
+  }
+
+  :deep(.el-input__inner) {
+    font-family: var(--dd-font-mono);
+    font-size: 22px;
+    letter-spacing: 0.6em;
+    text-align: center;
+    font-weight: 700;
+    padding-left: 0.3em;
+  }
+}
+
+.totp-hint {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  min-height: 18px;
+  line-height: 1.4;
+  transition: color 0.2s;
+
+  &--error {
+    color: var(--el-color-danger);
+    font-weight: 600;
+  }
+}
+
+.totp-dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.totp-submit-btn {
+  border-radius: 10px;
+  padding: 0 18px;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  border: none;
+  box-shadow: 0 8px 20px -12px rgba(99, 102, 241, 0.55);
+
+  &:hover,
+  &:focus {
+    background: linear-gradient(135deg, #4f46e5, #7c3aed);
+    border: none;
+  }
+
+  &:disabled {
+    background: var(--el-color-info-light-5);
+    opacity: 0.6;
+  }
+}
+
 .login-page {
   min-height: 100vh;
   display: flex;

@@ -42,6 +42,7 @@ func (h *TaskHandler) RegisterRoutes(r *gin.RouterGroup) {
 
 		tasks.GET("/views", middleware.RequireRole("viewer"), h.ListViews)
 		tasks.POST("/views", middleware.RequireRole("operator"), h.CreateView)
+		tasks.PUT("/views/reorder", middleware.RequireRole("operator"), h.ReorderViews)
 		tasks.PUT("/views/:viewId", middleware.RequireRole("operator"), h.UpdateView)
 		tasks.DELETE("/views/:viewId", middleware.RequireRole("operator"), h.DeleteView)
 	}

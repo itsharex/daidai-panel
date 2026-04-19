@@ -157,6 +157,7 @@ func (e *TaskExecutor) runTask(req *ExecutionRequest, taskLog *model.TaskLog, ti
 	exitCode := 0
 	success := false
 	lastFailureOutput := ""
+	lastSuccessOutput := ""
 
 	commandTimeout := model.GetRegisteredConfigInt("command_timeout")
 	maxLogSize := model.GetRegisteredConfigInt("max_log_content_size")
@@ -223,7 +224,7 @@ func (e *TaskExecutor) runTask(req *ExecutionRequest, taskLog *model.TaskLog, ti
 		e.OnTaskCompleted(req, result)
 
 		if success && task.NotifyOnSuccess {
-			title, content, context := buildTaskExecutionNotification(task, req.TaskLogID, true, exitCode, duration, endedAt, "")
+			title, content, context := buildTaskExecutionNotification(task, req.TaskLogID, true, exitCode, duration, endedAt, lastSuccessOutput)
 			SendNotificationWithOptions(title, content, NotificationDispatchOptions{
 				ChannelIDs: buildTaskNotificationChannelIDs(task.NotificationChannelID),
 				Context:    context,
@@ -281,6 +282,7 @@ func (e *TaskExecutor) runTask(req *ExecutionRequest, taskLog *model.TaskLog, ti
 	var lastExitCode int
 	depInstallCount := 0
 	maxDepInstalls := 5
+	installedDeps := make(map[string]bool)
 
 	for retries <= task.MaxRetries {
 		if retries > 0 {
@@ -316,6 +318,9 @@ func (e *TaskExecutor) runTask(req *ExecutionRequest, taskLog *model.TaskLog, ti
 		if result.ReturnCode == 0 {
 			success = true
 			lastFailureOutput = ""
+			outputCollectorMu.Lock()
+			lastSuccessOutput = outputCollector.String()
+			outputCollectorMu.Unlock()
 			break
 		}
 		outputCollectorMu.Lock()
@@ -326,7 +331,7 @@ func (e *TaskExecutor) runTask(req *ExecutionRequest, taskLog *model.TaskLog, ti
 			outputCollectorMu.Lock()
 			collected := outputCollector.String()
 			outputCollectorMu.Unlock()
-			if e.detectAndInstallDeps(plan, collected, envVars, onOutput) {
+			if e.detectAndInstallDeps(plan, collected, envVars, installedDeps, onOutput) {
 				depInstallCount++
 				onOutput(fmt.Sprintf("[依赖已安装 (%d/%d)，自动重试执行]", depInstallCount, maxDepInstalls))
 				continue
@@ -385,10 +390,16 @@ func buildTaskFailureOutput(output, errMessage string) string {
 	return output + "\n[执行错误] " + errMessage
 }
 
-func buildTaskExecutionNotification(task *model.Task, taskLogID uint, success bool, exitCode int, duration float64, endedAt time.Time, failureOutput string) (string, string, map[string]string) {
+func buildTaskExecutionNotification(task *model.Task, taskLogID uint, success bool, exitCode int, duration float64, endedAt time.Time, logOutput string) (string, string, map[string]string) {
 	endedAtText := endedAt.Format("2006-01-02 15:04:05.000")
 	durationText := fmt.Sprintf("%.1f", duration)
-	failureExcerpt := summarizeTaskFailureOutput(failureOutput)
+
+	var failureExcerpt, successExcerpt string
+	if success {
+		successExcerpt = summarizeTaskSuccessOutput(logOutput)
+	} else {
+		failureExcerpt = summarizeTaskFailureOutput(logOutput)
+	}
 
 	statusText := "失败"
 	statusValue := "failure"
@@ -414,6 +425,9 @@ func buildTaskExecutionNotification(task *model.Task, taskLogID uint, success bo
 	}
 
 	content := summaryLine + "\n" + strings.Join(metaLines, "\n")
+	if success && successExcerpt != "" {
+		content += "\n\n执行日志:\n" + successExcerpt
+	}
 	if !success && failureExcerpt != "" {
 		content += "\n\n失败原因:\n" + failureExcerpt
 	}
@@ -433,8 +447,59 @@ func buildTaskExecutionNotification(task *model.Task, taskLogID uint, success bo
 		"failure_log":    failureExcerpt,
 		"reason":         failureExcerpt,
 		"failure_reason": failureExcerpt,
+		"log_excerpt":    successExcerpt,
+		"success_log":    successExcerpt,
 	}
 	return title, content, context
+}
+
+var panelMetaLinePrefixes = []string{
+	"[执行前置脚本]",
+	"[执行后置脚本]",
+	"[执行错误:",
+	"[提示]",
+	"[第 ",
+	"[检测到缺失依赖:",
+	"[安装成功:",
+	"[安装失败:",
+	"[依赖已安装 ",
+	"[重试启动失败:",
+	"[任务异常崩溃:",
+}
+
+func isPanelMetaLine(line string) bool {
+	for _, prefix := range panelMetaLinePrefixes {
+		if strings.HasPrefix(line, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func summarizeTaskSuccessOutput(output string) string {
+	output = strings.TrimSpace(output)
+	if output == "" {
+		return ""
+	}
+
+	rawLines := normalizeTaskFailureLines(output)
+	lines := make([]string, 0, len(rawLines))
+	for _, line := range rawLines {
+		if isPanelMetaLine(line) {
+			continue
+		}
+		lines = append(lines, line)
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+
+	const (
+		maxSuccessLines = 30
+		maxSuccessRunes = 1500
+	)
+	tail := tailTaskFailureLines(lines, maxSuccessLines)
+	return truncateTaskFailureSummary(strings.Join(tail, "\n"), maxSuccessRunes)
 }
 
 func summarizeTaskFailureOutput(output string) string {
@@ -727,7 +792,7 @@ func truncateTaskFailureSummary(summary string, maxRunes int) string {
 	return string(runes[:maxRunes-1]) + "…"
 }
 
-func (e *TaskExecutor) detectAndInstallDeps(plan *CommandExecutionPlan, output string, envVars map[string]string, onOutput OnOutputFunc) bool {
+func (e *TaskExecutor) detectAndInstallDeps(plan *CommandExecutionPlan, output string, envVars map[string]string, installedDeps map[string]bool, onOutput OnOutputFunc) bool {
 	if plan == nil || plan.FullPath == "" {
 		return false
 	}
@@ -739,8 +804,16 @@ func (e *TaskExecutor) detectAndInstallDeps(plan *CommandExecutionPlan, output s
 		return false
 	}
 
+	if installedDeps != nil && installedDeps[candidate.PackageName] {
+		onOutput(fmt.Sprintf("[%s 已安装但仍然报错，可能是模块版本不兼容或内部依赖异常，请尝试手动安装指定版本]", candidate.DisplayName))
+		return false
+	}
+
 	onOutput(fmt.Sprintf("[检测到缺失依赖: %s，正在自动安装...]", candidate.DisplayName))
 	result := InstallAutoDependency(candidate, envVars)
+	if installedDeps != nil {
+		installedDeps[candidate.PackageName] = true
+	}
 	if !result.Success {
 		failureReason := strings.TrimSpace(result.Error)
 		if failureReason == "" {

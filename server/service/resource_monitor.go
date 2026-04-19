@@ -21,6 +21,7 @@ var panelStartTime = time.Now()
 
 type ResourceInfo struct {
 	Hostname    string  `json:"hostname"`
+	MachineCode string  `json:"machine_code"`
 	CPUUsage    float64 `json:"cpu_usage"`
 	MemoryTotal uint64  `json:"memory_total"`
 	MemoryUsed  uint64  `json:"memory_used"`
@@ -41,13 +42,14 @@ type ResourceInfo struct {
 
 func GetResourceInfo() ResourceInfo {
 	info := ResourceInfo{
-		Hostname:   "-",
-		GoRoutines: runtime.NumGoroutine(),
-		GoVersion:  runtime.Version(),
-		OS:         runtime.GOOS,
-		Arch:       runtime.GOARCH,
-		NumCPU:     runtime.NumCPU(),
-		Uptime:     getPanelUptime(),
+		Hostname:    "-",
+		MachineCode: EnsureMachineCode(),
+		GoRoutines:  runtime.NumGoroutine(),
+		GoVersion:   runtime.Version(),
+		OS:          runtime.GOOS,
+		Arch:        runtime.GOARCH,
+		NumCPU:      runtime.NumCPU(),
+		Uptime:      getPanelUptime(),
 	}
 
 	if hostname, err := os.Hostname(); err == nil && hostname != "" {

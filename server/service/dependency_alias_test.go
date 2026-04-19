@@ -14,6 +14,13 @@ func TestResolvePythonAutoInstallPackage(t *testing.T) {
 		{name: "crypto alias", input: "Crypto", expect: "pycryptodome"},
 		{name: "execjs alias", input: "execjs", expect: "pyexecjs"},
 		{name: "case insensitive", input: "crypto", expect: "pycryptodome"},
+		{name: "socks alias", input: "socks", expect: "pysocks"},
+		{name: "cv2 alias uppercase", input: "CV2", expect: "opencv-python"},
+		{name: "bs4 alias", input: "bs4", expect: "beautifulsoup4"},
+		{name: "pil alias", input: "PIL", expect: "pillow"},
+		{name: "yaml alias", input: "yaml", expect: "pyyaml"},
+		{name: "dateutil alias", input: "dateutil", expect: "python-dateutil"},
+		{name: "jwt alias", input: "jwt", expect: "pyjwt"},
 		{name: "passthrough", input: "requests", expect: "requests"},
 	}
 
@@ -31,10 +38,14 @@ func TestEncodePythonAutoInstallAliases(t *testing.T) {
 	if err := json.Unmarshal([]byte(EncodePythonAutoInstallAliases()), &decoded); err != nil {
 		t.Fatalf("decode aliases json: %v", err)
 	}
-	if got := decoded["crypto"]; got != "pycryptodome" {
-		t.Fatalf("expected crypto alias to be pycryptodome, got %q", got)
+	expected := map[string]string{
+		"crypto": "pycryptodome",
+		"execjs": "pyexecjs",
+		"socks":  "pysocks",
 	}
-	if got := decoded["execjs"]; got != "pyexecjs" {
-		t.Fatalf("expected execjs alias to be pyexecjs, got %q", got)
+	for key, want := range expected {
+		if got := decoded[key]; got != want {
+			t.Fatalf("expected alias %q -> %q, got %q", key, want, got)
+		}
 	}
 }

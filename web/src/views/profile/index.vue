@@ -1,7 +1,19 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { CircleCheck, Key, Lock, RefreshRight, User } from '@element-plus/icons-vue'
+import {
+  CircleCheck,
+  Key,
+  Lock,
+  RefreshRight,
+  User,
+  Clock,
+  Avatar,
+  Star,
+  InfoFilled,
+  Camera,
+  Delete
+} from '@element-plus/icons-vue'
 import { authApi } from '@/api/auth'
 import { securityApi } from '@/api/security'
 import { sponsorApi, type SponsorRecord, type SponsorSummary } from '@/api/sponsor'
@@ -28,6 +40,8 @@ const twoFAQrUrl = ref('')
 const twoFACode = ref('')
 const showSetup2FA = ref(false)
 const twoFALoading = ref(false)
+const twoFADisabling = ref(false)
+
 const sponsors = ref<SponsorRecord[]>([])
 const sponsorSummary = ref<SponsorSummary | null>(null)
 const sponsorLoading = ref(false)
@@ -152,6 +166,65 @@ const sponsorTabHint = computed(() => {
   return '本页每 24 小时静默同步一次'
 })
 
+const usernameInitial = computed(() => {
+  const name = authStore.user?.username || ''
+  if (!name) return '用'
+  return (name[0] ?? '用').toUpperCase()
+})
+
+const avatarUrl = computed(() => authStore.user?.avatar_url || '')
+const avatarUploading = ref(false)
+const avatarInputRef = ref<HTMLInputElement | null>(null)
+
+function triggerAvatarUpload() {
+  avatarInputRef.value?.click()
+}
+
+async function handleAvatarFileChange(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  input.value = ''
+
+  const maxSize = 2 * 1024 * 1024
+  if (file.size > maxSize) {
+    ElMessage.warning('头像文件不能超过 2MB')
+    return
+  }
+
+  const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+  if (!allowed.includes(file.type)) {
+    ElMessage.warning('仅支持 JPG、PNG、GIF、WebP 格式')
+    return
+  }
+
+  avatarUploading.value = true
+  try {
+    const res = await authApi.uploadAvatar(file)
+    ElMessage.success('头像上传成功')
+    await authStore.fetchUser()
+  } catch (err: any) {
+    ElMessage.error(err?.response?.data?.error || '头像上传失败')
+  } finally {
+    avatarUploading.value = false
+  }
+}
+
+async function handleDeleteAvatar() {
+  try {
+    await ElMessageBox.confirm('确定要删除当前头像吗？', '确认', { type: 'warning' })
+  } catch {
+    return
+  }
+  try {
+    await authApi.deleteAvatar()
+    ElMessage.success('头像已删除')
+    await authStore.fetchUser()
+  } catch (err: any) {
+    ElMessage.error(err?.response?.data?.error || '删除头像失败')
+  }
+}
+
 async function load2FAStatus() {
   try {
     const res = await securityApi.get2FAStatus()
@@ -184,7 +257,6 @@ async function handleChangePassword() {
       newPassword: '',
       confirmPassword: '',
     }
-    // 稍作停留让用户看到成功提示后再登出
     const LOGOUT_DELAY_MS = 1200
     setTimeout(() => {
       authStore.logout()
@@ -228,14 +300,34 @@ async function handleVerify2FA() {
 }
 
 async function handleDisable2FA() {
+  let prompted: { value: string }
   try {
-    await ElMessageBox.confirm('确定要禁用两步验证吗？禁用后登录将只校验账号密码。', '确认', { type: 'warning' })
-    await securityApi.disable2FA()
+    prompted = await ElMessageBox.prompt(
+      '为了确认操作本人持有认证器，请输入当前的 6 位动态验证码后再禁用 2FA。',
+      '禁用双因素认证',
+      {
+        inputPattern: /^\d{6}$/,
+        inputErrorMessage: '请输入 6 位数字验证码',
+        confirmButtonText: '确认禁用',
+        cancelButtonText: '取消',
+        type: 'warning',
+        inputPlaceholder: '6 位数字验证码',
+        closeOnClickModal: false
+      }
+    ) as { value: string }
+  } catch {
+    return
+  }
+
+  twoFADisabling.value = true
+  try {
+    await securityApi.disable2FA(prompted.value.trim())
     twoFAEnabled.value = false
     ElMessage.success('2FA 已禁用')
   } catch (err: any) {
-    if (err === 'cancel' || err?.toString?.() === 'cancel') return
     ElMessage.error(err?.response?.data?.error || '禁用 2FA 失败')
+  } finally {
+    twoFADisabling.value = false
   }
 }
 
@@ -266,168 +358,327 @@ onUnmounted(() => {
 
 <template>
   <div class="profile-page">
-    <section class="profile-hero">
-      <div class="profile-hero__content">
-        <div class="profile-avatar">
-          <el-icon :size="24"><User /></el-icon>
-        </div>
-        <div class="profile-hero__text">
-          <p class="profile-eyebrow">个人设置</p>
-          <h2>{{ authStore.user?.username || '当前用户' }}</h2>
-          <p class="profile-subtitle">这里集中放账号安全和赞助名单，不再把公开赞助墙挤在工作台首页，常看常用的信息层级会更清楚。</p>
-        </div>
-      </div>
-      <div class="profile-hero__meta">
-        <el-tag :type="roleTagType" effect="dark">{{ roleLabel }}</el-tag>
-        <span>最近登录：{{ formatTime(authStore.user?.last_login_at) }}</span>
-      </div>
-    </section>
+    <!-- ================= Hero ================= -->
+    <header class="profile-hero">
+      <div class="profile-hero-aura" aria-hidden="true"></div>
 
+      <div class="profile-hero-main">
+        <div class="profile-avatar-wrap">
+          <div class="profile-avatar" @click="triggerAvatarUpload" :class="{ 'is-uploading': avatarUploading }">
+            <img v-if="avatarUrl" :src="avatarUrl" alt="用户头像" class="profile-avatar-img" />
+            <span v-else class="profile-avatar-initial">{{ usernameInitial }}</span>
+            <span class="profile-avatar-ring"></span>
+            <div class="profile-avatar-overlay">
+              <el-icon :size="18"><Camera /></el-icon>
+            </div>
+            <input
+              ref="avatarInputRef"
+              type="file"
+              accept="image/jpeg,image/png,image/gif,image/webp"
+              class="profile-avatar-input"
+              @change="handleAvatarFileChange"
+            />
+          </div>
+          <el-button
+            v-if="avatarUrl"
+            class="avatar-delete-btn"
+            :icon="Delete"
+            circle
+            size="small"
+            @click.stop="handleDeleteAvatar"
+            title="删除头像"
+          />
+        </div>
+
+        <div class="profile-hero-body">
+          <span class="profile-hero-eyebrow">个人设置</span>
+          <h1 class="profile-hero-name">{{ authStore.user?.username || '当前用户' }}</h1>
+          <div class="profile-hero-meta-row">
+            <span class="hero-chip" :class="'hero-chip--' + roleTagType">
+              <el-icon :size="13"><Avatar /></el-icon>
+              <span>{{ roleLabel }}</span>
+            </span>
+            <span class="hero-chip hero-chip--2fa" :class="{ 'hero-chip--2fa-on': twoFAEnabled }">
+              <span class="hero-chip-dot" :class="{ 'hero-chip-dot--on': twoFAEnabled }"></span>
+              <span>2FA {{ twoFAEnabled ? '已启用' : '未启用' }}</span>
+            </span>
+            <span class="hero-chip hero-chip--muted">
+              <el-icon :size="13"><Clock /></el-icon>
+              <span>最后登录 {{ formatTime(authStore.user?.last_login_at) }}</span>
+            </span>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- ================= Tabs ================= -->
     <el-tabs v-model="activeTab" class="profile-tabs">
-      <el-tab-pane label="账号安全" name="security">
-        <div class="profile-pane">
-          <el-row :gutter="16" class="profile-grid">
-            <el-col :xs="24" :lg="10">
-              <el-card shadow="never" class="profile-card summary-card">
-                <template #header>
-                  <div class="card-header">
-                    <span class="card-title"><el-icon><User /></el-icon>账户信息</span>
-                  </div>
-                </template>
-                <div class="summary-list">
-                  <div class="summary-item">
-                    <span class="summary-label">用户名</span>
-                    <span class="summary-value">{{ authStore.user?.username || '-' }}</span>
-                  </div>
-                  <div class="summary-item">
-                    <span class="summary-label">角色</span>
-                    <span class="summary-value">{{ roleLabel }}</span>
-                  </div>
-                  <div class="summary-item">
-                    <span class="summary-label">创建时间</span>
-                    <span class="summary-value">{{ formatTime(authStore.user?.created_at) }}</span>
-                  </div>
-                  <div class="summary-item">
-                    <span class="summary-label">最后登录</span>
-                    <span class="summary-value">{{ formatTime(authStore.user?.last_login_at) }}</span>
-                  </div>
+      <el-tab-pane name="security">
+        <template #label>
+          <span class="profile-tab-label">
+            <el-icon :size="14"><Lock /></el-icon>
+            <span>账号安全</span>
+          </span>
+        </template>
+
+        <div class="profile-grid">
+          <!-- Left column -->
+          <div class="profile-column profile-column--left">
+            <section class="profile-card profile-card--info">
+              <header class="profile-card-header">
+                <span class="card-title">
+                  <el-icon :size="15"><User /></el-icon>
+                  <span>账户信息</span>
+                </span>
+              </header>
+              <div class="info-grid">
+                <div class="info-row">
+                  <span class="info-label">用户名</span>
+                  <span class="info-value">{{ authStore.user?.username || '-' }}</span>
                 </div>
-              </el-card>
-
-              <el-card shadow="never" class="profile-card tip-card">
-                <template #header>
-                  <div class="card-header">
-                    <span class="card-title"><el-icon><CircleCheck /></el-icon>安全建议</span>
-                  </div>
-                </template>
-                <div class="tip-list">
-                  <div class="tip-item">密码建议使用 12 位以上，包含大小写、数字和特殊字符。</div>
-                  <div class="tip-item">启用 2FA 后，即使密码泄露，账户仍有第二层保护。</div>
-                  <div class="tip-item">如果刚修改密码，当前会话外的其他登录会被撤销，需要重新登录。</div>
+                <div class="info-row">
+                  <span class="info-label">角色</span>
+                  <span class="info-value">
+                    <el-tag :type="roleTagType" size="small" effect="light">{{ roleLabel }}</el-tag>
+                  </span>
                 </div>
-              </el-card>
-            </el-col>
+                <div class="info-row">
+                  <span class="info-label">注册时间</span>
+                  <span class="info-value">{{ formatTime(authStore.user?.created_at) }}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">最近登录</span>
+                  <span class="info-value">{{ formatTime(authStore.user?.last_login_at) }}</span>
+                </div>
+              </div>
+            </section>
 
-            <el-col :xs="24" :lg="14">
-              <el-card shadow="never" class="profile-card">
-                <template #header>
-                  <div class="card-header">
-                    <span class="card-title"><el-icon><Lock /></el-icon>修改密码</span>
-                  </div>
-                </template>
-                <el-form label-position="top" class="security-form">
-                  <el-form-item label="当前密码">
-                    <el-input v-model="passwordForm.oldPassword" type="password" show-password placeholder="请输入当前密码" />
-                  </el-form-item>
-                  <el-form-item label="新密码">
-                    <el-input v-model="passwordForm.newPassword" type="password" show-password placeholder="至少 6 位" />
-                  </el-form-item>
-                  <el-form-item label="确认新密码">
-                    <el-input v-model="passwordForm.confirmPassword" type="password" show-password placeholder="再次输入新密码" @keyup.enter="handleChangePassword" />
-                  </el-form-item>
-                  <el-form-item>
-                    <el-button type="primary" :loading="passwordSaving" @click="handleChangePassword">
-                      <el-icon><Lock /></el-icon>更新密码
-                    </el-button>
-                  </el-form-item>
-                </el-form>
-              </el-card>
+            <section class="profile-card profile-card--tip">
+              <header class="profile-card-header">
+                <span class="card-title">
+                  <el-icon :size="15"><InfoFilled /></el-icon>
+                  <span>安全建议</span>
+                </span>
+              </header>
+              <ul class="tip-list">
+                <li>
+                  <span class="tip-bullet">1</span>
+                  <span>密码建议至少 12 位，包含大小写、数字和特殊字符。</span>
+                </li>
+                <li>
+                  <span class="tip-bullet">2</span>
+                  <span>启用 2FA 后，即使密码泄露，账户仍有第二层保护。</span>
+                </li>
+                <li>
+                  <span class="tip-bullet">3</span>
+                  <span>禁用 2FA 也需要动态验证码，防止会话被劫持后被人关掉 2FA。</span>
+                </li>
+                <li>
+                  <span class="tip-bullet">4</span>
+                  <span>修改密码后当前会话之外的其它登录都会被撤销。</span>
+                </li>
+              </ul>
+            </section>
+          </div>
 
-              <el-card shadow="never" class="profile-card twofa-card">
-                <template #header>
-                  <div class="card-header">
-                    <span class="card-title"><el-icon><Key /></el-icon>双因素认证</span>
-                    <el-tag :type="twoFAEnabled ? 'success' : 'info'" size="small" effect="plain">
-                      {{ twoFAEnabled ? '已启用' : '未启用' }}
-                    </el-tag>
-                  </div>
-                </template>
-                <p class="twofa-desc">
-                  登录时除了密码，还需要输入认证器应用生成的动态验证码。建议管理员和运维用户至少启用一次。
-                </p>
-                <div class="twofa-actions">
-                  <el-button v-if="!twoFAEnabled" type="primary" :loading="twoFALoading" @click="handleSetup2FA">
-                    <el-icon><Key /></el-icon>启用 2FA
+          <!-- Right column -->
+          <div class="profile-column profile-column--right">
+            <section class="profile-card profile-card--password">
+              <header class="profile-card-header">
+                <span class="card-title">
+                  <el-icon :size="15"><Lock /></el-icon>
+                  <span>修改密码</span>
+                </span>
+              </header>
+              <el-form label-position="top" class="security-form">
+                <el-form-item label="当前密码">
+                  <el-input
+                    v-model="passwordForm.oldPassword"
+                    type="password"
+                    show-password
+                    placeholder="请输入当前密码"
+                  />
+                </el-form-item>
+                <el-form-item label="新密码">
+                  <el-input
+                    v-model="passwordForm.newPassword"
+                    type="password"
+                    show-password
+                    placeholder="至少 6 位"
+                  />
+                </el-form-item>
+                <el-form-item label="确认新密码">
+                  <el-input
+                    v-model="passwordForm.confirmPassword"
+                    type="password"
+                    show-password
+                    placeholder="再次输入新密码"
+                    @keyup.enter="handleChangePassword"
+                  />
+                </el-form-item>
+                <el-form-item>
+                  <el-button
+                    type="primary"
+                    :loading="passwordSaving"
+                    class="primary-cta"
+                    @click="handleChangePassword"
+                  >
+                    <el-icon><Lock /></el-icon>
+                    <span>更新密码</span>
                   </el-button>
-                  <el-button v-else type="danger" plain @click="handleDisable2FA">禁用 2FA</el-button>
-                </div>
-              </el-card>
-            </el-col>
-          </el-row>
+                </el-form-item>
+              </el-form>
+            </section>
+
+            <section class="profile-card profile-card--twofa" :class="{ 'is-on': twoFAEnabled }">
+              <div class="twofa-halo" aria-hidden="true"></div>
+              <header class="profile-card-header">
+                <span class="card-title">
+                  <el-icon :size="15"><Key /></el-icon>
+                  <span>双因素认证</span>
+                </span>
+                <span class="twofa-status" :class="{ 'twofa-status--on': twoFAEnabled }">
+                  <span class="twofa-status-dot"></span>
+                  <span>{{ twoFAEnabled ? '已启用' : '未启用' }}</span>
+                </span>
+              </header>
+
+              <p class="twofa-desc">
+                <template v-if="twoFAEnabled">
+                  你已经开启 2FA，登录时会要求输入认证器应用里的 6 位动态码。禁用前需要再次输入当前动态码确认操作。
+                </template>
+                <template v-else>
+                  启用后，登录除了账号密码还需要输入认证器（Google / Microsoft Authenticator 等）生成的 6 位动态码。
+                </template>
+              </p>
+
+              <div class="twofa-actions">
+                <el-button
+                  v-if="!twoFAEnabled"
+                  type="primary"
+                  class="primary-cta"
+                  :loading="twoFALoading"
+                  @click="handleSetup2FA"
+                >
+                  <el-icon><Key /></el-icon>
+                  <span>启用 2FA</span>
+                </el-button>
+                <el-button
+                  v-else
+                  class="danger-outline-btn"
+                  :loading="twoFADisabling"
+                  @click="handleDisable2FA"
+                >
+                  <el-icon><Key /></el-icon>
+                  <span>禁用 2FA（需动态码）</span>
+                </el-button>
+              </div>
+            </section>
+          </div>
         </div>
       </el-tab-pane>
 
-      <el-tab-pane label="赞助名单" name="sponsors" lazy>
-        <div class="profile-pane sponsor-pane">
-          <section class="sponsor-tab">
-            <div class="sponsor-tab__toolbar">
-              <div class="sponsor-tab__copy">
-                <div class="sponsor-tab__heading">
-                  <h3>赞助名单</h3>
-                  <span class="sponsor-tab__hint">{{ sponsorTabHint }}</span>
-                </div>
-                <p class="sponsor-tab__intro">本项目长期以公益方式维护，感谢以下赞助人员对持续开发、服务开销与后续迭代的支持。</p>
-              </div>
-              <el-button type="primary" plain :loading="sponsorLoading || sponsorRefreshing" @click="handleManualSponsorRefresh">
-                <el-icon><RefreshRight /></el-icon>立即刷新
-              </el-button>
-            </div>
+      <el-tab-pane name="sponsors" lazy>
+        <template #label>
+          <span class="profile-tab-label">
+            <el-icon :size="14"><Star /></el-icon>
+            <span>赞助名单</span>
+          </span>
+        </template>
 
-            <SponsorWall
-              :sponsors="sponsors"
-              :summary="sponsorSummary"
-              :loading="sponsorLoading && sponsors.length === 0"
-            />
-          </section>
-        </div>
+        <section class="sponsor-panel">
+          <div class="sponsor-toolbar">
+            <div class="sponsor-toolbar-copy">
+              <div class="sponsor-toolbar-title-row">
+                <h3>赞助名单</h3>
+                <span class="sponsor-toolbar-hint">{{ sponsorTabHint }}</span>
+              </div>
+              <p class="sponsor-toolbar-intro">
+                本项目长期以公益方式维护，感谢以下赞助人员对持续开发、服务开销与后续迭代的支持。
+              </p>
+            </div>
+            <el-button
+              class="sponsor-refresh-btn"
+              :loading="sponsorLoading || sponsorRefreshing"
+              @click="handleManualSponsorRefresh"
+            >
+              <el-icon><RefreshRight /></el-icon>
+              <span>立即刷新</span>
+            </el-button>
+          </div>
+
+          <SponsorWall
+            :sponsors="sponsors"
+            :summary="sponsorSummary"
+            :loading="sponsorLoading && sponsors.length === 0"
+          />
+        </section>
       </el-tab-pane>
     </el-tabs>
 
-    <el-dialog v-model="showSetup2FA" title="设置双因素认证" width="500px" :fullscreen="dialogFullscreen" :close-on-click-modal="false">
+    <!-- ================= Setup 2FA dialog ================= -->
+    <el-dialog
+      v-model="showSetup2FA"
+      width="520px"
+      :fullscreen="dialogFullscreen"
+      :close-on-click-modal="false"
+      class="setup-2fa-dialog"
+    >
+      <template #header>
+        <div class="setup-dialog-header">
+          <div class="setup-dialog-badge" aria-hidden="true">
+            <el-icon :size="16"><Key /></el-icon>
+          </div>
+          <div>
+            <div class="setup-dialog-title">设置双因素认证</div>
+            <div class="setup-dialog-sub">扫码 / 抄密钥 / 输入验证码，三步开启</div>
+          </div>
+        </div>
+      </template>
+
       <div class="setup-2fa">
         <div class="setup-step">
-          <div class="step-title">步骤 1：扫描二维码</div>
+          <div class="step-head">
+            <span class="step-num">1</span>
+            <span class="step-title">扫描二维码</span>
+          </div>
           <div class="qr-wrapper">
             <img v-if="twoFAQrUrl" :src="twoFAQrUrl" alt="2FA QR Code" class="qr-image" />
           </div>
-          <div class="step-hint">推荐使用 Google Authenticator、Microsoft Authenticator 或其他 TOTP 应用。</div>
+          <div class="step-hint">推荐使用 Google Authenticator、Microsoft Authenticator 或 1Password。</div>
         </div>
 
         <div class="setup-step">
-          <div class="step-title">步骤 2：手动密钥</div>
+          <div class="step-head">
+            <span class="step-num">2</span>
+            <span class="step-title">或手动输入密钥</span>
+          </div>
           <div class="secret-box">
             <code>{{ twoFASecret }}</code>
           </div>
         </div>
 
         <div class="setup-step">
-          <div class="step-title">步骤 3：输入验证码</div>
-          <el-input v-model="twoFACode" maxlength="6" placeholder="请输入 6 位验证码" size="large" @keyup.enter="handleVerify2FA" />
+          <div class="step-head">
+            <span class="step-num">3</span>
+            <span class="step-title">输入 6 位验证码</span>
+          </div>
+          <el-input
+            v-model="twoFACode"
+            maxlength="6"
+            placeholder="认证器上的 6 位数字"
+            size="large"
+            class="totp-input"
+            @keyup.enter="handleVerify2FA"
+          />
         </div>
       </div>
+
       <template #footer>
-        <el-button @click="showSetup2FA = false">取消</el-button>
-        <el-button type="primary" @click="handleVerify2FA">验证并启用</el-button>
+        <div class="setup-dialog-footer">
+          <el-button @click="showSetup2FA = false">取消</el-button>
+          <el-button type="primary" class="primary-cta" @click="handleVerify2FA">验证并启用</el-button>
+        </div>
       </template>
     </el-dialog>
   </div>
@@ -435,234 +686,599 @@ onUnmounted(() => {
 
 <style scoped lang="scss">
 .profile-page {
+  --profile-accent: #22c55e;
+  --profile-ai-accent: #6366f1;
+  --profile-border-soft: color-mix(in srgb, var(--el-border-color-light) 85%, transparent);
+  --profile-surface: var(--el-bg-color);
+  --profile-surface-muted: color-mix(in srgb, var(--el-fill-color) 70%, transparent);
+
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 18px;
+  font-family: var(--dd-font-ui);
 }
 
+/* ================= Hero ================= */
+.profile-hero {
+  position: relative;
+  overflow: hidden;
+  padding: 26px 28px;
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg,
+      color-mix(in srgb, var(--profile-accent) 14%, transparent) 0%,
+      color-mix(in srgb, var(--profile-ai-accent) 12%, transparent) 55%,
+      transparent 100%),
+    var(--profile-surface);
+  border: 1px solid var(--profile-border-soft);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.profile-hero-aura {
+  position: absolute;
+  inset: auto -80px -120px auto;
+  width: 320px;
+  height: 320px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at center,
+      color-mix(in srgb, var(--profile-ai-accent) 30%, transparent) 0%,
+      transparent 70%);
+  pointer-events: none;
+}
+
+.profile-hero-main {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.profile-avatar-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.profile-avatar {
+  position: relative;
+  width: 68px;
+  height: 68px;
+  border-radius: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-family: var(--dd-font-ui);
+  font-size: 26px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #22c55e 0%, #6366f1 100%);
+  box-shadow: 0 12px 24px -12px rgba(34, 197, 94, 0.55);
+  flex-shrink: 0;
+  cursor: pointer;
+  overflow: hidden;
+  transition: transform 0.18s;
+
+  &:hover {
+    transform: scale(1.04);
+
+    .profile-avatar-overlay {
+      opacity: 1;
+    }
+  }
+
+  &.is-uploading {
+    opacity: 0.6;
+    pointer-events: none;
+  }
+}
+
+.profile-avatar-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+  z-index: 1;
+}
+
+.profile-avatar-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  border-radius: inherit;
+  opacity: 0;
+  transition: opacity 0.2s;
+  color: #fff;
+}
+
+.profile-avatar-input {
+  display: none;
+}
+
+.avatar-delete-btn {
+  position: absolute;
+  bottom: -4px;
+  right: -4px;
+  z-index: 3;
+  color: var(--el-color-danger) !important;
+  border-color: var(--profile-border-soft) !important;
+  background: var(--profile-surface) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+
+  &:hover {
+    color: #fff !important;
+    background: var(--el-color-danger) !important;
+    border-color: var(--el-color-danger) !important;
+  }
+}
+
+.profile-avatar-initial {
+  position: relative;
+  z-index: 1;
+  letter-spacing: 0.5px;
+}
+
+.profile-avatar-ring {
+  position: absolute;
+  inset: -4px;
+  border-radius: inherit;
+  border: 2px solid color-mix(in srgb, var(--profile-accent) 35%, transparent);
+  z-index: 0;
+}
+
+.profile-hero-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.profile-hero-eyebrow {
+  font-size: 11.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--el-text-color-placeholder);
+  font-weight: 600;
+}
+
+.profile-hero-name {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  color: var(--el-text-color-primary);
+  line-height: 1.1;
+}
+
+.profile-hero-meta-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.hero-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
+  background: color-mix(in srgb, var(--el-fill-color) 90%, transparent);
+  border: 1px solid var(--profile-border-soft);
+  color: var(--el-text-color-regular);
+}
+
+.hero-chip--danger { color: var(--el-color-danger); background: color-mix(in srgb, var(--el-color-danger) 10%, transparent); border-color: color-mix(in srgb, var(--el-color-danger) 28%, transparent); }
+.hero-chip--warning { color: var(--el-color-warning); background: color-mix(in srgb, var(--el-color-warning) 10%, transparent); border-color: color-mix(in srgb, var(--el-color-warning) 28%, transparent); }
+.hero-chip--info { color: var(--el-color-info); background: color-mix(in srgb, var(--el-color-info) 10%, transparent); border-color: color-mix(in srgb, var(--el-color-info) 28%, transparent); }
+.hero-chip--muted { color: var(--el-text-color-secondary); }
+
+.hero-chip--2fa {
+  background: color-mix(in srgb, var(--el-color-danger) 8%, transparent);
+  border-color: color-mix(in srgb, var(--el-color-danger) 22%, transparent);
+  color: var(--el-color-danger);
+}
+
+.hero-chip--2fa-on {
+  background: color-mix(in srgb, var(--profile-accent) 12%, transparent);
+  border-color: color-mix(in srgb, var(--profile-accent) 28%, transparent);
+  color: color-mix(in srgb, var(--profile-accent) 80%, var(--el-text-color-primary));
+}
+
+.hero-chip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--el-color-danger);
+}
+
+.hero-chip-dot--on {
+  background: var(--profile-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--profile-accent) 22%, transparent);
+}
+
+/* ================= Tabs ================= */
 .profile-tabs {
   :deep(.el-tabs__header) {
     margin: 0;
   }
 
   :deep(.el-tabs__nav-wrap::after) {
-    background: rgba(15, 118, 110, 0.12);
+    height: 1px;
+    background: var(--profile-border-soft);
   }
 
   :deep(.el-tabs__item) {
     height: 42px;
     font-weight: 600;
+    font-size: 13.5px;
   }
 }
 
-.profile-pane {
-  padding-top: 16px;
-}
-
-.profile-hero {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 24px 28px;
-  border-radius: 24px;
-  color: #fff;
-  background:
-    radial-gradient(circle at top right, rgba(255, 255, 255, 0.18), transparent 30%),
-    linear-gradient(135deg, #0f766e 0%, #0ea5e9 100%);
-}
-
-.profile-hero__content {
-  display: flex;
+.profile-tab-label {
+  display: inline-flex;
   align-items: center;
-  gap: 16px;
-}
-
-.profile-avatar {
-  width: 56px;
-  height: 56px;
-  border-radius: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255, 255, 255, 0.18);
-  backdrop-filter: blur(8px);
-}
-
-.profile-hero__text {
-  h2 {
-    margin: 0 0 6px;
-    font-size: 28px;
-    font-weight: 700;
-  }
-}
-
-.profile-eyebrow {
-  margin: 0 0 6px;
-  font-size: 12px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  opacity: 0.88;
-}
-
-.profile-subtitle {
-  margin: 0;
-  max-width: 620px;
-  line-height: 1.7;
-  color: rgba(255, 255, 255, 0.9);
-}
-
-.profile-hero__meta {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 10px;
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.88);
+  gap: 6px;
 }
 
 .profile-grid {
-  margin: 0 !important;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: 16px;
+  padding-top: 16px;
 }
 
-.profile-card {
-  border-radius: 20px;
+.profile-column {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
 
-  :deep(.el-card__body) {
-    padding: 22px 24px;
+/* ================= Cards ================= */
+.profile-card {
+  position: relative;
+  background: var(--profile-surface);
+  border: 1px solid var(--profile-border-soft);
+  border-radius: 14px;
+  padding: 18px 20px;
+  overflow: hidden;
+  transition: border-color 0.2s, box-shadow 0.2s;
+
+  &:hover {
+    border-color: color-mix(in srgb, var(--profile-accent) 20%, var(--profile-border-soft));
   }
 }
 
-.summary-card,
-.tip-card,
-.twofa-card {
-  margin-bottom: 16px;
-}
-
-.card-header {
+.profile-card-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  margin-bottom: 14px;
 }
 
 .card-title {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-weight: 600;
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--el-text-color-primary);
 }
 
-.summary-list,
-.tip-list {
+/* Info grid */
+.info-grid {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 0;
 }
 
-.summary-item {
+.info-row {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 12px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--el-border-color-lighter);
+  padding: 10px 0;
+  border-bottom: 1px dashed var(--profile-border-soft);
+  font-size: 13.5px;
 
   &:last-child {
-    padding-bottom: 0;
     border-bottom: none;
+    padding-bottom: 2px;
   }
 }
 
-.summary-label {
+.info-label {
   color: var(--el-text-color-secondary);
+  font-size: 12.5px;
+  letter-spacing: 0.2px;
 }
 
-.summary-value {
-  text-align: right;
+.info-value {
   font-weight: 600;
+  color: var(--el-text-color-primary);
+  text-align: right;
   word-break: break-all;
 }
 
-.tip-item {
-  padding: 12px 14px;
-  border-radius: 14px;
-  background: var(--el-fill-color-light);
+/* Tips */
+.tip-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+
+  li {
+    display: flex;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: var(--profile-surface-muted);
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--el-text-color-regular);
+  }
+}
+
+.tip-bullet {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--dd-font-mono);
+  color: var(--profile-accent);
+  background: color-mix(in srgb, var(--profile-accent) 14%, transparent);
+}
+
+/* Password */
+.security-form {
+  :deep(.el-form-item) {
+    margin-bottom: 14px;
+  }
+
+  :deep(.el-form-item__label) {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--el-text-color-secondary);
+  }
+
+  :deep(.el-input__wrapper) {
+    border-radius: 10px;
+  }
+}
+
+.primary-cta {
+  border-radius: 10px;
+  height: 38px;
+  padding: 0 18px;
+  font-weight: 600;
+  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+  border: none;
+  box-shadow: 0 8px 20px -12px rgba(34, 197, 94, 0.55);
+
+  &:hover,
+  &:focus {
+    background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
+    border: none;
+  }
+}
+
+/* Two-factor card */
+.profile-card--twofa {
+  border-color: color-mix(in srgb, var(--el-color-danger) 22%, var(--profile-border-soft));
+  background:
+    linear-gradient(135deg,
+      color-mix(in srgb, var(--el-color-danger) 5%, transparent) 0%,
+      transparent 55%),
+    var(--profile-surface);
+
+  &.is-on {
+    border-color: color-mix(in srgb, var(--profile-accent) 30%, var(--profile-border-soft));
+    background:
+      linear-gradient(135deg,
+        color-mix(in srgb, var(--profile-accent) 8%, transparent) 0%,
+        transparent 60%),
+      var(--profile-surface);
+  }
+}
+
+.twofa-halo {
+  position: absolute;
+  inset: auto -60px -80px auto;
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  background: radial-gradient(circle,
+    color-mix(in srgb, var(--profile-ai-accent) 24%, transparent) 0%,
+    transparent 70%);
+  pointer-events: none;
+}
+
+.twofa-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 700;
+  font-family: var(--dd-font-mono);
+  letter-spacing: 0.5px;
+  background: color-mix(in srgb, var(--el-color-danger) 12%, transparent);
+  color: var(--el-color-danger);
+
+  &--on {
+    background: color-mix(in srgb, var(--profile-accent) 14%, transparent);
+    color: color-mix(in srgb, var(--profile-accent) 80%, var(--el-text-color-primary));
+  }
+}
+
+.twofa-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.twofa-desc {
+  margin: 0 0 14px;
+  font-size: 13px;
   line-height: 1.7;
   color: var(--el-text-color-regular);
 }
 
-.security-form {
-  max-width: 520px;
-}
-
-.twofa-desc {
-  margin: 0 0 18px;
-  color: var(--el-text-color-secondary);
-  line-height: 1.7;
-}
-
 .twofa-actions {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
-.sponsor-pane {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
+.danger-outline-btn {
+  border-radius: 10px;
+  height: 38px;
+  padding: 0 16px;
+  font-weight: 600;
+  color: var(--el-color-danger);
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--el-color-danger) 50%, transparent);
 
-.sponsor-tab {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.sponsor-tab__toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
-  padding: 14px 16px;
-  border-radius: 18px;
-  background: rgba(255, 251, 235, 0.92);
-  border: 1px solid rgba(249, 115, 22, 0.12);
-}
-
-.sponsor-tab__copy {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-}
-
-.sponsor-tab__heading {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-
-  h3 {
-    margin: 0;
-    font-size: 18px;
-    color: #7c2d12;
-    white-space: nowrap;
+  &:hover {
+    color: #fff;
+    background: var(--el-color-danger);
+    border-color: var(--el-color-danger);
   }
 }
 
-.sponsor-tab__hint {
-  font-size: 12px;
-  color: #9a3412;
-  white-space: nowrap;
+/* ================= Sponsor panel ================= */
+.sponsor-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 16px;
 }
 
-.sponsor-tab__intro {
-  margin: 0;
-  max-width: 760px;
-  font-size: 12px;
-  line-height: 1.7;
+.sponsor-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 16px 20px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, #f59e0b 16%, transparent);
+  background:
+    linear-gradient(135deg,
+      color-mix(in srgb, #f59e0b 10%, transparent) 0%,
+      color-mix(in srgb, #f59e0b 4%, transparent) 100%),
+    var(--profile-surface);
+}
+
+.sponsor-toolbar-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.sponsor-toolbar-title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+
+  h3 {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 700;
+    color: #b45309;
+  }
+}
+
+.sponsor-toolbar-hint {
+  font-size: 11.5px;
   color: #a16207;
+}
+
+.sponsor-toolbar-intro {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: color-mix(in srgb, #92400e 80%, var(--el-text-color-regular));
+  max-width: 680px;
+}
+
+.sponsor-refresh-btn {
+  border-radius: 10px;
+}
+
+/* ================= Setup dialog ================= */
+:deep(.setup-2fa-dialog) {
+  .el-dialog {
+    border-radius: 16px;
+    overflow: hidden;
+  }
+
+  .el-dialog__header {
+    padding: 18px 20px 14px;
+    margin: 0;
+    border-bottom: 1px solid var(--profile-border-soft);
+  }
+
+  .el-dialog__body {
+    padding: 20px 24px;
+  }
+
+  .el-dialog__footer {
+    padding: 12px 20px 18px;
+  }
+}
+
+.setup-dialog-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.setup-dialog-badge {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+}
+
+.setup-dialog-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--el-text-color-primary);
+}
+
+.setup-dialog-sub {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  margin-top: 2px;
 }
 
 .setup-2fa {
@@ -671,15 +1287,41 @@ onUnmounted(() => {
   gap: 20px;
 }
 
+.setup-step {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.step-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.step-num {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: var(--dd-font-mono);
+  color: #fff;
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+}
+
 .step-title {
+  font-size: 13.5px;
   font-weight: 600;
-  margin-bottom: 10px;
+  color: var(--el-text-color-primary);
 }
 
 .step-hint {
-  margin-top: 10px;
-  color: var(--el-text-color-secondary);
   font-size: 12px;
+  color: var(--el-text-color-secondary);
   line-height: 1.6;
 }
 
@@ -695,51 +1337,69 @@ onUnmounted(() => {
   padding: 10px;
   border-radius: 18px;
   background: #fff;
+  border: 1px solid var(--profile-border-soft);
 }
 
 .secret-box {
   padding: 14px 16px;
-  border-radius: 14px;
-  background: var(--el-fill-color-light);
+  border-radius: 12px;
+  background: var(--profile-surface-muted);
+  border: 1px dashed var(--profile-border-soft);
   text-align: center;
 
   code {
-    font-size: 15px;
+    font-family: var(--dd-font-mono);
+    font-size: 14.5px;
     font-weight: 700;
-    letter-spacing: 0.16em;
+    letter-spacing: 0.18em;
     user-select: all;
+    color: var(--el-text-color-primary);
+    word-break: break-all;
   }
 }
 
+.totp-input {
+  :deep(.el-input__wrapper) {
+    border-radius: 12px;
+  }
+
+  :deep(.el-input__inner) {
+    font-family: var(--dd-font-mono);
+    font-size: 18px;
+    letter-spacing: 0.5em;
+    text-align: center;
+    font-weight: 600;
+  }
+}
+
+.setup-dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* ================= Mobile ================= */
 @media (max-width: 900px) {
+  .profile-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 600px) {
   .profile-hero {
-    flex-direction: column;
     padding: 20px;
   }
 
-  .profile-hero__meta {
-    align-items: flex-start;
+  .profile-hero-name {
+    font-size: 22px;
   }
 
-  .profile-hero__content {
-    align-items: flex-start;
+  .profile-hero-meta-row {
+    gap: 6px;
   }
 
-  .profile-hero__text h2 {
-    font-size: 24px;
-  }
-
-  .sponsor-tab__toolbar {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .sponsor-tab__heading {
-    flex-wrap: wrap;
-  }
-
-  .sponsor-tab__hint {
-    white-space: normal;
+  .hero-chip {
+    font-size: 11.5px;
   }
 }
 </style>

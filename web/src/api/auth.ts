@@ -65,5 +65,17 @@ export const authApi = {
       require_after_failures: number
       message: string
     }>
+  },
+
+  uploadAvatar(file: File) {
+    const formData = new FormData()
+    formData.append('avatar', file)
+    return request.post('/auth/avatar', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    }) as Promise<{ message: string; avatar_url: string }>
+  },
+
+  deleteAvatar() {
+    return request.delete('/auth/avatar') as Promise<{ message: string }>
   }
 }

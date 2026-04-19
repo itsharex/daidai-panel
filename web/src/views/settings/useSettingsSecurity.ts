@@ -452,13 +452,29 @@ export function useSettingsSecurity() {
   }
 
   async function handleDisable2FA() {
+    let prompted: { value: string }
     try {
-      await ElMessageBox.confirm('确定要禁用两步验证吗？', '确认', { type: 'warning' })
-      await securityApi.disable2FA()
+      prompted = await ElMessageBox.prompt(
+        '禁用前请输入当前的动态验证码（认证器 App 上 6 位数字）以确认操作。',
+        '禁用双因素认证',
+        {
+          inputPattern: /^\d{6}$/,
+          inputErrorMessage: '请输入 6 位动态验证码',
+          confirmButtonText: '确认禁用',
+          cancelButtonText: '取消',
+          type: 'warning',
+          inputPlaceholder: '6 位数字验证码'
+        }
+      ) as { value: string }
+    } catch {
+      return
+    }
+    try {
+      await securityApi.disable2FA(prompted.value.trim())
       ElMessage.success('2FA 已禁用')
       twoFAEnabled.value = false
-    } catch {
-      // cancelled
+    } catch (err: any) {
+      ElMessage.error(err?.response?.data?.error || '禁用 2FA 失败')
     }
   }
 

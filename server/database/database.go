@@ -168,5 +168,40 @@ func EnsureColumns() {
 		{"client_name", "VARCHAR(255) DEFAULT ''"},
 	})
 
+	ensureTableColumns("task_views", []columnDef{
+		{"hidden", "BOOLEAN DEFAULT 0"},
+		{"sort_order", "INTEGER DEFAULT 0"},
+	})
+
+	ensureTableColumns("users", []columnDef{
+		{"avatar_url", "VARCHAR(512) DEFAULT ''"},
+	})
+
+	ensureEnvVarUniqueIndex()
+
 	log.Printf("column check completed")
+}
+
+// ensureEnvVarUniqueIndex enforces the (name, remarks) business identity at
+// the DB layer. Existing installs with pre-existing duplicates simply skip the
+// index creation — the handler's application-level check stays authoritative.
+func ensureEnvVarUniqueIndex() {
+	if DB == nil {
+		return
+	}
+	if _, err := DB.DB(); err != nil {
+		return
+	}
+	var count int64
+	if err := DB.Raw("SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_env_vars_name_remarks'").Scan(&count).Error; err != nil {
+		return
+	}
+	if count > 0 {
+		return
+	}
+	if err := DB.Exec(`CREATE UNIQUE INDEX idx_env_vars_name_remarks ON env_vars(name, remarks)`).Error; err != nil {
+		log.Printf("warn: skip adding unique index on env_vars(name, remarks): %v (application-level guard still enforces identity)", err)
+		return
+	}
+	log.Printf("added unique index env_vars(name, remarks)")
 }

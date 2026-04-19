@@ -9,6 +9,7 @@ interface User {
   username: string
   role: string
   enabled: boolean
+  avatar_url: string
   last_login_at: string | null
   created_at: string
   updated_at: string

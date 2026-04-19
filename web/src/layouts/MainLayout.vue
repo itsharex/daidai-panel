@@ -237,7 +237,8 @@ async function loadVersion() {
           <el-button :icon="themeIcon" text circle class="theme-btn" @click="themeStore.toggleTheme" />
           <el-dropdown trigger="click">
             <span class="user-dropdown">
-              <el-icon><User /></el-icon>
+              <img v-if="authStore.user?.avatar_url" :src="authStore.user.avatar_url" alt="" class="user-dropdown-avatar" />
+              <el-icon v-else><User /></el-icon>
               <span v-if="!isMobile">{{ authStore.user?.username || 'User' }}</span>
             </span>
             <template #dropdown>
@@ -476,6 +477,14 @@ async function loadVersion() {
     color: var(--el-color-primary);
     transform: translateY(-1px);
   }
+}
+
+.user-dropdown-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex-shrink: 0;
 }
 
 .layout-main {

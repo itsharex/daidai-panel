@@ -10,6 +10,7 @@ type User struct {
 	Password    string     `gorm:"size:256;not null" json:"-"`
 	Role        string     `gorm:"size:16;default:admin" json:"role"`
 	Enabled     bool       `gorm:"default:true" json:"enabled"`
+	AvatarURL   string     `gorm:"size:512;default:''" json:"avatar_url"`
 	LastLoginAt *time.Time `json:"last_login_at"`
 	CreatedAt   time.Time  `json:"created_at"`
 	UpdatedAt   time.Time  `json:"updated_at"`
@@ -25,6 +26,7 @@ func (u *User) ToDict() map[string]interface{} {
 		"username":   u.Username,
 		"role":       u.Role,
 		"enabled":    u.Enabled,
+		"avatar_url": u.AvatarURL,
 		"created_at": u.CreatedAt,
 		"updated_at": u.UpdatedAt,
 	}

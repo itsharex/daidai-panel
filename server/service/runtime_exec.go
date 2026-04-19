@@ -25,7 +25,7 @@ type managedRuntimePaths struct {
 	searchDirs []string
 }
 
-const pythonEnvBootstrap = `import builtins, importlib, json, os, runpy, subprocess, sys
+const pythonEnvBootstrap = `import builtins, importlib, importlib.util, json, os, runpy, subprocess, sys
 env_file, script_path, extra_path_raw = sys.argv[1:4]
 script_args = sys.argv[4:]
 with open(env_file, "r", encoding="utf-8") as fh:
@@ -106,8 +106,10 @@ if _dd_auto_install_enabled:
         if _dd_is_local_module(_dd_name, _dd_script_dir):
             continue
         try:
-            importlib.import_module(_dd_name)
-        except ImportError:
+            _dd_spec = importlib.util.find_spec(_dd_name)
+        except (ImportError, ValueError):
+            _dd_spec = None
+        if _dd_spec is None:
             _dd_missing.append(_dd_name)
 
     for _dd_name in _dd_missing:

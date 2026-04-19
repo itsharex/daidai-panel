@@ -2,14 +2,25 @@ package handler
 
 import (
 	"fmt"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
+	"daidai-panel/config"
+	"daidai-panel/database"
 	"daidai-panel/middleware"
 	"daidai-panel/model"
 	"daidai-panel/pkg/response"
 	"daidai-panel/service"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 type AuthHandler struct {
@@ -278,6 +289,130 @@ func (h *AuthHandler) CaptchaConfig(c *gin.Context) {
 	})
 }
 
+const avatarMaxBytes = 2 * 1024 * 1024
+
+var avatarAllowedExts = map[string]bool{
+	".jpg": true, ".jpeg": true, ".png": true, ".gif": true, ".webp": true,
+}
+
+func avatarDir() string {
+	return filepath.Join(config.C.Data.Dir, "avatars")
+}
+
+func (h *AuthHandler) UploadAvatar(c *gin.Context) {
+	username, _ := c.Get("username")
+	file, header, err := c.Request.FormFile("avatar")
+	if err != nil {
+		response.BadRequest(c, "请选择要上传的头像文件")
+		return
+	}
+	defer file.Close()
+
+	if header.Size > avatarMaxBytes {
+		response.BadRequest(c, "头像文件不能超过 2MB")
+		return
+	}
+
+	ext := strings.ToLower(filepath.Ext(header.Filename))
+	if !avatarAllowedExts[ext] {
+		response.BadRequest(c, "仅支持 JPG、PNG、GIF、WebP 格式")
+		return
+	}
+
+	if ext != ".webp" {
+		if _, _, err := image.DecodeConfig(file); err != nil {
+			response.BadRequest(c, "文件不是有效的图片")
+			return
+		}
+		file.Seek(0, io.SeekStart)
+	}
+
+	dir := avatarDir()
+	os.MkdirAll(dir, 0755)
+
+	filename := uuid.New().String() + ext
+	savePath := filepath.Join(dir, filename)
+
+	dst, err := os.Create(savePath)
+	if err != nil {
+		response.InternalError(c, "保存头像失败")
+		return
+	}
+	defer dst.Close()
+
+	if _, err := io.Copy(dst, file); err != nil {
+		os.Remove(savePath)
+		response.InternalError(c, "保存头像失败")
+		return
+	}
+
+	avatarURL := "/api/v1/auth/avatar/" + filename
+
+	var user model.User
+	if err := database.DB.Where("username = ?", username).First(&user).Error; err != nil {
+		os.Remove(savePath)
+		response.NotFound(c, "用户不存在")
+		return
+	}
+
+	if user.AvatarURL != "" {
+		oldFile := strings.TrimPrefix(user.AvatarURL, "/api/v1/auth/avatar/")
+		oldFile = strings.TrimPrefix(oldFile, "/api/auth/avatar/")
+		if oldFile != "" {
+			os.Remove(filepath.Join(dir, filepath.Base(oldFile)))
+		}
+	}
+
+	database.DB.Model(&user).Update("avatar_url", avatarURL)
+
+	response.Success(c, gin.H{
+		"message":    "头像上传成功",
+		"avatar_url": avatarURL,
+	})
+}
+
+func (h *AuthHandler) DeleteAvatar(c *gin.Context) {
+	username, _ := c.Get("username")
+
+	var user model.User
+	if err := database.DB.Where("username = ?", username).First(&user).Error; err != nil {
+		response.NotFound(c, "用户不存在")
+		return
+	}
+
+	if user.AvatarURL == "" {
+		response.Success(c, gin.H{"message": "当前没有设置头像"})
+		return
+	}
+
+	oldFile := strings.TrimPrefix(user.AvatarURL, "/api/v1/auth/avatar/")
+	oldFile = strings.TrimPrefix(oldFile, "/api/auth/avatar/")
+	if oldFile != "" {
+		os.Remove(filepath.Join(avatarDir(), filepath.Base(oldFile)))
+	}
+
+	database.DB.Model(&user).Update("avatar_url", "")
+
+	response.Success(c, gin.H{"message": "头像已删除"})
+}
+
+func (h *AuthHandler) ServeAvatar(c *gin.Context) {
+	filename := filepath.Base(c.Param("filename"))
+	if filename == "" || filename == "." {
+		response.BadRequest(c, "无效的文件名")
+		return
+	}
+
+	filePath := filepath.Join(avatarDir(), filename)
+	if _, err := os.Stat(filePath); err != nil {
+		response.NotFound(c, "头像不存在")
+		return
+	}
+
+	c.Header("Cache-Control", "public, max-age=86400")
+	c.File(filePath)
+}
+
 func (h *AuthHandler) RegisterRoutes(r *gin.RouterGroup) {
 	auth := r.Group("/auth")
 	{
@@ -289,5 +424,8 @@ func (h *AuthHandler) RegisterRoutes(r *gin.RouterGroup) {
 		auth.GET("/user", middleware.JWTAuth(), h.GetUser)
 		auth.PUT("/password", middleware.JWTAuth(), h.ChangePassword)
 		auth.GET("/captcha-config", h.CaptchaConfig)
+		auth.POST("/avatar", middleware.JWTAuth(), h.UploadAvatar)
+		auth.DELETE("/avatar", middleware.JWTAuth(), h.DeleteAvatar)
+		auth.GET("/avatar/:filename", h.ServeAvatar)
 	}
 }

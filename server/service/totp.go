@@ -38,6 +38,14 @@ func GenerateTOTPURI(username, secret string) string {
 		TOTPIssuer, username, secret, TOTPIssuer, TOTPDigits, TOTPPeriod)
 }
 
+// GenerateCurrentTOTPForTest returns a currently-valid 6-digit TOTP code for
+// the supplied base32 secret. Exported so end-to-end tests can exercise the
+// 2FA flows without re-implementing the HMAC-SHA1 code generation.
+func GenerateCurrentTOTPForTest(secret string) string {
+	counter := uint64(time.Now().Unix() / int64(TOTPPeriod))
+	return generateTOTPCode(secret, counter)
+}
+
 func ValidateTOTP(secret, code string) bool {
 	now := time.Now().Unix()
 	for _, offset := range []int64{-1, 0, 1} {

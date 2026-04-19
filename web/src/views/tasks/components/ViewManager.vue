@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue'
+import { computed, ref, watch, onMounted } from 'vue'
 import { taskViewApi, type TaskView, type TaskViewFilter, type TaskViewSortRule } from '@/api/taskView'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Delete, Close, Edit } from '@element-plus/icons-vue'
+import { Plus, Delete, Close, Edit, Setting } from '@element-plus/icons-vue'
 import { useResponsive } from '@/composables/useResponsive'
+import ViewManagementDialog from './ViewManagementDialog.vue'
 
 const emit = defineEmits<{
   'view-change': [filters: TaskViewFilter[], sortRules: TaskViewSortRule[]]
@@ -15,6 +16,9 @@ const activeViewId = ref<number | null>(null)
 const showDialog = ref(false)
 const isEditMode = ref(false)
 const editingViewId = ref<number | null>(null)
+const showManagementDialog = ref(false)
+
+const visibleViews = computed(() => views.value.filter(view => !view.hidden))
 
 const filterFields = [
   { value: 'command', label: '命令' },
@@ -56,6 +60,23 @@ async function loadViews() {
   } catch {
     views.value = []
   }
+  // If the currently active view was just hidden from the management dialog,
+  // fall back to the 全部 tab so the user isn't looking at a tab they can no
+  // longer see.
+  if (activeViewId.value !== null) {
+    const current = views.value.find(v => v.id === activeViewId.value)
+    if (!current || current.hidden) {
+      selectView(null)
+    }
+  }
+}
+
+function openManagementDialog() {
+  showManagementDialog.value = true
+}
+
+async function handleManagementSaved() {
+  await loadViews()
 }
 
 function selectView(viewId: number | null) {
@@ -191,7 +212,7 @@ defineExpose({ loadViews })
         全部
       </el-button>
       <div
-        v-for="view in views"
+        v-for="view in visibleViews"
         :key="view.id"
         class="view-tab-item"
         :class="{ active: activeViewId === view.id }"
@@ -211,7 +232,18 @@ defineExpose({ loadViews })
       <el-button size="small" @click="openCreateDialog">
         <el-icon><Plus /></el-icon>
       </el-button>
+      <el-tooltip v-if="views.length > 0" content="视图管理" placement="top">
+        <el-button size="small" @click="openManagementDialog">
+          <el-icon><Setting /></el-icon>
+        </el-button>
+      </el-tooltip>
     </div>
+
+    <ViewManagementDialog
+      v-model="showManagementDialog"
+      :views="views"
+      @saved="handleManagementSaved"
+    />
 
     <el-dialog v-model="showDialog" :title="isEditMode ? '编辑视图' : '创建视图'" width="600px" :fullscreen="dialogFullscreen">
       <el-form :label-width="dialogFullscreen ? 'auto' : '90px'" :label-position="dialogFullscreen ? 'top' : 'right'">

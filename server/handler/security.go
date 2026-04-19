@@ -264,6 +264,29 @@ func (h *SecurityHandler) Disable2FA(c *gin.Context) {
 		return
 	}
 
+	// Before turning 2FA off we must prove the user still controls the
+	// authenticator — otherwise a hijacked session alone would be enough to
+	// strip 2FA from the account.
+	if !service.IsTwoFactorEnabled(user.ID) {
+		response.Success(c, gin.H{"message": "2FA 未启用"})
+		return
+	}
+
+	var req struct {
+		Code string `json:"code"`
+	}
+	_ = c.ShouldBindJSON(&req)
+
+	code := strings.TrimSpace(req.Code)
+	if code == "" {
+		response.BadRequest(c, "请输入当前的动态验证码")
+		return
+	}
+	if !service.ValidateUserTOTP(user.ID, code) {
+		response.BadRequest(c, "动态验证码错误")
+		return
+	}
+
 	service.DisableTwoFactor(user.ID)
 	response.Success(c, gin.H{"message": "2FA 已禁用"})
 }
