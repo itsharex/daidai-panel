@@ -9,7 +9,8 @@ import (
 	"daidai-panel/testutil"
 )
 
-var machineCodeFormatRe = regexp.MustCompile(`^[0-9A-F]{4}(?:-[0-9A-F]{4}){7}$`)
+// Matches an RFC 4122 v4 UUID in uppercase form, e.g. A1B2C3D4-E5F6-4789-ABCD-1234567890AB.
+var machineCodeFormatRe = regexp.MustCompile(`^[0-9A-F]{8}-[0-9A-F]{4}-4[0-9A-F]{3}-[89AB][0-9A-F]{3}-[0-9A-F]{12}$`)
 
 func TestEnsureMachineCodeGeneratesAndPersists(t *testing.T) {
 	testutil.SetupTestEnv(t)
@@ -17,7 +18,7 @@ func TestEnsureMachineCodeGeneratesAndPersists(t *testing.T) {
 
 	first := EnsureMachineCode()
 	if !machineCodeFormatRe.MatchString(first) {
-		t.Fatalf("expected machine code formatted XXXX-XXXX-...(8 groups), got %q", first)
+		t.Fatalf("expected uppercase UUID v4 machine code, got %q", first)
 	}
 
 	second := EnsureMachineCode()
@@ -72,14 +73,48 @@ func TestEnsureMachineCodeFillsBlankExistingRow(t *testing.T) {
 	}
 }
 
-func TestFormatMachineCodeShape(t *testing.T) {
-	raw := []byte{
-		0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
-		0x10, 0x32, 0x54, 0x76, 0x98, 0xBA, 0xDC, 0xFE,
+func TestEnsureMachineCodeMigratesLegacyValue(t *testing.T) {
+	testutil.SetupTestEnv(t)
+	ResetMachineCodeCacheForTest()
+
+	legacyValue := "0123-4567-89AB-CDEF-1032-5476-98BA-DCFE"
+	if machineCodeFormatRe.MatchString(legacyValue) {
+		t.Fatalf("test setup error: legacy value %q unexpectedly matches UUID v4 pattern", legacyValue)
 	}
-	got := formatMachineCode(raw)
-	want := "0123-4567-89AB-CDEF-1032-5476-98BA-DCFE"
-	if got != want {
-		t.Fatalf("formatMachineCode: want %q, got %q", want, got)
+	legacy := model.SystemConfig{Key: "machine_code", Value: legacyValue, Description: "legacy"}
+	if err := database.DB.Create(&legacy).Error; err != nil {
+		t.Fatalf("seed legacy row: %v", err)
+	}
+
+	code := EnsureMachineCode()
+	if !machineCodeFormatRe.MatchString(code) {
+		t.Fatalf("expected migrated code to be uppercase UUID v4, got %q", code)
+	}
+	if code == legacyValue {
+		t.Fatalf("expected legacy value to be replaced, still got %q", code)
+	}
+
+	var row model.SystemConfig
+	if err := database.DB.Where("`key` = ?", "machine_code").First(&row).Error; err != nil {
+		t.Fatalf("query row: %v", err)
+	}
+	if row.Value != code {
+		t.Fatalf("expected persisted value %q after migration, got %q", code, row.Value)
+	}
+}
+
+func TestGenerateMachineCodeFormat(t *testing.T) {
+	first := generateMachineCode()
+	if !machineCodeFormatRe.MatchString(first) {
+		t.Fatalf("generateMachineCode: expected uppercase UUID v4, got %q", first)
+	}
+
+	second := generateMachineCode()
+	if !machineCodeFormatRe.MatchString(second) {
+		t.Fatalf("generateMachineCode: expected uppercase UUID v4 on second call, got %q", second)
+	}
+
+	if first == second {
+		t.Fatalf("generateMachineCode should produce distinct random values, got duplicate %q", first)
 	}
 }
