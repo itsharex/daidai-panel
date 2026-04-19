@@ -108,45 +108,22 @@
 
 ## 快速部署
 
-### 端口关系先看这个
+面板官方推荐用 Docker 部署。下面的例子默认浏览器访问 `http://宿主机IP:5700`。
 
-Docker 部署时，面板涉及 **3 个端口层级**。大多数部署问题，都是把这 3 个端口混在一起造成的。
-
-| 层级 | 作用 | 默认值 | 你通常要不要改 |
-|------|------|--------|----------------|
-| 宿主机端口 | 浏览器实际访问的端口，由 `-p` 左侧决定 | `5700` | 常改 |
-| 容器内 Nginx 端口 | 容器内前端入口，负责静态文件和 `/api` 反代，由 `PANEL_PORT` 决定 | `5700` | 一般不改 |
-| 容器内 Go 后端端口 | 容器内 API 服务端口，Nginx 反代到这里 | `5701` | 一般不要改 |
-
-```mermaid
-flowchart LR
-    A[浏览器<br/>http://宿主机IP:5700 或 8080]
-    B[宿主机映射端口<br/>docker -p 左侧]
-    C[容器内 Nginx<br/>PANEL_PORT 默认 5700]
-    D[容器内 Go API<br/>固定走 5701]
-
-    A --> B --> C
-    C -->|/api/* 反代| D
-```
-
-可以直接记住两条规则：
-
-1. Docker 部署时，**通常只改 `-p` 左侧宿主机端口**，不要碰容器内后端 `5701`。
-2. 宿主机上的反向代理（如宝塔/Nginx/Caddy）应当代理到 **宿主机映射端口**，不要直接代理到容器内 `5701`。
-
-### Docker Compose（推荐）
+### 一键启动（Alpine 运行时）
 
 ```yaml
+# docker-compose.yml
 services:
   daidai-panel:
     image: docker.1ms.run/linzixuanzz/daidai-panel:latest
     container_name: daidai-panel
     restart: unless-stopped
     ports:
-      - "5700:5700" # 宿主机端口:容器内 Nginx 端口
+      - "5700:5700"                                # 宿主机端口:容器内 Nginx 端口
     volumes:
-      - ./Dumb-Panel:/app/Dumb-Panel # 面板数据目录
-      - /var/run/docker.sock:/var/run/docker.sock  
+      - ./Dumb-Panel:/app/Dumb-Panel               # 面板数据目录，升级保留
+      - /var/run/docker.sock:/var/run/docker.sock  # 面板内一键更新用，不需要可删
     environment:
       - TZ=Asia/Shanghai
       - CONTAINER_NAME=daidai-panel
@@ -157,60 +134,14 @@ services:
 docker compose up -d
 ```
 
-启动后访问：`http://localhost:5700`
+首次访问 `http://localhost:5700` 会进入管理员初始化。
 
-> **说明**：上面的 `docker.1ms.run/` 是 Docker Hub 镜像加速前缀，实际对应的镜像仓库仍是 `linzixuanzz/daidai-panel`。
+> `docker.1ms.run/` 是 Docker Hub 镜像加速前缀，实际仓库仍是 `linzixuanzz/daidai-panel`。需要换源就改这段。
 
-如果你希望通过 `8080` 访问，只需要把上面的端口映射改成：
-
-```yaml
-ports:
-  - "8080:5700"
-```
-
-也就是：**只改左侧宿主机端口，右侧容器内 Nginx 端口仍保持 `5700`。**
-
-### Debian 运行时镜像
-
-如果你需要在面板内安装 **仅 Debian / Ubuntu 提供、Alpine 无法安装** 的 Linux 软件包，可以直接使用仓库内提供的 Debian 运行时版本。
-
-这个版本的区别是：
-
-- 面板容器运行在 Debian 系基础镜像上
-- 依赖管理里的 Linux 包安装会识别为 `apt`
-- 更适合 `apk` 仓库里缺失、但 `apt` 可以直接安装的软件包
-
-直接使用仓库内示例：
+想用 `docker run` 而不是 compose，等价命令：
 
 ```bash
-docker compose -f docker-compose.debian.yml up -d
-```
-
-启动后访问：`http://localhost:5700`
-
-如果你是基于当前源码本地试跑，也可以手动构建：
-
-```bash
-docker build --build-arg VERSION=2.0.4 -f Dockerfile.debian -t daidai-panel:debian-local .
-```
-
-从 `v1.9.0` 开始，仓库里的发布工作流会自动发布 Debian 运行时镜像。Debian 运行时只保留一个滚动标签：
-
-- `linzixuanzz/daidai-panel:debian`
-
-发布完成后，可以按下面方式直接拉取：
-
-```bash
-docker pull docker.1ms.run/linzixuanzz/daidai-panel:debian
-```
-
-> **说明**：默认 `docker-compose.yml` 和 Docker Hub `latest` / `<版本号>` 仍是 Alpine 运行时；只有使用 `Dockerfile.debian`、`docker-compose.debian.yml`，或者 Docker Hub 上的 `debian` tag 时，容器内 Linux 依赖安装才会切换到 Debian / `apt` 链路。
-
-### Docker Run
-
-```bash
-docker run -d \
-  --pull=always \
+docker run -d --pull=always \
   --name daidai-panel \
   --restart unless-stopped \
   -p 5700:5700 \
@@ -222,289 +153,88 @@ docker run -d \
   docker.1ms.run/linzixuanzz/daidai-panel:latest
 ```
 
-启动后访问：`http://localhost:5700`
+### 支持的 CPU 架构
 
-首次使用需要初始化管理员账号。
+镜像是 multi-arch manifest list，`docker pull` 时按你机器自动选对应平台：
 
-> **说明**：挂载 `/var/run/docker.sock` 是为了支持面板内一键更新功能。如果不需要此功能，可以移除该挂载。
+| 架构 | 典型机器 |
+|------|---------|
+| `linux/amd64` | x86_64 服务器、PC、绝大多数 NAS |
+| `linux/arm64` | 树莓派 4 / 5、Oracle ARM 云、Apple Silicon |
+| `linux/386` | **v2.0.9 新增**：32 位 x86 老 PC、瘦客户端（仅 `:latest` 有，`:debian` 无） |
+| `linux/arm/v7` | **v2.0.9 新增**：树莓派 2 / 3 / Zero 2W、老 ARMv7 盒子 / 路由器 / NAS |
 
-> **说明**：`-p 5700:5700` 的左侧是宿主机端口，右侧是容器内 Nginx 端口，不是 Go 后端端口。
+### Alpine vs Debian 运行时
 
-### 自定义端口（Docker）
+面板提供两套运行时镜像，差别只在容器内的包管理器：
 
-#### 场景 1：只修改宿主机访问端口（推荐）
+| Tag | 基础镜像 | Linux 包管理 | 支持架构 | 适合谁 |
+|-----|---------|-------------|---------|--------|
+| `linzixuanzz/daidai-panel:latest` / `:<版本>` | `alpine:3.19` | `apk` | amd64 / arm64 / 386 / arm/v7 | 默认推荐，绝大多数场景 |
+| `linzixuanzz/daidai-panel:debian` | `node:20 bookworm-slim` | `apt` | amd64 / arm64 / arm/v7 | 需要安装只在 Debian/Ubuntu 仓库存在、`apk` 没打包的 Linux 软件 |
 
-这是最常见的需求。容器内端口保持默认值即可，只改 `-p` 左侧：
-
-```bash
-# 浏览器访问 http://宿主机IP:8080
-docker run -d \
-  --pull=always \
-  --name daidai-panel \
-  --restart unless-stopped \
-  -p 8080:5700 \
-  -v $(pwd)/Dumb-Panel:/app/Dumb-Panel \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  -e TZ=Asia/Shanghai \
-  docker.1ms.run/linzixuanzz/daidai-panel:latest
-```
-
-此时端口关系是：
-
-- 宿主机访问端口：`8080`
-- 容器内 Nginx 端口：`5700`
-- 容器内 Go 后端端口：`5701`
-
-#### 场景 2：同时修改容器内 Nginx 端口（一般不需要）
-
-只有在你明确需要调整容器内 Nginx 监听端口时，才设置 `PANEL_PORT`，并保持 `-p` 右侧与其一致：
+切到 Debian 运行时：
 
 ```bash
-# 浏览器访问 http://宿主机IP:8080
-# 容器内 Nginx 监听 7100
-docker run -d \
-  --pull=always \
-  --name daidai-panel \
-  --restart unless-stopped \
-  -p 8080:7100 \
-  -e PANEL_PORT=7100 \
-  -v $(pwd)/Dumb-Panel:/app/Dumb-Panel \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  -e TZ=Asia/Shanghai \
-  docker.1ms.run/linzixuanzz/daidai-panel:latest
-```
-
-此时端口关系是：
-
-- 宿主机访问端口：`8080`
-- 容器内 Nginx 端口：`7100`
-- 容器内 Go 后端端口：`5701`
-
-> **注意**：`-p` 右侧的容器端口必须与 `PANEL_PORT` 一致，否则宿主机流量进不到容器内 Nginx。
-> **注意**：`PANEL_PORT` 只影响容器内 Nginx 端口，不影响容器内 Go 后端 `5701`。
-
-## 多架构支持
-
-镜像同时支持 `linux/amd64` 和 `linux/arm64`，可在 x86 服务器和 ARM 设备（如树莓派、Oracle ARM 云服务器）上直接运行。
-
-## 自动发布
-
-仓库已配置 GitHub Actions 发布工作流。推送形如 `v2.0.4` 的 tag 后，会自动完成：
-
-- 创建 GitHub Release
-- 推送 Alpine 运行时镜像：`linzixuanzz/daidai-panel:latest`
-- 推送 Alpine 版本镜像：`linzixuanzz/daidai-panel:2.0.4`
-- 推送 Debian 运行时镜像：`linzixuanzz/daidai-panel:debian`
-- 构建并上传 Magisk 模块 ZIP：`daidai-panel-magisk-v<版本>.zip`（同时更新 `Magisk/update.json`，Magisk 管理器可直接检查新版本）
-
-发布前请先准备对应版本的更新日志文件，例如：
-
-```text
-docs/release-notes/v2.0.4.md
-```
-
-工作流会优先读取这份文件作为 GitHub Release 正文；如果缺失，会直接失败并提示补齐，确保每次发布都带有明确更新日志。
-
-本次版本发布命令示例：
-
-```bash
-git tag v2.0.4
-git push origin v2.0.4
-```
-
-## 更新方法
-
-### 方式一：面板内一键更新（推荐）
-
-进入「系统设置」→「概览」，点击「检查系统更新」，如有新版本会提示一键更新。
-
-### 方式二：手动更新
-
-```bash
-docker pull docker.1ms.run/linzixuanzz/daidai-panel:latest
-docker compose up -d
-```
-
-如果你当前使用的是源码仓库里手动本地构建的 Debian 运行时镜像，更新方式是重新构建：
-
-```bash
-docker build --build-arg VERSION=2.0.4 -f Dockerfile.debian -t daidai-panel:debian-local .
-```
-
-如果你使用的是 Debian 运行时镜像，则按下面方式更新：
-
-```bash
-docker pull docker.1ms.run/linzixuanzz/daidai-panel:debian
+# 仓库里有现成的 compose
 docker compose -f docker-compose.debian.yml up -d
+
+# 或基于源码本地构建
+docker build --build-arg VERSION=2.0.9 -f Dockerfile.debian -t daidai-panel:debian-local .
 ```
 
-## 容器内置命令
+## 端口与反向代理
 
-容器内现在内置了 `ddp` 命令，用于在终端里直接做常见运维操作。
+### 端口三兄弟
 
-> **说明**：没有使用 `dd` 作为命令名，因为 Linux 自带 `dd` 命令，容易冲突。
+面板在容器内有 **3 个端口**，搞清它们，大多数部署问题都会消失：
 
-常见示例：
+| 端口 | 由谁决定 | 默认 | 要不要改 |
+|------|---------|------|----------|
+| **宿主机端口** | docker `-p` 左侧 | `5700` | 常改 |
+| **容器内 Nginx 端口** | 环境变量 `PANEL_PORT`，`-p` 右侧应与其一致 | `5700` | 基本不改 |
+| **容器内 Go 后端端口** | 环境变量 `SERVER_PORT` | `5701` | **不要改** |
 
-```bash
-docker exec -it daidai-panel ddp help
-docker exec -it daidai-panel ddp status
-docker exec -it daidai-panel ddp check
-docker exec -it daidai-panel ddp logs --lines 200
-docker exec -it daidai-panel ddp script list
-docker exec -it daidai-panel ddp script cat demo.py
-docker exec -it daidai-panel ddp script fetch https://example.com/test.py --path tools/test.py
-docker exec -it daidai-panel ddp env list
-docker exec -it daidai-panel ddp env set JD_COOKIE "pt_key=xxx;pt_pin=yyy;" --group 京东
-docker exec -it daidai-panel ddp task list --status running
-docker exec -it daidai-panel ddp task logs 12 --lines 80
-docker exec -it daidai-panel ddp sub list
-docker exec -it daidai-panel ddp sub logs 3 --lines 100
-docker exec -it daidai-panel ddp restart
-docker exec -it daidai-panel ddp update
-docker exec -it daidai-panel ddp clean-logs 7
-docker exec -it daidai-panel ddp backup create --name nightly
-docker exec -it daidai-panel ddp backup list
-docker exec -it daidai-panel ddp task run 12
-docker exec -it daidai-panel ddp sub pull 我的订阅
-docker exec -it daidai-panel ddp reset-login --all
-docker exec -it daidai-panel ddp list-users
-docker exec -it daidai-panel ddp reset-password admin NewPass123
-docker exec -it daidai-panel ddp reset-username admin newadmin
-docker exec -it daidai-panel ddp disable-2fa admin
+```mermaid
+flowchart LR
+    A[浏览器<br/>http://宿主机IP:宿主机端口]
+    B[宿主机端口<br/>docker -p 左侧]
+    C[容器内 Nginx<br/>PANEL_PORT 默认 5700]
+    D[容器内 Go API<br/>固定 5701]
+
+    A --> B --> C
+    C -->|/api/* 反代| D
 ```
 
-命令说明：
+两条经验记住就够用：
 
-- `ddp status`：查看版本、数据目录、端口、任务数、资源占用和服务状态
-- `ddp check`：检查配置文件、数据库、运行目录、运行时命令、Docker Socket 等关键项
-- `ddp logs`：查看 `panel.log`
-- `ddp script list/cat/fetch`：浏览脚本、查看脚本内容、从远程地址直接保存脚本到面板目录
-- `ddp env list/get/set/delete`：在终端里直接管理环境变量
-- `ddp task list/logs`：查看任务清单和最近一次执行日志
-- `ddp sub list/logs`：查看订阅清单和最近一次拉取日志
-- `ddp restart`：重启容器内的 `daidai-server` 进程
-- `ddp update`：复用面板现有的一键更新链路拉取并重建当前容器
-- `ddp clean-logs [days]`：清理旧任务日志文件
-- `ddp backup create/list/restore/delete`：管理面板备份
-- `ddp task run <任务ID或名称>`：在当前终端同步执行一个任务并等待结果
-- `ddp task stop <任务ID或名称>`：终止当前已启动且有 PID 的任务进程
-- `ddp sub pull <订阅ID或名称>`：立即执行一次订阅拉取，并实时输出日志
-- `ddp reset-login`：重置登录失败次数，可按用户名、IP 或全部清除
-- `ddp list-users`：列出面板全部用户（忘记用户名时使用）
-- `ddp reset-password [用户名] <新密码>`：重置指定用户密码；仅一个用户时可省略用户名
-- `ddp reset-username [旧用户名] <新用户名>`：重命名用户；仅一个用户时可省略旧用户名
-- `ddp disable-2fa`：禁用指定用户或全部用户的 2FA
+1. **Docker 部署通常只改 `-p` 左侧**，右侧保持 `5700` 即可。
+2. **宿主机 Nginx / 宝塔 / Caddy 反代的目标是宿主机端口**（比如 `127.0.0.1:5700`），**别直接代理到容器内 `5701`**——SSE 会断流、鉴权会丢。
 
-> **忘记密码怎么办**：进入宿主机执行 `docker exec -it daidai-panel ddp list-users` 查出用户名，然后 `ddp reset-password <用户名> <新密码>` 即可，不再需要删除数据重装。
+### 想改端口
 
-如果你直接给镜像传命令参数，也可以工作，例如：
-
-```bash
-docker run --rm \
-  -v $(pwd)/Dumb-Panel:/app/Dumb-Panel \
-  docker.1ms.run/linzixuanzz/daidai-panel:latest \
-  ddp version
-```
-
-## 数据目录
-
-```
-./Dumb-Panel/
-├── daidai.db          # SQLite 数据库
-├── .jwt_secret        # 自动生成的 JWT 密钥
-├── panel.log          # 面板运行日志
-├── deps/              # Python / Node.js 依赖目录
-├── scripts/           # 脚本文件存储
-├── logs/              # 执行日志
-└── backups/           # 数据备份
-```
-
-## 技术栈
-
-| 层 | 技术 |
-|----|------|
-| 前端 | Vue 3 + TypeScript + Element Plus + Pinia + Vite |
-| 后端 | Go (Gin) + GORM + SQLite |
-| 部署 | Nginx + Go Binary，Docker 单镜像（AMD64 / ARM64） |
-
-## 环境变量
-
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `TZ` | 时区 | `Asia/Shanghai` |
-| `DATA_DIR` | 数据存储目录 | `/app/Dumb-Panel` |
-| `DB_PATH` | 数据库路径 | `${DATA_DIR}/daidai.db` |
-| `PANEL_PORT` | 容器内 Nginx 监听端口 | `5700` |
-| `SERVER_PORT` | Go 服务端口 | `5701` |
-
-> **建议**：Docker 部署时通常只改宿主机端口映射，不改 `SERVER_PORT`。  
-> `SERVER_PORT` 是容器内后端端口；若你强行修改它，还需要确保容器内反向代理配置同步指向新的后端端口。
-
-<details>
-<summary><b>config.yaml 完整配置说明</b></summary>
-
-`config.yaml` 用于后端启动配置；Docker 部署时由 `entrypoint.sh` 自动生成。
+**只改宿主机端口**（最常见，比如让浏览器走 8080）：
 
 ```yaml
-server:
-  port: 5701          # 后端 API 端口
-  mode: release       # debug / release
-
-database:
-  path: ./data/daidai.db    # SQLite 数据库路径
-
-jwt:
-  secret: ""                # 留空则自动生成并持久化
-  access_token_expire: 480h
-  refresh_token_expire: 1440h
-
-data:
-  dir: ./data               # 数据根目录
-  scripts_dir: ./data/scripts
-  log_dir: ./data/logs
-
-cors:
-  origins:                  # 允许的跨域来源
-    - http://localhost:5173
-    - http://localhost:5700
+ports:
+  - "8080:5700"
 ```
 
-</details>
+**连容器内 Nginx 端口一起改**（只在容器内 5700 和其他服务冲突时）：`-p` 右侧必须和 `PANEL_PORT` 一致，Go 后端 `5701` 不受影响。
 
-## 配置分层说明
+```bash
+docker run -d --name daidai-panel \
+  -p 8080:7100 \
+  -e PANEL_PORT=7100 \
+  ...
+```
 
-如果你准备做运维或二次集成，建议先区分下面两类配置：
+### 反向代理示例
 
-- 启动配置：Docker 环境变量、`config.yaml`
-- 运行期系统配置：设置页“系统设置”里保存到数据库 `system_configs` 的配置项
-
-运行期系统配置当前已经有统一注册表和运维说明，包含默认值、类型、何时生效、注意事项：
-
-- [系统配置与运维说明](./docs/system-config-operations.md)
-
-如果你通过 API 做自动化管理，也可以直接读取 `/api/v1/configs`，当前接口会返回：
-
-- `value`
-- `default_value`
-- `value_type`
-- `group`
-- `options`
-- `registered`
-
-## 反向代理说明
-
-### 场景 A：宿主机 Nginx 代理到 Docker 已发布端口
-
-这是最常见的部署方式：
-
-1. 呆呆面板容器通过 `-p 8080:5700` 暴露在宿主机 `8080`
-2. 宿主机上的 Nginx / 宝塔 / Caddy 再反代到 `127.0.0.1:8080`
-
-这时你的反向代理目标应该是 **宿主机端口 `8080`**，不是容器内后端 `5701`。
+最常见是 **宿主机 Nginx → Docker 已发布端口**。面板暴露在宿主机 `5700`，反代就指向那里：
 
 <details>
-<summary><b>宿主机 Nginx 反向代理示例（HTTPS）</b></summary>
+<summary><b>宿主机 Nginx 示例（HTTPS，含 SSE 支持）</b></summary>
 
 ```nginx
 map $http_upgrade $connection_upgrade {
@@ -520,7 +250,8 @@ server {
     ssl_certificate_key /path/to/privkey.pem;
 
     location / {
-        proxy_pass http://127.0.0.1:5700;
+        proxy_pass http://127.0.0.1:5700;   # 宿主机端口，不是容器内 5701
+
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -530,7 +261,7 @@ server {
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
 
-        proxy_buffering off;
+        proxy_buffering off;                 # SSE 日志流必须关
         proxy_read_timeout 300s;
     }
 }
@@ -538,25 +269,160 @@ server {
 
 </details>
 
-如果你 Docker 用的是 `-p 8080:5700`，那就把上面的 `proxy_pass` 改成：
+如果反代本身也跑在同一 Docker 网络里，可以直接代理到 `http://daidai-panel:5700`（依然是容器内 Nginx 端口）。
 
-```nginx
-proxy_pass http://127.0.0.1:8080;
+**别做的事**：
+
+- 让浏览器或反代绕过容器内 Nginx 直接访问 Go 后端 `5701`
+- 把 SSE / 下载 / 鉴权接口单独绕出去
+- 让 `-p` 右侧容器端口和 `PANEL_PORT` 不一致
+
+## 更新
+
+### 面板内一键更新（推荐）
+
+进入「系统设置」→「概览」→ 点「检查系统更新」。需要在 `docker-compose.yml` 里挂载了 `/var/run/docker.sock` 才能触发一键更新。
+
+### 手动更新
+
+```bash
+# Alpine 运行时
+docker pull docker.1ms.run/linzixuanzz/daidai-panel:latest
+docker compose up -d
+
+# Debian 运行时
+docker pull docker.1ms.run/linzixuanzz/daidai-panel:debian
+docker compose -f docker-compose.debian.yml up -d
 ```
 
-### 场景 B：同一 Docker 网络中的反向代理容器
+本地基于源码自己构建的镜像，重新 build 即可：
 
-如果你的反向代理本身也运行在 Docker 里，并且和呆呆面板在同一个 Docker 网络中，那么它可以直接代理到：
+```bash
+docker build --build-arg VERSION=2.0.9 -f Dockerfile.debian -t daidai-panel:debian-local .
+```
 
-- `http://daidai-panel:5700`
+## 容器命令 `ddp`
 
-这里的 `5700` 仍然是 **容器内 Nginx 端口**，不是 Go 后端 `5701`。
+容器里预置了 `ddp` CLI，覆盖运维、脚本 / 变量 / 任务 / 订阅管理、账号恢复等场景。统一入口：
 
-### 不建议的做法
+```bash
+docker exec -it daidai-panel ddp <subcommand>
+```
 
-- 不要让浏览器或宿主机反向代理直接访问容器内 Go 后端 `5701`
-- 不要把 SSE、下载、鉴权接口单独绕过容器内 Nginx
-- 不要把 `-p` 右侧容器端口和 `PANEL_PORT` 配成不一致
+> 没叫 `dd` 是因为会和 Linux 自带 `dd` 命令冲突。
+
+### 状态与自检
+
+```bash
+ddp help                 # 查看所有子命令
+ddp status               # 版本、数据目录、端口、任务数、资源占用、服务状态
+ddp check                # 检查配置、数据库、运行目录、运行时命令、Docker Socket
+ddp logs --lines 200     # 查看 panel.log
+```
+
+### 脚本
+
+```bash
+ddp script list
+ddp script cat demo.py
+ddp script fetch https://example.com/test.py --path tools/test.py
+```
+
+### 环境变量
+
+```bash
+ddp env list
+ddp env get JD_COOKIE
+ddp env set JD_COOKIE "pt_key=xxx;pt_pin=yyy;" --group 京东
+ddp env delete <id>
+```
+
+### 任务与订阅
+
+```bash
+ddp task list --status running
+ddp task logs 12 --lines 80
+ddp task run 12                 # 同步执行任务并实时输出
+ddp task stop 12                # 终止运行中的任务
+
+ddp sub list
+ddp sub logs 3 --lines 100
+ddp sub pull 我的订阅            # 立即执行一次订阅拉取
+```
+
+### 运维
+
+```bash
+ddp restart                     # 重启容器内 daidai-server 进程
+ddp update                      # 复用面板一键更新链路
+ddp clean-logs 7                # 清理 7 天前的任务日志文件
+ddp backup create --name nightly
+ddp backup list
+ddp backup restore <name>
+ddp backup delete <name>
+```
+
+### 账号恢复（忘了密码 / 用户名）
+
+```bash
+ddp list-users                              # 忘了用户名先看这个
+ddp reset-password admin NewPass123         # 单用户时可省略用户名
+ddp reset-username admin newadmin
+ddp disable-2fa admin                       # 传 --all 则全员禁用
+ddp reset-login --all                       # 清登录失败次数，解锁被锁账号
+```
+
+> **忘记密码怎么办**：`docker exec -it daidai-panel ddp list-users` 查出用户名，再 `ddp reset-password <用户名> <新密码>`，不需要删数据重装。
+
+命令也支持直接跑完就退出的一次性形态：
+
+```bash
+docker run --rm \
+  -v $(pwd)/Dumb-Panel:/app/Dumb-Panel \
+  docker.1ms.run/linzixuanzz/daidai-panel:latest \
+  ddp version
+```
+
+## 数据目录
+
+默认挂在 `./Dumb-Panel`，保留这一个目录 = 保留整个面板状态：
+
+```
+Dumb-Panel/
+├── daidai.db          # SQLite 数据库
+├── .jwt_secret        # 自动生成的 JWT 密钥
+├── panel.log          # 面板运行日志
+├── deps/              # Python / Node.js 依赖
+├── scripts/           # 脚本文件
+├── logs/              # 任务执行日志
+└── backups/           # 数据备份
+```
+
+## 配置参考
+
+面板有两层配置：
+
+- **启动配置**：Docker 环境变量 + `config.yaml`。Docker 部署时由 `entrypoint.sh` 自动生成，一般不需要手动改。
+- **运行期配置**：进面板后「系统设置」里改，落到 SQLite 的 `system_configs` 表，重启不丢失。完整项目清单见 [系统配置与运维说明](./docs/system-config-operations.md)。
+
+### Docker 环境变量
+
+| 变量 | 说明 | 默认 |
+|------|------|------|
+| `TZ` | 时区 | `Asia/Shanghai` |
+| `DATA_DIR` | 数据目录 | `/app/Dumb-Panel` |
+| `DB_PATH` | 数据库路径 | `${DATA_DIR}/daidai.db` |
+| `PANEL_PORT` | 容器内 Nginx 端口 | `5700` |
+| `SERVER_PORT` | 容器内 Go 后端端口（**不要改**） | `5701` |
+| `CONTAINER_NAME` / `IMAGE_NAME` | 面板内一键更新识别自己用 | 空 |
+
+## 技术栈
+
+| 层 | 技术 |
+|----|------|
+| 前端 | Vue 3 + TypeScript + Element Plus + Pinia + Vite + Monaco Editor |
+| 后端 | Go 1.25 + Gin + GORM + SQLite（`glebarez/sqlite` 纯 Go port，`CGO_ENABLED=0`） |
+| 部署 | Nginx + Go Binary，Docker 多架构镜像：`linux/amd64` / `linux/arm64` / `linux/386` / `linux/arm/v7` |
 
 ## 致谢
 
