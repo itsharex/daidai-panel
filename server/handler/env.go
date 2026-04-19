@@ -244,8 +244,6 @@ func (h *EnvHandler) Create(c *gin.Context) {
 	results := []map[string]interface{}{}
 	errors := []string{}
 	createdCount := 0
-	updatedCount := 0
-	anyCreated := false
 
 	for i, item := range items {
 		if item.Name == "" {
@@ -257,30 +255,9 @@ func (h *EnvHandler) Create(c *gin.Context) {
 			continue
 		}
 
-		// Business identity: (name, remarks). If the pair already exists we
-		// upsert — overwrite value (+ group if provided). This matches the
-		// plugin flow where the same (name, remarks) marker identifies the
-		// same account across token refreshes.
-		var existing model.EnvVar
-		lookupErr := database.DB.
-			Where("name = ? AND remarks = ?", item.Name, item.Remarks).
-			First(&existing).Error
-
-		if lookupErr == nil {
-			updates := map[string]interface{}{"value": item.Value}
-			if item.Group != "" {
-				updates["group"] = normalizeEnvGroupValue(item.Group)
-			}
-			if err := database.DB.Model(&existing).Updates(updates).Error; err != nil {
-				errors = append(errors, fmt.Sprintf("item %d: %s", i+1, err.Error()))
-				continue
-			}
-			database.DB.First(&existing, existing.ID)
-			results = append(results, existing.ToDict())
-			updatedCount++
-			continue
-		}
-
+		// 青龙风格：新建一律纯 insert。同 name 允许多条（多账号场景），
+		// 运行时由 BuildManagedRuntimeEnvMap 按 name 分组再用 & 拼接暴露给脚本。
+		// 如果插件需要按 (name, remarks) 原地刷新 token，请走 PUT /envs/:id。
 		nextPos, err := nextEnvPosition(database.DB, envNormalSortOrder)
 		if err != nil {
 			errors = append(errors, fmt.Sprintf("item %d: %s", i+1, err.Error()))
@@ -303,26 +280,20 @@ func (h *EnvHandler) Create(c *gin.Context) {
 		}
 		results = append(results, env.ToDict())
 		createdCount++
-		anyCreated = true
 	}
 
 	if len(results) == 1 && len(errors) == 0 {
-		if anyCreated {
-			response.Created(c, gin.H{"message": "创建成功", "data": results[0]})
-		} else {
-			response.Success(c, gin.H{"message": "已按 name+remarks 合并更新", "data": results[0]})
-		}
+		response.Created(c, gin.H{"message": "创建成功", "data": results[0]})
 		return
 	}
 
 	payload := gin.H{
-		"message": fmt.Sprintf("新增 %d 条，更新 %d 条", createdCount, updatedCount),
+		"message": fmt.Sprintf("新增 %d 条", createdCount),
 		"data":    results,
 		"errors":  errors,
 		"created": createdCount,
-		"updated": updatedCount,
 	}
-	if anyCreated {
+	if createdCount > 0 {
 		response.Created(c, payload)
 		return
 	}
@@ -384,27 +355,8 @@ func (h *EnvHandler) Update(c *gin.Context) {
 		updates["enabled"] = *req.Enabled
 	}
 
-	// Guard the (name, remarks) business-identity invariant: if either the
-	// name or the remarks would change, reject when another row already owns
-	// the resulting pair.
-	effectiveName := env.Name
-	if v, ok := updates["name"].(string); ok {
-		effectiveName = v
-	}
-	effectiveRemarks := env.Remarks
-	if v, ok := updates["remarks"].(string); ok {
-		effectiveRemarks = v
-	}
-	if effectiveName != env.Name || effectiveRemarks != env.Remarks {
-		var conflict int64
-		database.DB.Model(&model.EnvVar{}).
-			Where("name = ? AND remarks = ? AND id <> ?", effectiveName, effectiveRemarks, env.ID).
-			Count(&conflict)
-		if conflict > 0 {
-			response.Error(c, http.StatusConflict, "已存在同名且备注相同的变量，请调整 name 或 remarks")
-			return
-		}
-	}
+	// 青龙风格：(name, remarks) 不再是业务唯一键，同 name + 同 remarks 允许多条，
+	// 因此 Update 不需要撞名检测。运行时按 name 分组，顺序由 position 决定。
 
 	if len(updates) == 0 {
 		response.Success(c, gin.H{"message": "未检测到字段变更", "data": env.ToDict()})

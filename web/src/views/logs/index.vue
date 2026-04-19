@@ -1238,15 +1238,20 @@ onBeforeUnmount(() => {
 }
 
 /* =============== Detail dialog =============== */
+// 注意：.log-detail-dialog 通过 el-dialog 组件的 class 属性直接透传到 .el-dialog 元素自身，
+// 两个 class 在同一个元素上，不是父子关系，所以 flex / max-height 等约束要直接写在 :deep(.log-detail-dialog) 层级。
 :deep(.log-detail-dialog) {
-  .el-dialog {
-    border-radius: 14px;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    max-height: 88vh;
-    margin: 0 auto;
-  }
+  border-radius: 14px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  // 固定窗口尺寸：不随日志内容多少变化，内部日志区用 flex:1 + overflow:auto 在窗口内滚动。
+  // 只写 max-height 会让日志少时 dialog 被塌陷成一条，所以 height 和 max-height 同时写，既固定又兜底。
+  height: 88vh;
+  max-height: 88vh;
+  // align-center 模式下 el-overlay-dialog 是 flex 容器，用 margin: auto 让 dialog 垂直+水平居中；
+  // 如果写成 margin: 0 auto 上下 margin 会变成 0，dialog 会贴到容器底部。
+  margin: auto;
 
   .el-dialog__header {
     padding: 0;

@@ -500,34 +500,6 @@ function handleClose() {
 </template>
 
 <style scoped lang="scss">
-:deep(.log-viewer-dialog) {
-  --viewer-border-soft: color-mix(in srgb, var(--el-border-color-light) 85%, transparent);
-
-  .el-dialog {
-    border-radius: 16px;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    max-height: 90vh;
-    margin: 0 auto;
-  }
-
-  .el-dialog__header {
-    padding: 0;
-    margin: 0;
-    border-bottom: 1px solid var(--viewer-border-soft);
-    flex-shrink: 0;
-  }
-
-  .el-dialog__body {
-    padding: 0;
-    flex: 1;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-}
 
 /* =============== Hero =============== */
 .viewer-hero {
@@ -932,10 +904,6 @@ function handleClose() {
 
 /* =============== Mobile =============== */
 @media (max-width: 768px) {
-  :deep(.log-viewer-dialog .el-dialog) {
-    border-radius: 0;
-  }
-
   .viewer-hero {
     padding: 10px 12px;
     gap: 10px;
@@ -962,11 +930,6 @@ function handleClose() {
     }
   }
 
-  :deep(.log-viewer-dialog .el-dialog) {
-    max-height: 100dvh;
-    height: 100dvh;
-  }
-
   .viewer-log {
     padding: 14px;
   }
@@ -974,6 +937,58 @@ function handleClose() {
   .viewer-statusbar {
     padding: 5px 14px;
     font-size: 10px;
+  }
+}
+</style>
+
+<!--
+  独立的非 scoped style：专门处理 teleport 到 body 的 el-dialog 根元素。
+  原因：LogViewer.vue 的 template root 就是 el-dialog 自身，而 el-dialog 会把 DOM teleport 到 body，
+  在这种组合下 Vue scoped 的 data-v 属性往 teleport 元素传递不可靠，
+  :deep(.log-viewer-dialog) 编译出的 [data-v-xxx] .log-viewer-dialog 选择器在实际 DOM 里没办法命中。
+  改用非 scoped 块，编译后是纯 .log-viewer-dialog 选择器，不依赖 scope，一定生效。
+  类名唯一 log-viewer-dialog不会污染其他组件。
+-->
+<style lang="scss">
+.log-viewer-dialog {
+  --viewer-border-soft: color-mix(in srgb, var(--el-border-color-light) 85%, transparent);
+
+  border-radius: 16px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  // 固定窗口尺寸：不随日志内容多少变化，内部 .viewer-log 用 flex:1 + overflow:auto 在窗口内滚动。
+  // 只写 max-height 会让日志少时 dialog 被塌陷成一条，所以 height 和 max-height 同时写，既固定又兜底。
+  height: 90vh;
+  max-height: 90vh;
+  // align-center 模式下 el-overlay-dialog 是 flex 容器，用 margin: auto 让 dialog 垂直+水平居中；
+  // 如果写成 margin: 0 auto 上下 margin 会变成 0，dialog 会贴到容器底部。
+  margin: auto;
+
+  // fullscreen 模式（由 :fullscreen="dialogFullscreen" prop 激活，对应 mobile），
+  // 由 Element Plus 默认样式 .el-dialog.is-fullscreen { height:100%; ... } 接管，
+  // 但我们的 height:90vh 优先级一样，需要显式让 fullscreen 时恢复全屏。
+  &.is-fullscreen {
+    height: 100%;
+    max-height: 100%;
+    border-radius: 0;
+    margin: 0;
+  }
+
+  .el-dialog__header {
+    padding: 0;
+    margin: 0;
+    border-bottom: 1px solid var(--viewer-border-soft);
+    flex-shrink: 0;
+  }
+
+  .el-dialog__body {
+    padding: 0;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
   }
 }
 </style>

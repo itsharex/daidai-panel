@@ -177,15 +177,15 @@ func EnsureColumns() {
 		{"avatar_url", "VARCHAR(512) DEFAULT ''"},
 	})
 
-	ensureEnvVarUniqueIndex()
+	dropEnvVarUniqueIndex()
 
 	log.Printf("column check completed")
 }
 
-// ensureEnvVarUniqueIndex enforces the (name, remarks) business identity at
-// the DB layer. Existing installs with pre-existing duplicates simply skip the
-// index creation — the handler's application-level check stays authoritative.
-func ensureEnvVarUniqueIndex() {
+// dropEnvVarUniqueIndex 迁移：青龙化后 (name, remarks) 不再是业务唯一键，
+// 旧部署里如果残留了 idx_env_vars_name_remarks 唯一索引，需要清理掉，
+// 否则写入端放开后 DB 层仍会拒绝同 (name, remarks) 的新增。幂等操作。
+func dropEnvVarUniqueIndex() {
 	if DB == nil {
 		return
 	}
@@ -196,12 +196,12 @@ func ensureEnvVarUniqueIndex() {
 	if err := DB.Raw("SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_env_vars_name_remarks'").Scan(&count).Error; err != nil {
 		return
 	}
-	if count > 0 {
+	if count == 0 {
 		return
 	}
-	if err := DB.Exec(`CREATE UNIQUE INDEX idx_env_vars_name_remarks ON env_vars(name, remarks)`).Error; err != nil {
-		log.Printf("warn: skip adding unique index on env_vars(name, remarks): %v (application-level guard still enforces identity)", err)
+	if err := DB.Exec(`DROP INDEX IF EXISTS idx_env_vars_name_remarks`).Error; err != nil {
+		log.Printf("warn: failed to drop legacy unique index idx_env_vars_name_remarks: %v", err)
 		return
 	}
-	log.Printf("added unique index env_vars(name, remarks)")
+	log.Printf("dropped legacy unique index env_vars(name, remarks) to allow qinglong-style multi-account inserts")
 }
