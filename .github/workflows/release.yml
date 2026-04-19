@@ -71,6 +71,23 @@ jobs:
           GOARCH: arm64
         run: go build -ldflags="-s -w -X daidai-panel/handler.Version=${{ steps.version.outputs.VERSION }}" -o daidai-linux-arm64 .
 
+      - name: Build Linux 386
+        working-directory: server
+        env:
+          CGO_ENABLED: '0'
+          GOOS: linux
+          GOARCH: '386'
+        run: go build -ldflags="-s -w -X daidai-panel/handler.Version=${{ steps.version.outputs.VERSION }}" -o daidai-linux-386 .
+
+      - name: Build Linux armv7
+        working-directory: server
+        env:
+          CGO_ENABLED: '0'
+          GOOS: linux
+          GOARCH: arm
+          GOARM: '7'
+        run: go build -ldflags="-s -w -X daidai-panel/handler.Version=${{ steps.version.outputs.VERSION }}" -o daidai-linux-armv7 .
+
       - name: Package
         run: |
           mkdir -p release
@@ -83,6 +100,14 @@ jobs:
 
           cp ../server/daidai-linux-arm64 .
           tar -czvf ../daidai-linux-arm64.tar.gz daidai-linux-arm64 config.yaml web/
+          rm daidai-linux-arm64
+
+          cp ../server/daidai-linux-386 .
+          tar -czvf ../daidai-linux-386.tar.gz daidai-linux-386 config.yaml web/
+          rm daidai-linux-386
+
+          cp ../server/daidai-linux-armv7 .
+          tar -czvf ../daidai-linux-armv7.tar.gz daidai-linux-armv7 config.yaml web/
           cd ..
 
       - name: Create Or Update Release
@@ -98,11 +123,15 @@ jobs:
             gh release upload "${GITHUB_REF_NAME}" \
               daidai-linux-amd64.tar.gz \
               daidai-linux-arm64.tar.gz \
+              daidai-linux-386.tar.gz \
+              daidai-linux-armv7.tar.gz \
               --clobber
           else
             gh release create "${GITHUB_REF_NAME}" \
               daidai-linux-amd64.tar.gz \
               daidai-linux-arm64.tar.gz \
+              daidai-linux-386.tar.gz \
+              daidai-linux-armv7.tar.gz \
               --title "${GITHUB_REF_NAME}" \
               --notes-file "$NOTES_FILE"
           fi
@@ -224,7 +253,9 @@ jobs:
         with:
           context: .
           file: Dockerfile
-          platforms: linux/amd64,linux/arm64
+          # Alpine 镜像基础层 alpine:3.19 在 amd64 / arm64 / 386 / arm/v7 都有 manifest，
+          # 所以这里统一覆盖四个平台（含 32 位）。
+          platforms: linux/amd64,linux/arm64,linux/386,linux/arm/v7
           push: true
           build-args: VERSION=${{ steps.version.outputs.VERSION }}
           cache-from: type=gha,scope=alpine
@@ -257,7 +288,9 @@ jobs:
         with:
           context: .
           file: Dockerfile.debian
-          platforms: linux/amd64,linux/arm64
+          # Debian 镜像第二阶段用的 node:20.19.0-bookworm-slim 官方不提供 linux/386 manifest，
+          # 所以这里不能加 linux/386；linux/arm/v7 是 node 官方支持的 32 位 ARM 平台，可以加上。
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
           push: true
           build-args: VERSION=${{ steps.version.outputs.VERSION }}
           cache-from: type=gha,scope=debian

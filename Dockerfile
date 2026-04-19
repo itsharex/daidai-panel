@@ -1,4 +1,4 @@
-FROM node:20.19.0-bookworm-slim AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:20.19.0-bookworm-slim AS frontend-builder
 
 WORKDIR /build
 COPY web/package.json web/package-lock.json ./
@@ -19,8 +19,12 @@ COPY server/ ./
 ARG VERSION=2.0.4
 ARG TARGETOS
 ARG TARGETARCH
-RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -ldflags="-s -w -X daidai-panel/handler.Version=${VERSION}" -o daidai-server .
-RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -ldflags="-s -w -X daidai-panel/handler.Version=${VERSION}" -o ddp ./cmd/ddp
+ARG TARGETVARIANT
+RUN GOARM=$(case "${TARGETVARIANT}" in v7) echo 7;; v6) echo 6;; v5) echo 5;; *) echo '';; esac) && \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOARM=${GOARM} \
+    go build -ldflags="-s -w -X daidai-panel/handler.Version=${VERSION}" -o daidai-server . && \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOARM=${GOARM} \
+    go build -ldflags="-s -w -X daidai-panel/handler.Version=${VERSION}" -o ddp ./cmd/ddp
 
 
 FROM alpine:3.19
