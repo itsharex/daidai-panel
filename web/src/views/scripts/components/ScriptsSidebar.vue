@@ -28,6 +28,7 @@ defineProps<{
   onNodeDrop: (draggingNode: any, dropNode: any) => void | Promise<void>
   onOpenRename: (path: string) => void
   onDelete: (path: string, isDir: boolean) => void | Promise<void>
+  onMoveToRoot?: (path: string, isDir: boolean) => void | Promise<void>
 }>()
 
 const treeRef = ref()
@@ -108,7 +109,7 @@ watch(searchKeyword, (val) => {
         @node-click="onNodeClick"
       >
         <template #default="{ data }">
-          <ScriptTreeNode :data="data" :on-open-rename="onOpenRename" :on-delete="onDelete" />
+          <ScriptTreeNode :data="data" :on-open-rename="onOpenRename" :on-delete="onDelete" :on-move-to-root="onMoveToRoot" />
         </template>
       </el-tree>
     </div>

@@ -27,6 +27,7 @@ type Subscription struct {
 	LastPullAt  *time.Time `json:"last_pull_at"`
 	SaveDir     string     `gorm:"size:512;default:''" json:"save_dir"`
 	SSHKeyID    *uint      `json:"ssh_key_id"`
+	SubPath        string     `gorm:"size:512;default:''" json:"sub_path"`
 	Alias          string     `gorm:"size:128;default:''" json:"alias"`
 	ForceOverwrite *bool      `gorm:"default:true" json:"force_overwrite"`
 	CreatedAt      time.Time  `json:"created_at"`
@@ -54,6 +55,7 @@ func (s *Subscription) ToDict() map[string]interface{} {
 		"enabled":       s.Enabled,
 		"status":        s.Status,
 		"last_pull_at":  s.LastPullAt,
+		"sub_path":        s.SubPath,
 		"save_dir":        s.SaveDir,
 		"ssh_key_id":      s.SSHKeyID,
 		"alias":           s.Alias,

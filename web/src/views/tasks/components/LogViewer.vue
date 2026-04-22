@@ -81,15 +81,17 @@ watch(autoScroll, (enabled) => {
   }
 })
 
-async function startStream() {
+async function startStream(isReconnect = false) {
   cleanup()
   resetLogOutput()
   done.value = false
   error.value = null
   emptyMessage.value = null
-  loading.value = true
-  autoScroll.value = false
-  scheduleScrollToTop()
+  loading.value = !isReconnect
+  if (!isReconnect) {
+    autoScroll.value = false
+    scheduleScrollToTop()
+  }
 
   if (!props.taskId) {
     loading.value = false
@@ -304,7 +306,7 @@ function handleVisibilityChange() {
   }
 
   if (wasBackgrounded) {
-    void startStream()
+    void startStream(true)
   }
 }
 

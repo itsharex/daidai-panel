@@ -189,6 +189,10 @@ func pullGitRepoWithCallback(ctx context.Context, sub *model.Subscription, sshKe
 			return fullOutput.String(), err
 		}
 
+		if err := applySparseCheckout(ctx, destDir, sub.SubPath, env, emit); err != nil {
+			return fullOutput.String(), err
+		}
+
 		forceOverwrite := sub.ForceOverwrite == nil || *sub.ForceOverwrite
 		if forceOverwrite {
 			emit("[覆盖更新本地文件] 正在用远端最新提交覆盖当前订阅目录中的仓库内容")
@@ -291,6 +295,10 @@ func pullGitRepoWithCallback(ctx context.Context, sub *model.Subscription, sshKe
 				return fullOutput.String(), fmt.Errorf("拉取已停止")
 			}
 
+			if err := applySparseCheckout(ctx, destDir, sub.SubPath, env, emit); err != nil {
+				return fullOutput.String(), err
+			}
+
 			forceOverwrite := sub.ForceOverwrite == nil || *sub.ForceOverwrite
 			emit("[覆盖更新本地文件] 正在用远端最新提交覆盖当前脚本目录内容")
 			cmd = exec.CommandContext(ctx, "git", "reset", "--hard", "FETCH_HEAD")
@@ -329,7 +337,51 @@ func pullGitRepoWithCallback(ctx context.Context, sub *model.Subscription, sshKe
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = config.C.Data.ScriptsDir
 	cmd.Env = env
-	return runCmdWithCallback(ctx, cmd, emit)
+	output, err := runCmdWithCallback(ctx, cmd, emit)
+	if err != nil {
+		return output, err
+	}
+	if spErr := applySparseCheckout(ctx, destDir, sub.SubPath, env, emit); spErr != nil {
+		return output, spErr
+	}
+	return output, nil
+}
+
+func applySparseCheckout(ctx context.Context, repoDir string, subPath string, env []string, emit PullCallback) error {
+	subPath = strings.TrimSpace(subPath)
+	if subPath == "" {
+		return nil
+	}
+
+	var paths []string
+	for _, p := range strings.Split(subPath, ",") {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			paths = append(paths, p)
+		}
+	}
+	if len(paths) == 0 {
+		return nil
+	}
+
+	emit(fmt.Sprintf("[sparse-checkout] 设置子目录过滤: %s", strings.Join(paths, ", ")))
+
+	cmd := exec.CommandContext(ctx, "git", "sparse-checkout", "init", "--cone")
+	cmd.Dir = repoDir
+	cmd.Env = env
+	if _, err := runCmdWithCallback(ctx, cmd, emit); err != nil {
+		return fmt.Errorf("sparse-checkout init 失败: %w", err)
+	}
+
+	args := append([]string{"sparse-checkout", "set"}, paths...)
+	cmd = exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = repoDir
+	cmd.Env = env
+	if _, err := runCmdWithCallback(ctx, cmd, emit); err != nil {
+		return fmt.Errorf("sparse-checkout set 失败: %w", err)
+	}
+
+	return nil
 }
 
 func pullSingleFileWithCallback(ctx context.Context, sub *model.Subscription, _ string, emit PullCallback) (string, error) {

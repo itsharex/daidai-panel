@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -171,24 +172,29 @@ func validateGeeTest(captchaID, captchaKey, failMode string, payload CaptchaPayl
 
 	resp, err := geetestHTTPClient.Do(req)
 	if err != nil {
+		log.Printf("geetest upstream request failed: %v", err)
 		return captchaUpstreamFailureResult(failMode, "request_error"), nil
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 	if err != nil {
+		log.Printf("geetest upstream read body failed: %v", err)
 		return captchaUpstreamFailureResult(failMode, "read_error"), nil
 	}
 
 	if resp.StatusCode >= http.StatusInternalServerError {
+		log.Printf("geetest upstream returned HTTP %d: %s", resp.StatusCode, string(body))
 		return captchaUpstreamFailureResult(failMode, "upstream_5xx"), nil
 	}
 	if resp.StatusCode != http.StatusOK {
+		log.Printf("geetest upstream returned HTTP %d: %s", resp.StatusCode, string(body))
 		return &CaptchaVerificationResult{Passed: false, Reason: "upstream_rejected"}, nil
 	}
 
 	var result geetestValidateResponse
 	if err := json.Unmarshal(body, &result); err != nil {
+		log.Printf("geetest upstream response decode failed: %s", string(body))
 		return captchaUpstreamFailureResult(failMode, "decode_error"), nil
 	}
 

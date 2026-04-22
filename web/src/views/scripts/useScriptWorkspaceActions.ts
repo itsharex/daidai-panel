@@ -126,6 +126,23 @@ export function useScriptWorkspaceActions({
     }
   }
 
+  async function handleMoveToRoot(path: string, _isDir = false) {
+    const fileName = path.split('/').pop() || path
+    try {
+      await ElMessageBox.confirm(`确定要将 ${fileName} 移动到根���录吗？`, '移动到根目录', { type: 'info' })
+      await scriptApi.move(path, '/')
+      ElMessage.success('移动成功')
+      if (selectedFile.value === path) {
+        selectedFile.value = fileName
+        await loadFileContent(fileName)
+      }
+      await loadTree()
+    } catch (err: any) {
+      if (isActionCancelled(err)) return
+      ElMessage.error(err?.response?.data?.error || err?.message || '移动失败')
+    }
+  }
+
   async function handleDelete(path: string, isDir = false) {
     try {
       await ElMessageBox.confirm(`确定要删除 ${path} 吗？${isDir ? '\n注意：将同时删除文件夹内所有文件！' : ''}`, '确认删除', { type: 'warning' })
@@ -416,6 +433,7 @@ export function useScriptWorkspaceActions({
     handleCreateFile,
     handleCreateDir,
     handleDelete,
+    handleMoveToRoot,
     handleRename,
     openRename,
     openUploadDialog,

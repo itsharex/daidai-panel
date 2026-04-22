@@ -14,9 +14,11 @@ func ResolveTaskInactiveStatus(task *model.Task) float64 {
 		return model.TaskStatusEnabled
 	}
 
-	scheduler := GetSchedulerV2()
-	if scheduler != nil && !scheduler.HasJob(task.ID) {
-		return model.TaskStatusDisabled
+	if task.Status == model.TaskStatusRunning && task.UsesCronSchedule() {
+		scheduler := GetSchedulerV2()
+		if scheduler != nil && !scheduler.HasJob(task.ID) {
+			return model.TaskStatusDisabled
+		}
 	}
 
 	return model.TaskStatusEnabled

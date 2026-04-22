@@ -1,13 +1,16 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Delete, Edit, MoreFilled } from '@element-plus/icons-vue'
+import { Delete, Edit, FolderRemove, MoreFilled } from '@element-plus/icons-vue'
 import type { TreeNode } from '../types'
 
 const props = defineProps<{
   data: TreeNode
   onOpenRename: (path: string) => void
   onDelete: (path: string, isDir: boolean) => void | Promise<void>
+  onMoveToRoot?: (path: string, isDir: boolean) => void | Promise<void>
 }>()
+
+const isInSubDir = computed(() => props.data.key.includes('/'))
 
 const dotColor = computed(() => {
   if (!props.data.isLeaf) return 'var(--scripts-folder-dot, #94a3b8)'
@@ -61,6 +64,9 @@ const extLabel = computed(() => {
           <el-dropdown-menu>
             <el-dropdown-item @click="onOpenRename(data.key)">
               <el-icon><Edit /></el-icon>重命名
+            </el-dropdown-item>
+            <el-dropdown-item v-if="isInSubDir && onMoveToRoot" @click="onMoveToRoot(data.key, !data.isLeaf)">
+              <el-icon><FolderRemove /></el-icon>移动到根目录
             </el-dropdown-item>
             <el-dropdown-item divided @click="onDelete(data.key, !data.isLeaf)">
               <el-icon><Delete /></el-icon><span style="color: var(--el-color-danger)">删除</span>

@@ -390,7 +390,10 @@ async function handleSubmit() {
           ? '验证码已失效，请重新完成人机验证'
           : `连续失败达到 ${data?.require_after_failures || captchaConfig.value.require_after_failures || 3} 次，请先完成人机验证`
         resetCaptchaProof(true)
-        void triggerCaptcha().catch(() => {})
+        void triggerCaptcha().catch((err: any) => {
+          captchaStatusText.value = err?.message || '验证码加载失败，请检查网络后刷新重试'
+          ElMessage.error(captchaStatusText.value)
+        })
       }
     } else if (submittedCaptcha) {
       resetCaptchaProof(false)

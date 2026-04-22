@@ -45,6 +45,7 @@ const editForm = ref({
   auto_add_task: false,
   auto_del_task: false,
   save_dir: '',
+  sub_path: '',
   ssh_key_id: null as number | null,
   alias: '',
   force_overwrite: true
@@ -117,7 +118,7 @@ function openCreate() {
   editForm.value = {
     id: 0, name: '', type: 'git-repo', url: '', branch: '', schedule: '',
     whitelist: '', blacklist: '', depend_on: '', hook_script: '', auto_add_task: false,
-    auto_del_task: false, save_dir: '', ssh_key_id: null, alias: '',
+    auto_del_task: false, save_dir: '', sub_path: '', ssh_key_id: null, alias: '',
     force_overwrite: true
   }
   showEditDialog.value = true
@@ -244,7 +245,7 @@ function openEdit(row: any) {
     branch: row.branch || '', schedule: row.schedule || '',
     whitelist: row.whitelist || '', blacklist: row.blacklist || '',
     depend_on: row.depend_on || '', hook_script: row.hook_script || '', auto_add_task: row.auto_add_task,
-    auto_del_task: row.auto_del_task, save_dir: row.save_dir || '',
+    auto_del_task: row.auto_del_task, save_dir: row.save_dir || '', sub_path: row.sub_path || '',
     ssh_key_id: row.ssh_key_id, alias: row.alias || '',
     force_overwrite: row.force_overwrite !== false
   }
@@ -696,6 +697,12 @@ function viewLogDetail(log: any) {
         </el-form-item>
         <el-form-item label="保存目录">
           <el-input v-model="editForm.save_dir" placeholder="保存到 scripts 下的子目录" />
+        </el-form-item>
+        <el-form-item v-if="editForm.type === 'git-repo'" label="指定子目录">
+          <el-input v-model="editForm.sub_path" placeholder="仅拉取仓库中的指定子目录 (逗号分隔多个)" />
+          <div style="color: var(--el-text-color-secondary); font-size: 12px; margin-top: 4px; line-height: 1.4">
+            留空拉取全部内容，填写后仅检出指定子目录（如 scripts/daily, utils）
+          </div>
         </el-form-item>
         <el-form-item label="别名">
           <el-input v-model="editForm.alias" placeholder="目录/文件别名" />

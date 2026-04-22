@@ -224,7 +224,10 @@ func verifyInstalledDeps() {
 // keep using nginx.
 func setupStaticFrontend(engine *gin.Engine, webDir string) {
 	if strings.TrimSpace(webDir) == "" {
-		return
+		webDir = autoDetectWebDir()
+		if webDir == "" {
+			return
+		}
 	}
 
 	absDir, err := filepath.Abs(webDir)
@@ -261,4 +264,28 @@ func setupStaticFrontend(engine *gin.Engine, webDir string) {
 	})
 
 	log.Printf("前端静态目录已挂载: %s", absDir)
+}
+
+func autoDetectWebDir() string {
+	exePath, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	exeDir := filepath.Dir(exePath)
+
+	candidates := []string{
+		filepath.Join(exeDir, "web"),
+		filepath.Join(exeDir, "dist"),
+		filepath.Join(".", "web"),
+		filepath.Join(".", "dist"),
+	}
+
+	for _, dir := range candidates {
+		index := filepath.Join(dir, "index.html")
+		if _, err := os.Stat(index); err == nil {
+			log.Printf("自动检测到前端目录: %s", dir)
+			return dir
+		}
+	}
+	return ""
 }

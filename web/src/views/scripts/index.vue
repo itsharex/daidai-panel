@@ -70,6 +70,7 @@ const {
   handleCreateFile,
   handleCreateDir,
   handleDelete,
+  handleMoveToRoot,
   allowDrag,
   allowDrop,
   handleNodeDrop,
@@ -214,6 +215,7 @@ async function handleCancelEdit() {
       :on-node-drop="handleNodeDrop"
       :on-open-rename="openRename"
       :on-delete="handleDelete"
+      :on-move-to-root="handleMoveToRoot"
     />
 
     <ScriptsEditorPane
