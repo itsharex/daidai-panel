@@ -175,7 +175,7 @@ func (h *EnvHandler) List(c *gin.Context) {
 
 	if keyword != "" {
 		like := "%" + keyword + "%"
-		query = query.Where("name LIKE ? OR remarks LIKE ?", like, like)
+		query = query.Where("name LIKE ? OR remarks LIKE ? OR value LIKE ? OR \"group\" LIKE ?", like, like, like, like)
 	}
 	if group != "" {
 		query = query.Where("\"group\" = ?", group)

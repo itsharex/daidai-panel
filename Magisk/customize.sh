@@ -122,6 +122,19 @@ if [ -e "$rootfs/sys/kernel" ] && [ "$current_ver" = "0" ]; then
   abort "- 请重启后再尝试安装！"
 fi
 
+# ---- 停止运行中的容器，防止 rm -rf 因活跃挂载点导致安装器闪退 ------------
+if [ -d "$rootfs" ]; then
+  chmod +x "$MODPATH/system/bin/rurima" 2>/dev/null
+  "$MODPATH/system/bin/rurima" ruri -w -U "$rootfs" 2>/dev/null || true
+  pkill -f daidai-server 2>/dev/null || true
+  pkill -f "ruri.*$rootfs" 2>/dev/null || true
+  sleep 1
+  cat /proc/mounts 2>/dev/null | awk -v r="$rootfs" '$2 ~ r {print $2}' | sort -r | \
+    while read -r mp; do
+      umount -l "$mp" 2>/dev/null || true
+    done
+fi
+
 # ---- 清掉旧 rootfs 重装 -------------------------------------------------
 rm -rf $rootfs
 

@@ -3,7 +3,6 @@ import { ref, onMounted, onBeforeUnmount, nextTick, computed, watch, type CSSPro
 import { envApi } from '@/api/env'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { copyText } from '@/utils/clipboard'
-import EnvBatchCreateDialog from './components/EnvBatchCreateDialog.vue'
 import EnvBatchGroupDialog from './components/EnvBatchGroupDialog.vue'
 import EnvBatchRenameDialog from './components/EnvBatchRenameDialog.vue'
 import EnvEditDialog from './components/EnvEditDialog.vue'
@@ -67,8 +66,6 @@ const tableDensity = ref<'comfortable' | 'compact'>(
 const showEditDialog = ref(false)
 const editDialogMode = ref<'create' | 'edit'>('create')
 const currentEditEnv = ref<EnvFormModel | null>(null)
-
-const showBatchDialog = ref(false)
 
 const showImportDialog = ref(false)
 
@@ -509,17 +506,20 @@ function openEdit(row: any) {
   showEditDialog.value = true
 }
 
-async function handleSave(form: EnvFormModel) {
+async function handleSave(data: EnvFormModel | EnvFormModel[]) {
   try {
-    if (editDialogMode.value === 'create') {
-      await envApi.create(form)
+    if (Array.isArray(data)) {
+      await envApi.create(data as any)
+      ElMessage.success(`批量创建 ${data.length} 个变量成功`)
+    } else if (editDialogMode.value === 'create') {
+      await envApi.create(data)
       ElMessage.success('创建成功')
     } else {
-      await envApi.update(form.id, {
-        name: form.name,
-        value: form.value,
-        remarks: form.remarks,
-        group: form.group
+      await envApi.update(data.id, {
+        name: data.name,
+        value: data.value,
+        remarks: data.remarks,
+        group: data.group
       })
       ElMessage.success('更新成功')
     }
@@ -551,18 +551,6 @@ async function handleToggleTop(row: any) {
     void loadData()
   } catch {
     ElMessage.error('操作失败')
-  }
-}
-
-async function handleBatchCreate(items: { name: string; value: string }[]) {
-  try {
-    await envApi.create(items as any)
-    ElMessage.success(`批量创建 ${items.length} 个变量成功`)
-    showBatchDialog.value = false
-    void loadData()
-    void loadGroups()
-  } catch {
-    ElMessage.error('批量创建失败')
   }
 }
 
@@ -766,7 +754,7 @@ function formatDateTime(t: string | null) {
       <div class="header-left">
         <el-input
           v-model="keyword"
-          placeholder="搜索变量名或备注"
+          placeholder="搜索变量名、值、备注或分组"
           clearable
           style="width: 240px"
           @keyup.enter="handleSearch"
@@ -789,9 +777,6 @@ function formatDateTime(t: string | null) {
         <div class="env-toolbar-actions env-toolbar-actions--entry">
           <el-button type="primary" @click="openCreate">
             <el-icon><Plus /></el-icon>新建
-          </el-button>
-          <el-button @click="showBatchDialog = true">
-            <el-icon><DocumentAdd /></el-icon>批量添加
           </el-button>
         </div>
         <div class="env-toolbar-actions env-toolbar-actions--batch">
@@ -1181,11 +1166,6 @@ function formatDateTime(t: string | null) {
     <EnvImportDialog
       v-model="showImportDialog"
       @import="handleImport"
-    />
-
-    <EnvBatchCreateDialog
-      v-model="showBatchDialog"
-      @create="handleBatchCreate"
     />
 
     <EnvBatchRenameDialog

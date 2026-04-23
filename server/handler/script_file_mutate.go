@@ -299,7 +299,7 @@ func (h *ScriptHandler) Move(c *gin.Context) {
 	}
 
 	targetBase := scriptsDir()
-	if req.TargetDir != "" {
+	if req.TargetDir != "" && req.TargetDir != "/" {
 		targetBase, err = safePath(req.TargetDir, true)
 		if err != nil {
 			response.BadRequest(c, "目标目录无效")

@@ -23,7 +23,7 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
-  save: [value: EnvFormModel]
+  save: [value: EnvFormModel | EnvFormModel[]]
 }>()
 
 function createEmptyForm(): EnvFormModel {
@@ -31,16 +31,19 @@ function createEmptyForm(): EnvFormModel {
 }
 
 const form = ref<EnvFormModel>(createEmptyForm())
+const splitMode = ref(false)
 const { dialogFullscreen } = useResponsive()
 
-const dialogTitle = computed(() => props.mode === 'create' ? '新建环境变量' : '编辑环境变量')
-const submitText = computed(() => props.mode === 'create' ? '创建' : '保存')
+const isCreate = computed(() => props.mode === 'create')
+const dialogTitle = computed(() => isCreate.value ? '新建环境变量' : '编辑环境变量')
+const submitText = computed(() => isCreate.value ? '创建' : '保存')
 
 function syncForm() {
   form.value = {
     ...createEmptyForm(),
     ...(props.initialData ?? {})
   }
+  splitMode.value = false
 }
 
 function closeDialog() {
@@ -57,18 +60,38 @@ function queryGroupSuggestions(queryString: string, cb: (items: Array<{ value: s
 }
 
 function handleSave() {
-  const payload: EnvFormModel = {
-    id: form.value.id,
-    name: form.value.name.trim(),
-    value: form.value.value,
-    remarks: form.value.remarks.trim(),
-    group: form.value.group.trim()
-  }
-  if (!payload.name) {
+  const name = form.value.name.trim()
+  const remarks = form.value.remarks.trim()
+  const group = form.value.group.trim()
+
+  if (!name) {
     ElMessage.warning('变量名不能为空')
     return
   }
-  emit('save', payload)
+
+  if (isCreate.value && splitMode.value) {
+    const lines = form.value.value.split('\n').filter(line => line.trim() !== '')
+    if (lines.length === 0) {
+      ElMessage.warning('请输入至少一行变量值')
+      return
+    }
+    const items: EnvFormModel[] = lines.map(line => ({
+      id: 0,
+      name,
+      value: line.trim(),
+      remarks,
+      group
+    }))
+    emit('save', items)
+  } else {
+    emit('save', {
+      id: form.value.id,
+      name,
+      value: form.value.value,
+      remarks,
+      group
+    })
+  }
 }
 
 watch(
@@ -96,8 +119,16 @@ watch(
       <el-form-item label="变量名">
         <el-input v-model="form.name" placeholder="变量名 (如: API_KEY)" />
       </el-form-item>
+      <el-form-item v-if="isCreate" label="按行拆分">
+        <div style="display: flex; align-items: center; gap: 8px; width: 100%">
+          <el-switch v-model="splitMode" />
+          <span style="font-size: 12px; color: var(--el-text-color-secondary)">
+            {{ splitMode ? '每行创建一个变量' : '所有行作为一个变量值' }}
+          </span>
+        </div>
+      </el-form-item>
       <el-form-item label="值">
-        <el-input v-model="form.value" type="textarea" :rows="3" placeholder="变量值" />
+        <el-input v-model="form.value" type="textarea" :rows="isCreate ? 5 : 3" :placeholder="splitMode ? '每行一个值' : '变量值'" />
       </el-form-item>
       <el-form-item label="备注">
         <el-input v-model="form.remarks" placeholder="备注说明" />
