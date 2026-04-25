@@ -43,6 +43,12 @@ func (l *TaskLog) ToDict() map[string]interface{} {
 	}
 	if l.Task != nil {
 		result["task_name"] = l.Task.Name
+		result["task_type"] = l.Task.GetTaskType()
+		result["labels"] = l.Task.GetLabels()
+		result["task"] = map[string]interface{}{
+			"task_type": l.Task.GetTaskType(),
+			"labels":    l.Task.GetLabels(),
+		}
 	}
 	return result
 }

@@ -130,60 +130,95 @@ func uniqueNotificationChannelIDs(ids []uint) []uint {
 	return result
 }
 
+func recordNotificationSend(channelID uint, sentAt time.Time) {
+	if channelID == 0 || database.DB == nil {
+		return
+	}
+
+	todayKey := sentAt.Format("2006-01-02")
+	var channel model.NotifyChannel
+	if err := database.DB.Select("id", "today_send_count", "today_send_date").First(&channel, channelID).Error; err != nil {
+		log.Printf("load notification channel send stats failed: %v", err)
+		return
+	}
+
+	nextCount := 1
+	if channel.TodaySendDate == todayKey {
+		nextCount = channel.TodaySendCount + 1
+	}
+
+	if err := database.DB.Model(&model.NotifyChannel{}).
+		Where("id = ?", channelID).
+		Updates(map[string]interface{}{
+			"today_send_count": nextCount,
+			"today_send_date":  todayKey,
+		}).Error; err != nil {
+		log.Printf("update notification channel send stats failed: %v", err)
+	}
+}
+
 func sendToChannel(ch model.NotifyChannel, title, content string, context map[string]string) error {
 	var cfg map[string]string
 	if err := json.Unmarshal([]byte(ch.Config), &cfg); err != nil {
 		return fmt.Errorf("invalid config: %w", err)
 	}
 
+	var err error
 	switch ch.Type {
 	case "webhook":
-		return sendWebhook(cfg, title, content)
+		err = sendWebhook(cfg, title, content)
 	case "email":
-		return sendEmail(cfg, title, content)
+		err = sendEmail(cfg, title, content)
 	case "telegram":
-		return sendTelegram(cfg, title, content)
+		err = sendTelegram(cfg, title, content)
 	case "dingtalk":
-		return sendDingtalk(cfg, title, content)
+		err = sendDingtalk(cfg, title, content)
 	case "wecom":
-		return sendWecomWithContext(cfg, title, content, context)
+		err = sendWecomWithContext(cfg, title, content, context)
 	case "wecom_app":
-		return sendWecomAppWithContext(cfg, title, content, context)
+		err = sendWecomAppWithContext(cfg, title, content, context)
 	case "bark":
-		return sendBark(cfg, title, content)
+		err = sendBark(cfg, title, content)
 	case "pushplus":
-		return sendPushplus(cfg, title, content)
+		err = sendPushplus(cfg, title, content)
 	case "serverchan":
-		return sendServerchan(cfg, title, content)
+		err = sendServerchan(cfg, title, content)
 	case "feishu":
-		return sendFeishu(cfg, title, content)
+		err = sendFeishu(cfg, title, content)
 	case "gotify":
-		return sendGotify(cfg, title, content)
+		err = sendGotify(cfg, title, content)
 	case "pushdeer":
-		return sendPushdeer(cfg, title, content)
+		err = sendPushdeer(cfg, title, content)
 	case "pushme":
-		return sendPushMe(cfg, title, content)
+		err = sendPushMe(cfg, title, content)
 	case "chanify":
-		return sendChanify(cfg, title, content)
+		err = sendChanify(cfg, title, content)
 	case "igot":
-		return sendIgot(cfg, title, content)
+		err = sendIgot(cfg, title, content)
 	case "qmsg":
-		return sendQmsg(cfg, title, content)
+		err = sendQmsg(cfg, title, content)
 	case "pushover":
-		return sendPushover(cfg, title, content)
+		err = sendPushover(cfg, title, content)
 	case "discord":
-		return sendDiscord(cfg, title, content)
+		err = sendDiscord(cfg, title, content)
 	case "slack":
-		return sendSlack(cfg, title, content)
+		err = sendSlack(cfg, title, content)
 	case "ntfy":
-		return sendNtfy(cfg, title, content)
+		err = sendNtfy(cfg, title, content)
 	case "wxpusher":
-		return sendWxPusher(cfg, title, content)
+		err = sendWxPusher(cfg, title, content)
 	case "custom":
-		return sendCustomWebhook(cfg, title, content)
+		err = sendCustomWebhook(cfg, title, content)
 	default:
-		return fmt.Errorf("未知的通知渠道类型: %s", ch.Type)
+		err = fmt.Errorf("未知的通知渠道类型: %s", ch.Type)
 	}
+
+	if err != nil {
+		return err
+	}
+
+	recordNotificationSend(ch.ID, time.Now())
+	return nil
 }
 
 func httpPost(url string, body interface{}, headers map[string]string) error {

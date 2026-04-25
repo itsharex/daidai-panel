@@ -17,7 +17,7 @@ defineProps<{
   <el-card shadow="never" v-loading="configsLoading">
     <template #header>
       <div class="card-header">
-        <span class="card-title"><el-icon><Setting /></el-icon> 系统配置</span>
+        <span class="card-title"><el-icon><Setting /></el-icon> 面板外观</span>
         <el-button type="primary" :loading="configsSaving" @click="onSave">
           <el-icon><Document /></el-icon>保存配置
         </el-button>
@@ -96,67 +96,6 @@ defineProps<{
           <div class="log-bg-preview__content">任务输出预览：日志背景将应用到所有日志查看器</div>
         </div>
       </div>
-    </div>
-
-    <div class="config-section">
-      <h4 class="section-title">订阅设置</h4>
-      <div class="switch-row">
-        <div class="switch-item">
-          <span class="switch-label">自动添加定时任务</span>
-          <el-switch v-model="form.auto_add_cron" inline-prompt active-text="开" inactive-text="关" />
-        </div>
-        <div class="switch-item">
-          <span class="switch-label">自动删除失效任务</span>
-          <el-switch v-model="form.auto_del_cron" inline-prompt active-text="开" inactive-text="关" />
-        </div>
-      </div>
-      <div class="form-field">
-        <label>默认 Cron 规则</label>
-        <el-input v-model="form.default_cron_rule" placeholder="0 9 * * *" />
-        <span class="form-hint">匹配不到定时规则时使用，如 0 9 * * *</span>
-      </div>
-      <div class="form-field">
-        <label>拉取文件后缀</label>
-        <el-input v-model="form.repo_file_extensions" placeholder="py js sh ts" />
-        <span class="form-hint">空格分隔，如 py js sh ts</span>
-      </div>
-    </div>
-
-    <div class="config-section">
-      <h4 class="section-title">资源告警</h4>
-      <el-row :gutter="16">
-        <el-col :xs="24" :md="8">
-          <div class="form-field">
-            <label>CPU 阈值 (%)</label>
-            <el-input v-model.number="form.cpu_warn" />
-          </div>
-        </el-col>
-        <el-col :xs="24" :md="8">
-          <div class="form-field">
-            <label>内存阈值 (%)</label>
-            <el-input v-model.number="form.memory_warn" />
-          </div>
-        </el-col>
-        <el-col :xs="24" :md="8">
-          <div class="form-field">
-            <label>磁盘阈值 (%)</label>
-            <el-input v-model.number="form.disk_warn" />
-          </div>
-        </el-col>
-      </el-row>
-      <div class="switch-row">
-        <div class="switch-item">
-          <span class="switch-label">资源超限发送通知</span>
-          <el-switch v-model="form.notify_on_resource_warn" inline-prompt active-text="开" inactive-text="关" />
-        </div>
-      </div>
-      <div class="switch-row">
-        <div class="switch-item">
-          <span class="switch-label">登录成功发送通知</span>
-          <el-switch v-model="form.notify_on_login" inline-prompt active-text="开" inactive-text="关" />
-        </div>
-      </div>
-      <span class="form-hint">开启后，每次登录成功将向所有已启用的通知渠道发送通知</span>
     </div>
   </el-card>
 </template>

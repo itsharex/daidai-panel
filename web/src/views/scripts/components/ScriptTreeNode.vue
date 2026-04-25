@@ -160,7 +160,7 @@ const extLabel = computed(() => {
     }
 
     &:focus-visible {
-      outline: 2px solid color-mix(in srgb, var(--scripts-accent, #22c55e) 70%, transparent);
+      outline: 2px solid color-mix(in srgb, var(--el-color-primary) 50%, transparent);
       outline-offset: 1px;
     }
   }

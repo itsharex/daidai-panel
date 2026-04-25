@@ -22,7 +22,7 @@ export async function loadPanelSettings(options?: { force?: boolean }) {
     return panelSettingsPromise
   }
 
-  panelSettingsPromise = (async () => {
+  const requestPromise = (async () => {
     try {
       const response = await fetch('/api/system/panel-settings', { cache: 'no-store' })
       if (!response.ok) {
@@ -37,5 +37,10 @@ export async function loadPanelSettings(options?: { force?: boolean }) {
     }
   })()
 
-  return panelSettingsPromise
+  panelSettingsPromise = requestPromise
+  const result = await requestPromise
+  if (!cachedPanelSettings) {
+    panelSettingsPromise = null
+  }
+  return result
 }

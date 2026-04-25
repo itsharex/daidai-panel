@@ -161,6 +161,7 @@ func reorderEnvWithinSortBucket(tx *gorm.DB, sourceID uint, targetID *uint) erro
 func (h *EnvHandler) List(c *gin.Context) {
 	keyword := c.Query("keyword")
 	group := c.Query("group")
+	enabledRaw := c.Query("enabled")
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 
@@ -175,10 +176,16 @@ func (h *EnvHandler) List(c *gin.Context) {
 
 	if keyword != "" {
 		like := "%" + keyword + "%"
-		query = query.Where("name LIKE ? OR remarks LIKE ? OR value LIKE ? OR \"group\" LIKE ?", like, like, like, like)
+		query = query.Where("UPPER(name) LIKE UPPER(?) OR UPPER(remarks) LIKE UPPER(?) OR UPPER(value) LIKE UPPER(?) OR UPPER(\"group\") LIKE UPPER(?)", like, like, like, like)
 	}
 	if group != "" {
 		query = query.Where("\"group\" = ?", group)
+	}
+	if enabledRaw != "" {
+		enabled, err := strconv.ParseBool(enabledRaw)
+		if err == nil {
+			query = query.Where("enabled = ?", enabled)
+		}
 	}
 
 	var total int64

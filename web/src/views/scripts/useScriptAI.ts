@@ -164,8 +164,10 @@ export function useScriptAI({
     }
     if (selectedFile.value) {
       targetPath.value = normalizeScriptPath(selectedFile.value)
+      manualLanguage.value = normalizeEditorLanguage(editorLanguage.value)
+    } else if (!manualLanguage.value.trim()) {
+      manualLanguage.value = 'python'
     }
-    manualLanguage.value = normalizeEditorLanguage(editorLanguage.value)
     includeDebugLogs.value = hasDebugContext.value
     autoDebugAfterApply.value = !!selectedFile.value && mode.value === 'fix'
     generationError.value = ''

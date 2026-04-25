@@ -2,8 +2,8 @@
   <div class="deps-page">
     <div class="page-header">
       <div>
-        <h2>依赖管理</h2>
-        <span class="page-subtitle">安装和管理 Node.js、Python3、Linux 软件包依赖</span>
+        <h2>📚 依赖管理</h2>
+        <p class="page-subtitle">管理运行时所需的依赖包和系统软件，确保依赖版本和任务稳定运行</p>
       </div>
     </div>
 
@@ -98,50 +98,96 @@
       </div>
     </el-card>
 
-    <el-tabs v-model="activeTab" @tab-change="loadData">
-      <el-tab-pane label="Node.js" name="nodejs" />
-      <el-tab-pane label="Python3" name="python" />
-      <el-tab-pane label="Linux" name="linux" />
-    </el-tabs>
-    <div class="deps-toolbar">
-      <div class="deps-toolbar__actions">
-        <el-button type="primary" @click="createType = activeTab; showCreateDialog = true">
-          <el-icon><Plus /></el-icon>新建依赖
-        </el-button>
-        <el-button @click="loadData" :loading="loading">
-          <el-icon><Refresh /></el-icon>刷新
-        </el-button>
-        <el-button type="warning" plain @click="handleBatchReinstall" :disabled="batchReinstallIds.length === 0">
-          <el-icon><RefreshRight /></el-icon>批量重装
-        </el-button>
-        <el-button type="danger" plain @click="handleBatchDelete" :disabled="selectedIds.length === 0">
-          <el-icon><Delete /></el-icon>批量卸载
-        </el-button>
-        <el-button @click="handleExport" :loading="exporting">
-          <el-icon><Download /></el-icon>导出清单
-        </el-button>
-        <el-button @click="openMirrorDialog">
-          <el-icon><Setting /></el-icon>镜像源设置
-        </el-button>
+    <div class="stat-cards">
+      <div class="stat-card" :class="{ 'stat-card--active': activeTab === 'nodejs' }" @click="activeTab = 'nodejs'; depsPage = 1; loadData()">
+        <div class="stat-card__content">
+          <span class="stat-card__label">Node.js 依赖</span>
+          <span class="stat-card__value">{{ nodejsCount }}</span>
+          <span class="stat-card__sub">已安装依赖包</span>
+        </div>
+        <div class="stat-card__icon-wrap stat-card__icon-wrap--js">
+          <span class="js-icon-block">JS</span>
+        </div>
       </div>
-      <div class="deps-stats">
-        <div class="stat-item" :class="{ active: activeTab === 'nodejs' }" @click="activeTab = 'nodejs'; loadData()">
-          <span class="stat-label">Node.js</span>
-          <span class="stat-value">{{ nodejsCount }}</span>
+      <div class="stat-card" :class="{ 'stat-card--active': activeTab === 'python' }" @click="activeTab = 'python'; depsPage = 1; loadData()">
+        <div class="stat-card__content">
+          <span class="stat-card__label">Python 依赖</span>
+          <span class="stat-card__value stat-card__value--green">{{ pythonCount }}</span>
+          <span class="stat-card__sub">已安装依赖包</span>
         </div>
-        <div class="stat-item" :class="{ active: activeTab === 'python' }" @click="activeTab = 'python'; loadData()">
-          <span class="stat-label">Python</span>
-          <span class="stat-value">{{ pythonCount }}</span>
+        <div class="stat-card__icon-wrap stat-card__icon-wrap--python">
+          <svg viewBox="0 0 24 24" width="28" height="28"><path d="M9.585 11.692h4.328s2.432.039 2.432-2.35V5.391S16.714 3 12.304 3h-1.108C7.787 3 7.155 5.093 7.155 5.093v2.457h4.755v.735H7.155s-3.27-.37-3.27 4.788c0 5.16 2.854 4.975 2.854 4.975h1.705v-2.395s-.092-2.854 2.854-2.854l.287-.107zm-.472-4.868a.845.845 0 1 1 0-1.69.845.845 0 0 1 0 1.69z" fill="#3776AB"/><path d="M14.415 12.308h-4.328s-2.432-.039-2.432 2.35v3.951S7.286 21 11.696 21h1.108c3.409 0 4.041-2.093 4.041-2.093v-2.457h-4.755v-.735h4.755s3.27.37 3.27-4.788c0-5.16-2.854-4.975-2.854-4.975h-1.705v2.395s.092 2.854-2.854 2.854l-.287.107zm.472 4.868a.845.845 0 1 1 0 1.69.845.845 0 0 1 0-1.69z" fill="#FFD43B"/></svg>
         </div>
-        <div class="stat-item" :class="{ active: activeTab === 'linux' }" @click="activeTab = 'linux'; loadData()">
-          <span class="stat-label">Linux</span>
-          <span class="stat-value">{{ linuxCount }}</span>
+      </div>
+      <div class="stat-card" :class="{ 'stat-card--active': activeTab === 'linux' }" @click="activeTab = 'linux'; depsPage = 1; loadData()">
+        <div class="stat-card__content">
+          <span class="stat-card__label">Linux 软件包</span>
+          <span class="stat-card__value stat-card__value--orange">{{ linuxCount }}</span>
+          <span class="stat-card__sub">已安装软件包</span>
+        </div>
+        <div class="stat-card__icon-wrap stat-card__icon-wrap--linux">
+          <svg viewBox="0 0 24 24" width="28" height="28" fill="#333"><path d="M20.581 19.049c-.55-.446-.336-1.431-.907-1.917.553-3.365-.997-6.331-2.845-8.232-1.551-1.595-1.051-3.147-1.051-4.49 0-2.146-.881-4.41-3.55-4.41-2.853 0-3.635 2.38-3.663 3.738-.034 1.65-.1 2.873-.874 3.874-1.02 1.322-3.236 4.124-3.012 8.485-.7.36-.92 1.876-1.272 2.175-.403.343-.81.382-.972.848-.163.466.089.781.217 1.019.128.238.238.419-.038.6-.276.181-.591.157-.838.423-.248.266-.34.546-.076.953.186.288.63.413.857.424.227.011 2.016-.076 2.326-.076.508 0 1.42.454 2.455.454 1.037 0 1.316-.631 2.326-.631 1.01 0 1.316.631 2.326.631 1.037 0 1.42-.454 2.455-.454.31 0 2.1.087 2.326.076.227-.011.671-.136.857-.424.264-.407.172-.687-.076-.953-.247-.266-.562-.242-.838-.423-.276-.181-.166-.362-.038-.6.128-.238.38-.553.217-1.019-.162-.466-.569-.505-.972-.848z"/></svg>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card__content">
+          <span class="stat-card__label">安装失败</span>
+          <span class="stat-card__value stat-card__value--red">{{ failedCount }}</span>
+          <span class="stat-card__sub">最近 7 天</span>
+        </div>
+        <div class="stat-card__icon-wrap stat-card__icon-wrap--fail">
+          <el-icon :size="28" color="#f56c6c"><CircleClose /></el-icon>
         </div>
       </div>
     </div>
+
+    <div class="deps-tabs">
+      <div class="status-tabs">
+        <button :class="['status-tab', { active: activeTab === 'nodejs' }]" @click="activeTab = 'nodejs'; depsPage = 1; loadData()">Node.js</button>
+        <button :class="['status-tab', { active: activeTab === 'python' }]" @click="activeTab = 'python'; depsPage = 1; loadData()">Python3</button>
+        <button :class="['status-tab', { active: activeTab === 'linux' }]" @click="activeTab = 'linux'; depsPage = 1; loadData()">Linux</button>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <div class="toolbar__left">
+        <el-button type="primary" @click="createType = activeTab; showCreateDialog = true">
+          <el-icon><Plus /></el-icon> 新增依赖
+        </el-button>
+        <el-button @click="loadData" :loading="loading">
+          <el-icon><Refresh /></el-icon> 刷新
+        </el-button>
+        <el-button type="warning" plain @click="handleBatchReinstall" :disabled="batchReinstallIds.length === 0">
+          <el-icon><RefreshRight /></el-icon> 批量重装
+        </el-button>
+        <el-button @click="handleExport" :loading="exporting">
+          <el-icon><Download /></el-icon> 导出清单
+        </el-button>
+        <el-button @click="openMirrorDialog">
+          <el-icon><Setting /></el-icon> 镜像源设置
+        </el-button>
+      </div>
+      <div class="toolbar__right">
+        <el-input v-model="searchKeyword" placeholder="搜索依赖包名称..." clearable class="toolbar__search" @keyup.enter="depsPage = 1" @clear="depsPage = 1">
+          <template #prefix><el-icon><Search /></el-icon></template>
+        </el-input>
+        <el-select v-model="statusFilter" placeholder="所有状态" clearable class="toolbar__filter" @change="depsPage = 1">
+          <el-option label="已安装" value="installed" />
+          <el-option label="安装中" value="installing" />
+          <el-option label="排队中" value="queued" />
+          <el-option label="失败" value="failed" />
+          <el-option label="已取消" value="cancelled" />
+          <el-option label="卸载中" value="removing" />
+        </el-select>
+        <el-button v-if="selectedIds.length > 0" type="danger" plain @click="handleBatchDelete">
+          <el-icon><Delete /></el-icon> 批量卸载
+        </el-button>
+      </div>
+    </div>
+
     <div v-if="isMobile" class="dd-mobile-list">
       <div
-        v-for="(row, index) in depsList"
+        v-for="(row, index) in paginatedDepsList"
         :key="row.id"
         class="dd-mobile-card"
       >
@@ -210,33 +256,65 @@
         </div>
       </div>
 
-      <el-empty v-if="!loading && depsList.length === 0" description="暂无依赖" />
+      <el-empty v-if="!loading && paginatedDepsList.length === 0" description="暂无依赖" />
     </div>
 
-    <el-table v-else :data="depsList" v-loading="loading" border size="small" @selection-change="handleSelectionChange">
-      <el-table-column type="selection" width="40" />
-      <el-table-column label="#" width="55" align="center">
-        <template #default="{ $index }">{{ $index + 1 }}</template>
-      </el-table-column>
-      <el-table-column prop="name" label="名称" min-width="200" />
-      <el-table-column label="状态" width="120" align="center">
-        <template #default="{ row }">
-          <el-tag :type="statusType(row.status)" size="small" effect="light">{{ statusLabel(row.status) }}</el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column prop="created_at" label="创建时间" width="180">
-        <template #default="{ row }">{{ new Date(row.created_at).toLocaleString('zh-CN') }}</template>
-      </el-table-column>
-      <el-table-column label="操作" width="250" align="center">
-        <template #default="{ row }">
-          <el-button type="primary" link size="small" @click="viewLog(row)">日志</el-button>
-          <el-button v-if="row.status === 'installing' || row.status === 'removing'" type="warning" link size="small" @click="handleCancel(row)">取消</el-button>
-          <el-button type="warning" link size="small" @click="handleReinstall(row)" :disabled="isProcessing(row.status)">重装</el-button>
-          <el-button type="danger" link size="small" @click="handleDelete(row)" :disabled="isProcessing(row.status)">卸载</el-button>
-          <el-button type="danger" link size="small" @click="handleForceDelete(row)" :disabled="isProcessing(row.status)">强制卸载</el-button>
-        </template>
-      </el-table-column>
-    </el-table>
+    <div v-else class="table-card">
+      <el-table
+        :data="paginatedDepsList"
+        v-loading="loading"
+        style="width: 100%"
+        @selection-change="handleSelectionChange"
+        :header-cell-style="{ background: '#f8fafc', color: '#64748b', fontWeight: 600, fontSize: '13px' }"
+      >
+        <el-table-column type="selection" width="40" />
+        <el-table-column prop="name" label="名称" min-width="200">
+          <template #default="{ row }">
+            <div class="dep-name-cell">
+              <span class="dep-name-avatar" :style="{ background: getLetterColor(row.name) }">{{ (row.name || '?').charAt(0).toUpperCase() }}</span>
+              <span class="dep-name-text">{{ row.name }}</span>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column prop="version" label="版本" width="120">
+          <template #default="{ row }">
+            <span class="version-text">{{ row.version || '-' }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="100" align="center">
+          <template #default="{ row }">
+            <el-tag :type="statusType(row.status)" size="small" effect="light" round>{{ statusLabel(row.status) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="created_at" label="创建时间" width="180">
+          <template #default="{ row }">
+            <span class="time-text">{{ new Date(row.created_at).toLocaleString('zh-CN') }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="200" fixed="right" align="center">
+          <template #default="{ row }">
+            <div class="action-btns">
+              <el-button type="primary" text size="small" @click="viewLog(row)">详情</el-button>
+              <el-button v-if="row.status === 'installing' || row.status === 'removing'" type="warning" text size="small" @click="handleCancel(row)">取消</el-button>
+              <el-button type="warning" text size="small" @click="handleReinstall(row)" :disabled="isProcessing(row.status)">重装</el-button>
+              <el-button type="danger" text size="small" @click="handleDelete(row)" :disabled="isProcessing(row.status)">卸载</el-button>
+              <el-button type="danger" text size="small" @click="handleForceDelete(row)" :disabled="isProcessing(row.status)">强制卸载</el-button>
+            </div>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
+
+    <div class="pagination-bar">
+      <span class="pagination-total">共 {{ depsTotal }} 条数据</span>
+      <el-pagination
+        v-model:current-page="depsPage"
+        v-model:page-size="depsPageSize"
+        :total="depsTotal"
+        :page-sizes="[10, 20, 50, 100]"
+        layout="sizes, prev, pager, next, jumper"
+      />
+    </div>
     <el-dialog v-model="showCreateDialog" title="新建依赖" width="500px" :fullscreen="dialogFullscreen">
       <el-form label-width="80px">
         <el-form-item label="类型">
@@ -415,16 +493,7 @@ async function installAndroidRuntime(name: string) {
   androidInstallAbort = new AbortController()
 
   try {
-    const token = localStorage.getItem('access_token') || ''
-    const resp = await fetch('/api/v1/android-runtime/install', {
-      method: 'POST',
-      signal: androidInstallAbort.signal,
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: token ? `Bearer ${token}` : '',
-      },
-      body: JSON.stringify({ name }),
-    })
+    const resp = await androidRuntimeApi.installStream(name, androidInstallAbort.signal)
     if (!resp.ok) {
       const text = await resp.text()
       androidInstallLog.value.push(`HTTP ${resp.status}: ${text}`)
@@ -455,7 +524,7 @@ async function installAndroidRuntime(name: string) {
   } catch (e: any) {
     if (e?.name !== 'AbortError') {
       androidInstallLog.value.push('异常: ' + (e?.message || String(e)))
-      ElMessage.error('安装过程异常')
+      ElMessage.error(e?.message || '安装过程异常')
     }
   } finally {
     androidInstallingName.value = ''
@@ -528,6 +597,31 @@ let mounted = false
 const nodejsCount = ref(0)
 const pythonCount = ref(0)
 const linuxCount = ref(0)
+const searchKeyword = ref('')
+const statusFilter = ref('')
+
+const failedCount = computed(() => depsList.value.filter(dep => dep.status === 'failed').length)
+
+const filteredDepsList = computed(() => {
+  let list = depsList.value
+  if (searchKeyword.value) {
+    const kw = searchKeyword.value.toLowerCase()
+    list = list.filter(dep => dep.name?.toLowerCase().includes(kw))
+  }
+  if (statusFilter.value) {
+    list = list.filter(dep => dep.status === statusFilter.value)
+  }
+  return list
+})
+
+const paginatedDepsList = computed(() => {
+  const start = (depsPage.value - 1) * depsPageSize.value
+  return filteredDepsList.value.slice(start, start + depsPageSize.value)
+})
+
+const depsTotal = computed(() => filteredDepsList.value.length)
+const depsPage = ref(1)
+const depsPageSize = ref(20)
 
 function statusType(status: string) {
   switch (status) {
@@ -872,6 +966,19 @@ async function handleSaveMirrors() {
   } finally { mirrorSaving.value = false }
 }
 
+const letterColors: Record<string, string> = {
+  a: '#409eff', b: '#67c23a', c: '#e6a23c', d: '#67c23a', e: '#f56c6c',
+  f: '#909399', g: '#b37feb', h: '#36cfc9', i: '#409eff', j: '#ff85c0',
+  k: '#ffc53d', l: '#b37feb', m: '#e6a23c', n: '#409eff', o: '#36cfc9',
+  p: '#67c23a', q: '#f56c6c', r: '#ff85c0', s: '#ffc53d', t: '#409eff',
+  u: '#b37feb', v: '#36cfc9', w: '#e6a23c', x: '#909399', y: '#67c23a',
+  z: '#f56c6c',
+}
+function getLetterColor(name: string): string {
+  const ch = (name || '?').charAt(0).toLowerCase()
+  return letterColors[ch] || '#409eff'
+}
+
 onMounted(async () => {
   mounted = true
   createType.value = activeTab.value
@@ -904,77 +1011,135 @@ onBeforeUnmount(() => {
 .deps-page { padding: 0; }
 
 .page-header {
-  margin-bottom: 16px;
+  margin-bottom: 18px;
 
-  h2 { margin: 0; font-size: 20px; font-weight: 700; color: var(--el-text-color-primary); }
-
-  .page-subtitle {
-    font-size: 13px;
-    color: var(--el-text-color-secondary);
-    display: block;
-    margin-top: 2px;
-  }
+  h2 { margin: 0; font-size: 22px; font-weight: 700; color: var(--el-text-color-primary); line-height: 1.3; }
+  .page-subtitle { font-size: 13px; color: var(--el-text-color-secondary); margin: 4px 0 0; }
 }
 
-.deps-toolbar {
+// ---------- Stat Cards ----------
+.stat-cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.stat-card {
+  background: var(--el-bg-color);
+  border-radius: 14px;
+  padding: 16px 18px;
   display: flex;
-  align-items: flex-start;
+  justify-content: space-between;
+  align-items: center;
   gap: 12px;
-  margin-bottom: 16px;
-  flex-wrap: wrap;
-}
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  border: 1px solid var(--el-border-color-lighter);
+  transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s;
+  cursor: pointer;
 
-.deps-toolbar__actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-
-  > * {
-    min-width: 0;
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.08);
   }
-}
-
-.deps-stats {
-  display: flex;
-  align-items: center;
-  gap: 1px;
-  margin-left: auto;
-  background: var(--el-border-color-lighter);
-  border-radius: 6px;
-  overflow: hidden;
-
-  .stat-item {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: 6px 16px;
-    background: var(--el-bg-color);
-    cursor: pointer;
-    transition: all 0.2s;
-    min-width: 64px;
-
-    &:hover { background: var(--el-color-primary-light-9); }
-    &.active {
-      background: var(--el-color-primary-light-9);
-      .stat-value { color: var(--el-color-primary); }
-    }
+  &--active {
+    border-color: var(--el-color-primary);
+    box-shadow: 0 4px 16px rgba(59, 130, 246, 0.14);
   }
 
-  .stat-label {
-    font-size: 11px;
-    color: var(--el-text-color-secondary);
-    line-height: 1;
+  &__content { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
+  &__label { font-size: 13px; color: var(--el-text-color-secondary); font-weight: 500; }
+  &__value {
+    font-size: 26px; font-weight: 700; color: #3b82f6; line-height: 1.15;
+    font-family: 'Inter', var(--dd-font-ui), sans-serif;
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+    letter-spacing: -0.01em;
+    &--green { color: #10b981; }
+    &--orange { color: #f59e0b; }
+    &--red { color: #ef4444; }
+    &--purple { color: #8b5cf6; }
   }
-
-  .stat-value {
-    font-size: 18px;
+  &__sub { font-size: 12px; color: var(--el-text-color-placeholder); }
+  &__trend {
+    font-size: 11.5px;
     font-weight: 600;
-    line-height: 1.4;
-    color: var(--el-text-color-primary);
+    margin-top: 4px;
+    padding: 1px 7px;
+    border-radius: 6px;
+    align-self: flex-start;
+    &--green { color: #10b981; background: rgba(16, 185, 129, 0.1); }
+    &--red { color: #ef4444; background: rgba(239, 68, 68, 0.1); }
+  }
+  &__icon-wrap {
+    width: 44px; height: 44px; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    &--js { background: #fef3c7; }
+    &--python { background: rgba(59, 130, 246, 0.12); }
+    &--linux { background: rgba(245, 158, 11, 0.12); }
+    &--fail { background: rgba(239, 68, 68, 0.12); }
   }
 }
 
+// ---------- Toolbar ----------
+.toolbar {
+  display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; gap: 12px; flex-wrap: wrap;
+  &__left { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  &__right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  &__search { width: 240px; }
+  &__filter { width: 140px; }
+}
+
+// ---------- Table Card ----------
+.table-card {
+  background: var(--el-bg-color); border-radius: 14px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04); border: 1px solid var(--el-border-color-lighter); overflow: hidden;
+}
+
+.dep-name-cell { display: flex; align-items: center; gap: 10px; }
+.dep-name-avatar {
+  width: 34px; height: 34px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  font-size: 14px; font-weight: 700; color: #fff;
+}
+
+.js-icon-block {
+  width: 28px; height: 28px; border-radius: 4px;
+  background: #323330; color: #f7df1e;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 800; font-family: Arial, sans-serif;
+}
+
+.deps-tabs { margin-bottom: 14px; }
+.status-tabs {
+  display: inline-flex; background: var(--el-fill-color-light); border-radius: 10px; padding: 3px; gap: 2px;
+}
+.status-tab {
+  padding: 6px 18px; border-radius: 7px; border: none; background: transparent;
+  color: var(--el-text-color-secondary); font-size: 13px; font-weight: 500; cursor: pointer;
+  transition: all 0.18s; white-space: nowrap;
+  &:hover { color: var(--el-text-color-primary); }
+  &.active { background: var(--el-bg-color); color: var(--el-color-primary); box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06); font-weight: 600; }
+}
+.dep-name-text { font-weight: 500; color: var(--el-text-color-primary); }
+.version-text { font-family: var(--dd-font-mono); font-size: 13px; color: var(--el-text-color-secondary); }
+.time-text { font-family: var(--dd-font-mono); font-size: 12px; color: var(--el-text-color-regular); }
+.action-btns { display: flex; align-items: center; justify-content: center; gap: 2px; }
+
+// ---------- Pagination ----------
+.pagination-bar {
+  margin-top: 20px; display: flex; justify-content: space-between; align-items: center; padding: 0 4px;
+}
+.pagination-total { font-size: 13px; color: var(--el-text-color-secondary); }
+
+:deep(.el-table) {
+  --el-table-border-color: #f0f0f0;
+  .el-table__header-wrapper th { border-bottom: 1px solid #e8e8e8; }
+  .el-table__row td { border-bottom: 1px solid #f5f5f5; }
+  .el-table__cell { padding: 12px 0; }
+}
+
+// ---------- Mobile card layout ----------
 .deps-card__title-row {
   display: flex;
   align-items: flex-start;
@@ -985,6 +1150,8 @@ onBeforeUnmount(() => {
 .deps-card__actions > * {
   flex: 1 1 calc(50% - 4px);
 }
+
+// ---------- Log dialog ----------
 .log-content {
   background: #1e1e1e;
   color: #d4d4d4;
@@ -1032,51 +1199,51 @@ onBeforeUnmount(() => {
   animation: spin 0.8s linear infinite;
 }
 
-@media (max-width: 768px) {
-  .deps-toolbar {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .deps-toolbar__actions {
-    width: 100%;
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
-
-    > * {
-      width: 100%;
-    }
-
-    :deep(.el-button) {
-      width: 100%;
-      margin-left: 0;
-    }
-  }
-
-  .deps-stats {
-    margin-left: 0;
-    width: 100%;
-    justify-content: stretch;
-    border-radius: 12px;
-  }
-
-  .deps-stats .stat-item {
-    flex: 1 1 0;
-    min-height: 72px;
-    justify-content: center;
-  }
-
-  .deps-card__title-row {
-    flex-direction: column;
-  }
-}
-
 @keyframes spin {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
 }
 
+// ---------- Responsive ----------
+@media screen and (max-width: 1200px) {
+  .stat-cards { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 768px) {
+  .page-header { margin-bottom: 14px; h2 { font-size: 18px; } }
+  .stat-cards { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .stat-card { padding: 14px 16px; &__value { font-size: 22px; } &__icon { width: 40px; height: 40px; } }
+
+  .toolbar {
+    flex-direction: column; align-items: stretch; gap: 10px;
+    &__left {
+      width: 100%;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+
+      :deep(.el-button) {
+        width: 100%;
+        margin-left: 0;
+      }
+    }
+    &__right { flex-direction: column; gap: 10px; }
+    &__search { width: 100% !important; }
+    &__filter { width: 100% !important; }
+  }
+
+  .deps-card__title-row {
+    flex-direction: column;
+  }
+
+  .pagination-bar {
+    flex-direction: column;
+    gap: 10px;
+    align-items: center;
+  }
+}
+
+// ---------- Android Runtime ----------
 .android-runtime-card {
   margin-bottom: 16px;
   border: 1px solid var(--el-border-color-lighter);

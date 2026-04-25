@@ -1,185 +1,62 @@
-<template>
-  <div class="dashboard-page animate-fade-in">
-    <div class="page-header">
-      <div>
-        <h3 class="page-title">数据仪表</h3>
-        <span class="page-subtitle">查看系统运行状态和统计数据</span>
-      </div>
-    </div>
-
-    <el-row :gutter="16" class="stat-cards">
-      <el-col :xs="12" :sm="12" :md="6" v-for="(card, i) in statCards" :key="card.label">
-        <div
-          class="stat-card animate-fade-in-up"
-          :style="{ background: card.bg, animationDelay: `${i * 0.06}s` }"
-          @click="$router.push(card.link)"
-        >
-          <div class="stat-card-content">
-            <div class="stat-label">{{ card.label }}</div>
-            <div class="stat-value" :style="{ color: card.color }">
-              <template v-if="card.value === null">-</template>
-              <CountUp v-else :end-val="card.value" :duration="1.5" />
-            </div>
-          </div>
-          <div class="stat-icon-box" :style="{ '--icon-color': card.color }">
-            <el-icon :size="26"><component :is="card.icon" /></el-icon>
-          </div>
-        </div>
-      </el-col>
-    </el-row>
-
-    <el-row :gutter="16" style="margin-top: 16px">
-      <el-col :xs="24" :lg="24">
-        <el-card shadow="hover" class="chart-card animate-fade-in-up" style="animation-delay: 0.3s">
-          <template #header>
-            <div class="card-title-bar">
-              <span class="title-dot" style="background: #409EFF"></span>
-              <span class="title-text">执行统计</span>
-              <span class="title-sub">最近7天任务执行情况</span>
-            </div>
-          </template>
-          <div ref="trendChartHostRef" class="trend-chart-shell">
-            <ExecutionTrendChart v-if="showTrendChart" :stats="dashboardData.daily_stats || []" />
-            <div v-else class="trend-chart-placeholder">
-              <div class="trend-chart-placeholder__bar"></div>
-              <div class="trend-chart-placeholder__bar trend-chart-placeholder__bar--short"></div>
-              <div class="trend-chart-placeholder__legend">
-                <span></span>
-                <span></span>
-                <span></span>
-              </div>
-            </div>
-          </div>
-        </el-card>
-      </el-col>
-    </el-row>
-
-    <el-row :gutter="16" style="margin-top: 16px">
-      <el-col :xs="24" :lg="12">
-        <el-card shadow="hover" class="chart-card animate-fade-in-up" style="animation-delay: 0.35s">
-          <template #header>
-            <div class="card-title-bar">
-              <span class="title-dot" style="background: #E6A23C"></span>
-              <span class="title-text">系统资源</span>
-              <span class="title-sub">CPU / 内存 / 磁盘使用率</span>
-            </div>
-          </template>
-          <el-row :gutter="24" style="padding: 8px 0">
-            <el-col :span="8" v-for="item in resourceBars" :key="item.label">
-              <div class="resource-item">
-                <div class="resource-header">
-                  <span class="resource-label">{{ item.label }}</span>
-                  <span class="resource-value" :style="{ color: item.color }">
-                    <CountUp :end-val="item.value" :duration="1" :decimals="1" suffix="%" />
-                  </span>
-                </div>
-                <el-progress
-                  :percentage="item.value"
-                  :color="item.color"
-                  :stroke-width="10"
-                  :show-text="false"
-                  style="margin-top: 8px"
-                />
-                <div class="resource-detail" v-if="item.detail">{{ item.detail }}</div>
-              </div>
-            </el-col>
-          </el-row>
-          <el-descriptions :column="isMobile ? 1 : 2" border size="small" style="margin-top: 16px">
-            <el-descriptions-item label="操作系统">{{ sysInfo.os }} {{ sysInfo.arch }}</el-descriptions-item>
-            <el-descriptions-item label="Go版本">{{ sysInfo.go_version }}</el-descriptions-item>
-            <el-descriptions-item label="CPU核心">{{ sysInfo.num_cpu }}</el-descriptions-item>
-            <el-descriptions-item label="Goroutines">{{ sysInfo.goroutines }}</el-descriptions-item>
-            <el-descriptions-item label="运行时间" :span="2">{{ sysInfo.uptime }}</el-descriptions-item>
-          </el-descriptions>
-        </el-card>
-      </el-col>
-      <el-col :xs="24" :lg="12">
-        <el-card shadow="hover" class="animate-fade-in-up" style="animation-delay: 0.4s">
-          <template #header>
-            <div class="card-title-bar">
-              <span class="title-dot" style="background: #F56C6C"></span>
-              <span class="title-text">最近执行记录</span>
-              <div style="flex: 1"></div>
-              <el-button text type="primary" size="small" @click="$router.push('/logs')">
-                查看全部 <el-icon><ArrowRight /></el-icon>
-              </el-button>
-            </div>
-          </template>
-          <div v-if="isMobile" class="dd-mobile-list dashboard-log-list">
-            <div
-              v-for="row in recentLogs"
-              :key="row.id"
-              class="dd-mobile-card"
-            >
-              <div class="dd-mobile-card__header">
-                <div class="dd-mobile-card__title-wrap">
-                  <span class="dd-mobile-card__title">{{ row.task_name }}</span>
-                  <span class="dd-mobile-card__subtitle">{{ formatTime(row.created_at) }}</span>
-                </div>
-                <el-tag :type="row.status === 0 ? 'success' : 'danger'" size="small" effect="light">
-                  {{ row.status === 0 ? '成功' : '失败' }}
-                </el-tag>
-              </div>
-              <div class="dd-mobile-card__body">
-                <div class="dd-mobile-card__grid">
-                  <div class="dd-mobile-card__field">
-                    <span class="dd-mobile-card__label">耗时</span>
-                    <span class="dd-mobile-card__value">{{ row.duration != null ? row.duration.toFixed(1) + 's' : '-' }}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <el-empty v-if="recentLogs.length === 0" description="暂无执行记录" />
-          </div>
-
-          <el-table v-else :data="recentLogs" size="small" :show-header="true" style="width: 100%" max-height="320">
-            <el-table-column prop="task_name" label="任务名称" min-width="140" show-overflow-tooltip />
-            <el-table-column label="状态" width="90" align="center">
-              <template #default="{ row }">
-                <el-tag :type="row.status === 0 ? 'success' : 'danger'" size="small" effect="light">
-                  {{ row.status === 0 ? '成功' : '失败' }}
-                </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column prop="duration" label="耗时" width="90" align="center">
-              <template #default="{ row }">
-                {{ row.duration != null ? row.duration.toFixed(1) + 's' : '-' }}
-              </template>
-            </el-table-column>
-            <el-table-column prop="created_at" label="执行时间" width="170">
-              <template #default="{ row }">
-                {{ formatTime(row.created_at) }}
-              </template>
-            </el-table-column>
-          </el-table>
-        </el-card>
-      </el-col>
-    </el-row>
-  </div>
-</template>
-
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, onActivated, defineComponent, h, watch, defineAsyncComponent } from 'vue'
+import { useRouter } from 'vue-router'
 import { systemApi } from '@/api/system'
+import { useAuthStore } from '@/stores/auth'
 import { ElMessage } from 'element-plus'
 import {
-  Timer, Check, ArrowRight, VideoPlay,
+  Timer,
+  CirclePlus,
+  Upload,
+  Setting,
+  Tickets,
+  Connection,
+  TrendCharts,
+  CircleCheck,
+  CircleClose,
+  Loading,
+  Refresh,
+  ArrowRight,
+  Cpu,
+  Coin,
+  FolderOpened,
+  ArrowUp,
+  ArrowDown,
+  View,
+  Document,
+  More,
+  Promotion,
 } from '@element-plus/icons-vue'
 import { useResponsive } from '@/composables/useResponsive'
+import { canAdminister, hasRequiredRole } from '@/utils/roles'
 
 const ExecutionTrendChart = defineAsyncComponent(() => import('./components/ExecutionTrendChart.vue'))
+const router = useRouter()
+const authStore = useAuthStore()
 const { isMobile } = useResponsive()
+const LOG_STATUS_SUCCESS = 0
+const LOG_STATUS_FAILED = 1
+const LOG_STATUS_RUNNING = 2
+
 const showTrendChart = ref(false)
 const trendChartHostRef = ref<HTMLElement | null>(null)
 let trendChartObserver: IntersectionObserver | null = null
 let trendChartTimer: number | null = null
 
+const trendRange = ref<7 | 30>(7)
+const logFilter = ref<'all' | 'success' | 'failed' | 'running'>('all')
+const refreshTimestamp = ref(new Date())
+const hasLoadedOnce = ref(false)
+const skipInitialActivated = ref(true)
+const canViewSystemDetails = computed(() => canAdminister(authStore.user?.role))
+
 const CountUp = defineComponent({
   props: {
     endVal: { type: Number, default: 0 },
-    duration: { type: Number, default: 1.5 },
+    duration: { type: Number, default: 1.2 },
     decimals: { type: Number, default: 0 },
     suffix: { type: String, default: '' },
+    prefix: { type: String, default: '' },
   },
   setup(props) {
     const display = ref('0')
@@ -196,7 +73,7 @@ const CountUp = defineComponent({
         const progress = Math.min(elapsed / dur, 1)
         const eased = 1 - Math.pow(1 - progress, 3)
         const current = start + (end - start) * eased
-        display.value = current.toFixed(props.decimals)
+        display.value = formatNumber(current, props.decimals)
         if (progress < 1) {
           animFrame = requestAnimationFrame(step)
         }
@@ -205,58 +82,320 @@ const CountUp = defineComponent({
       animFrame = requestAnimationFrame(step)
     }
 
+    function formatNumber(n: number, decimals: number) {
+      const fixed = n.toFixed(decimals)
+      const [intPart = '0', decPart] = fixed.split('.')
+      const grouped = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+      return decPart ? grouped + '.' + decPart : grouped
+    }
+
     watch(() => props.endVal, () => animate(), { immediate: true })
-
-    onUnmounted(() => {
-      cancelAnimationFrame(animFrame)
-    })
-
-    return () => h('span', {}, display.value + props.suffix)
+    onUnmounted(() => cancelAnimationFrame(animFrame))
+    return () => h('span', {}, props.prefix + display.value + props.suffix)
   }
 })
 
 const dashboardData = ref<any>({})
 const sysInfo = ref<any>({})
-
 const recentLogs = computed(() => dashboardData.value.recent_logs || [])
 
-const statCards = computed(() => {
-  const d = dashboardData.value
-  return [
-    { label: '任务总数', value: d.task_count || 0, icon: Timer, color: '#409EFF', bg: 'linear-gradient(135deg, #e6f4ff, #f0f5ff)', link: '/tasks' },
-    { label: '正在运行', value: d.running_tasks || 0, icon: VideoPlay, color: '#E6A23C', bg: 'linear-gradient(135deg, #fffbe6, #fff1b8)', link: '/tasks' },
-    { label: '今日执行', value: d.today_logs || 0, icon: Check, color: '#fa541c', bg: 'linear-gradient(135deg, #fff2e8, #fff7e6)', link: '/logs' },
-    { label: '成功率', value: d.today_logs ? Math.round((d.success_logs || 0) / d.today_logs * 100) : null, icon: Check, color: '#67C23A', bg: 'linear-gradient(135deg, #f6ffed, #fcffe6)', link: '/logs' },
-  ]
+const greeting = computed(() => {
+  const hour = new Date().getHours()
+  if (hour < 6) return '夜深了'
+  if (hour < 12) return '早上好'
+  if (hour < 14) return '中午好'
+  if (hour < 18) return '下午好'
+  return '晚上好'
 })
 
-const resourceBars = computed(() => {
-  const s = sysInfo.value
-  return [
-    { label: 'CPU', value: Number(s.cpu_usage) || 0, color: '#fa541c', detail: `${s.num_cpu || '-'} 核心` },
-    { label: '内存', value: Number(s.memory_usage) || 0, color: '#409EFF', detail: `${formatBytes(s.memory_used)} / ${formatBytes(s.memory_total)}` },
-    { label: '磁盘', value: Number(s.disk_usage) || 0, color: '#67C23A', detail: `${formatBytes(s.disk_used)} / ${formatBytes(s.disk_total)}` },
-  ]
+const greetingSub = computed(() => {
+  const hour = new Date().getHours()
+  if (hour < 6) return '夜深了，记得早点休息哦~'
+  if (hour < 12) return '欢迎回来！今天又是高效执行任务的一天！'
+  if (hour < 14) return '该吃午饭啦，注意劳逸结合~'
+  if (hour < 18) return '下午也要保持专注哦！'
+  return '辛苦一天啦，看看任务运行情况吧~'
 })
 
-const formatTime = (t: string) => {
-  if (!t) return '-'
-  return new Date(t).toLocaleString('zh-CN')
+const todayLogs = computed(() => Number(dashboardData.value.today_logs) || 0)
+const successLogs = computed(() => Number(dashboardData.value.success_logs) || 0)
+const failedLogs = computed(() => Number(dashboardData.value.failed_logs) || 0)
+const taskCount = computed(() => Number(dashboardData.value.task_count) || 0)
+const prevTaskCount = computed(() => Number(dashboardData.value.prev_task_count) || 0)
+const runningTasks = computed(() => Number(dashboardData.value.running_tasks) || 0)
+const yesterdayLogs = computed(() => Number(dashboardData.value.yesterday_logs) || 0)
+const yesterdaySuccess = computed(() => Number(dashboardData.value.yesterday_success) || 0)
+
+const todaySuccessRate = computed(() => {
+  if (!todayLogs.value) return 0
+  return Math.round((successLogs.value / todayLogs.value) * 1000) / 10
+})
+
+const yesterdaySuccessRate = computed(() => {
+  if (!yesterdayLogs.value) return 0
+  return Math.round((yesterdaySuccess.value / yesterdayLogs.value) * 1000) / 10
+})
+
+const taskCountDelta = computed(() => taskCount.value - prevTaskCount.value)
+const todayLogsDelta = computed(() => todayLogs.value - yesterdayLogs.value)
+const successRateDelta = computed(() => {
+  return Math.round((todaySuccessRate.value - yesterdaySuccessRate.value) * 10) / 10
+})
+
+const statCards = computed(() => [
+  {
+    key: 'total',
+    label: '任务总数',
+    value: taskCount.value,
+    sub: '已配置任务',
+    delta: taskCountDelta.value,
+    deltaSuffix: '',
+    icon: Tickets,
+    color: '#3b82f6',
+    bgIcon: 'rgba(59, 130, 246, 0.12)',
+    link: '/tasks',
+  },
+  {
+    key: 'running',
+    label: '运行中的任务',
+    value: runningTasks.value,
+    sub: '实时运行中',
+    delta: null,
+    icon: Loading,
+    color: '#10b981',
+    bgIcon: 'rgba(16, 185, 129, 0.12)',
+    link: '/tasks',
+    spinning: runningTasks.value > 0,
+  },
+  {
+    key: 'today',
+    label: '今日执行',
+    value: todayLogs.value,
+    sub: '较昨日',
+    delta: todayLogsDelta.value,
+    deltaSuffix: '',
+    icon: TrendCharts,
+    color: '#f59e0b',
+    bgIcon: 'rgba(245, 158, 11, 0.12)',
+    link: '/logs',
+  },
+  {
+    key: 'success-rate',
+    label: '成功率',
+    value: todaySuccessRate.value,
+    sub: '较昨日',
+    delta: successRateDelta.value,
+    deltaSuffix: '%',
+    icon: CircleCheck,
+    color: '#8b5cf6',
+    bgIcon: 'rgba(139, 92, 246, 0.12)',
+    link: '/logs',
+    suffix: '%',
+    decimals: 1,
+  },
+])
+
+const quickActions = computed(() => [
+  { key: 'create', label: '新建任务', icon: CirclePlus, color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.1)', minRole: 'operator', action: () => router.push({ path: '/tasks', query: { create: '1' } }) },
+  { key: 'import', label: '导入脚本', icon: Upload, color: '#10b981', bg: 'rgba(16, 185, 129, 0.1)', minRole: 'operator', action: () => router.push({ path: '/scripts', query: { upload: '1' } }) },
+  { key: 'env', label: '环境变量', icon: Setting, color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.1)', minRole: 'operator', action: () => router.push('/envs') },
+  { key: 'log', label: '执行日志', icon: Tickets, color: '#06b6d4', bg: 'rgba(6, 182, 212, 0.1)', minRole: 'viewer', action: () => router.push('/logs') },
+  { key: 'api', label: '接口文档', icon: Connection, color: '#8b5cf6', bg: 'rgba(139, 92, 246, 0.1)', minRole: 'viewer', action: () => router.push('/api-docs') },
+].filter(action => hasRequiredRole(authStore.user?.role, action.minRole)))
+
+function isRunningLog(status: number | null | undefined) {
+  return status === LOG_STATUS_RUNNING || status === null || status === undefined
 }
 
-const formatBytes = (bytes: number) => {
+function isSuccessLog(status: number | null | undefined) {
+  return status === LOG_STATUS_SUCCESS
+}
+
+function isFailedLog(status: number | null | undefined) {
+  return status === LOG_STATUS_FAILED
+}
+
+function normalizeLabels(labels: unknown): string[] {
+  if (Array.isArray(labels)) {
+    return labels.map(String).filter(Boolean)
+  }
+  if (typeof labels === 'string') {
+    return labels.split(',').map(item => item.trim()).filter(Boolean)
+  }
+  return []
+}
+
+function taskTypeOf(log: any) {
+  return log?.task_type || log?.task?.task_type
+}
+
+function labelsOf(log: any) {
+  return normalizeLabels(log?.labels ?? log?.task?.labels)
+}
+
+const resourceItems = computed(() => {
+  const s = sysInfo.value
+  return [
+    {
+      key: 'cpu',
+      label: 'CPU',
+      icon: Cpu,
+      iconColor: '#3b82f6',
+      iconBg: 'rgba(59, 130, 246, 0.12)',
+      detail: `${s.num_cpu || '-'} 核心`,
+      percent: Number(s.cpu_usage) || 0,
+      barColor: 'linear-gradient(90deg, #3b82f6, #60a5fa)',
+    },
+    {
+      key: 'memory',
+      label: '内存',
+      icon: Coin,
+      iconColor: '#8b5cf6',
+      iconBg: 'rgba(139, 92, 246, 0.12)',
+      detail: `${formatBytes(s.memory_used)} / ${formatBytes(s.memory_total)}`,
+      percent: Number(s.memory_usage) || 0,
+      barColor: 'linear-gradient(90deg, #8b5cf6, #a78bfa)',
+    },
+    {
+      key: 'disk',
+      label: '磁盘',
+      icon: FolderOpened,
+      iconColor: '#10b981',
+      iconBg: 'rgba(16, 185, 129, 0.12)',
+      detail: `${formatBytes(s.disk_used)} / ${formatBytes(s.disk_total)}`,
+      percent: Number(s.disk_usage) || 0,
+      barColor: 'linear-gradient(90deg, #10b981, #34d399)',
+    },
+  ]
+})
+
+function formatNetSpeed(bytesPerSec: number) {
+  if (!bytesPerSec || bytesPerSec < 0) return '0 KB/s'
+  if (bytesPerSec < 1024 * 1024) {
+    return (bytesPerSec / 1024).toFixed(1) + ' KB/s'
+  }
+  return (bytesPerSec / (1024 * 1024)).toFixed(1) + ' MB/s'
+}
+
+function formatBytes(bytes: number) {
   if (!bytes) return '0 B'
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
   let i = 0
   let val = bytes
-  while (val >= 1024 && i < units.length - 1) { val /= 1024; i++ }
+  while (val >= 1024 && i < units.length - 1) {
+    val /= 1024
+    i++
+  }
   return val.toFixed(1) + ' ' + units[i]
+}
+
+function formatTime(t: string) {
+  if (!t) return '-'
+  return new Date(t).toLocaleString('zh-CN', { hour12: false })
+}
+
+function relativeTime(t: string) {
+  if (!t) return '-'
+  const diff = (Date.now() - new Date(t).getTime()) / 1000
+  if (diff < 60) return Math.max(1, Math.floor(diff)) + ' 秒前'
+  if (diff < 3600) return Math.floor(diff / 60) + ' 分钟前'
+  if (diff < 86400) return Math.floor(diff / 3600) + ' 小时前'
+  if (diff < 86400 * 7) return Math.floor(diff / 86400) + ' 天前'
+  return new Date(t).toLocaleDateString('zh-CN')
+}
+
+function lastUpdatedText() {
+  const diff = (Date.now() - refreshTimestamp.value.getTime()) / 1000
+  if (diff < 60) return '刚刚'
+  if (diff < 3600) return Math.floor(diff / 60) + ' 分钟前'
+  return Math.floor(diff / 3600) + ' 小时前'
+}
+
+const lastUpdatedTick = ref(0)
+let lastUpdatedTimer: number | null = null
+
+const filteredLogs = computed(() => {
+  const list = recentLogs.value
+  if (logFilter.value === 'all') return list.slice(0, 5)
+  if (logFilter.value === 'running') return list.filter((l: any) => isRunningLog(l.status)).slice(0, 5)
+  if (logFilter.value === 'success') return list.filter((l: any) => isSuccessLog(l.status)).slice(0, 5)
+  if (logFilter.value === 'failed') return list.filter((l: any) => isFailedLog(l.status)).slice(0, 5)
+  return list.slice(0, 5)
+})
+
+const activityList = computed(() => {
+  return recentLogs.value.slice(0, 6).map((log: any) => {
+    const isRunning = isRunningLog(log.status)
+    const isSuccess = isSuccessLog(log.status)
+    return {
+      id: log.id,
+      title: isRunning ? '任务正在运行' : (isSuccess ? '任务执行成功' : '任务执行失败'),
+      desc: log.task_name || '未命名任务',
+      time: log.created_at,
+      type: isRunning ? 'running' : (isSuccess ? 'success' : 'failed'),
+    }
+  })
+})
+
+const taskStats = computed(() => {
+  const dailyStats = (dashboardData.value.daily_stats || []) as Array<{ success: number; failed: number }>
+  const totalSuccess = dailyStats.reduce((sum, d) => sum + (d.success || 0), 0)
+  const totalFailed = dailyStats.reduce((sum, d) => sum + (d.failed || 0), 0)
+  const running = runningTasks.value
+  const total = totalSuccess + totalFailed + running
+
+  function pct(n: number) {
+    if (!total) return 0
+    return Math.round((n / total) * 1000) / 10
+  }
+
+  return {
+    total,
+    success: totalSuccess,
+    failed: totalFailed,
+    running,
+    skipped: 0,
+    successPct: pct(totalSuccess),
+    failedPct: pct(totalFailed),
+    runningPct: pct(running),
+    skippedPct: 0,
+  }
+})
+
+const avgDuration = computed(() => {
+  const list = recentLogs.value
+  if (!list.length) return 0
+  const valid = list.filter((l: any) => l.duration != null)
+  if (!valid.length) return 0
+  const sum = valid.reduce((s: number, l: any) => s + (l.duration || 0), 0)
+  return Math.round((sum / valid.length) * 10) / 10
+})
+
+function donutSegments() {
+  const radius = 50
+  const circ = 2 * Math.PI * radius
+  const stats = taskStats.value
+  const segs = [
+    { color: '#10b981', percent: stats.successPct },
+    { color: '#3b82f6', percent: stats.runningPct },
+    { color: '#ef4444', percent: stats.failedPct },
+    { color: '#94a3b8', percent: stats.skippedPct },
+  ]
+  let offset = 0
+  return segs.map((s) => {
+    const length = (s.percent / 100) * circ
+    const dasharray = `${length} ${circ - length}`
+    const dashoffset = -offset
+    offset += length
+    return { ...s, dasharray, dashoffset, circ }
+  })
 }
 
 const loadDashboard = async () => {
   try {
-    const res = await systemApi.dashboard() as any
+    const res = await systemApi.dashboard(trendRange.value) as any
     dashboardData.value = res.data || {}
+    refreshTimestamp.value = new Date()
   } catch {
     ElMessage.error('加载仪表盘数据失败')
   }
@@ -271,11 +410,12 @@ const loadSysInfo = async () => {
   }
 }
 
-function activateTrendChart() {
-  if (showTrendChart.value || trendChartTimer) {
-    return
-  }
+watch(trendRange, () => {
+  loadDashboard()
+})
 
+function activateTrendChart() {
+  if (showTrendChart.value || trendChartTimer) return
   trendChartTimer = window.setTimeout(() => {
     showTrendChart.value = true
     trendChartTimer = null
@@ -290,35 +430,44 @@ function stopObservingTrendChart() {
 }
 
 function scheduleTrendChartRender() {
-  if (showTrendChart.value || !trendChartHostRef.value) {
-    return
-  }
-
+  if (showTrendChart.value || !trendChartHostRef.value) return
   if (typeof window === 'undefined' || typeof IntersectionObserver === 'undefined') {
     activateTrendChart()
     return
   }
-
   stopObservingTrendChart()
   trendChartObserver = new IntersectionObserver((entries) => {
-    if (!entries.some((entry) => entry.isIntersecting)) {
-      return
-    }
+    if (!entries.some(e => e.isIntersecting)) return
     stopObservingTrendChart()
     activateTrendChart()
   }, { rootMargin: '160px 0px' })
   trendChartObserver.observe(trendChartHostRef.value)
 }
 
-onMounted(() => {
+function loadDashboardPage() {
   loadDashboard()
   loadSysInfo()
+}
+
+function handleRefresh() {
+  loadDashboardPage()
+}
+
+onMounted(() => {
+  loadDashboardPage()
+  hasLoadedOnce.value = true
   scheduleTrendChartRender()
+  lastUpdatedTimer = window.setInterval(() => {
+    lastUpdatedTick.value++
+  }, 30 * 1000)
 })
 
 onActivated(() => {
-  loadDashboard()
-  loadSysInfo()
+  if (skipInitialActivated.value) {
+    skipInitialActivated.value = false
+  } else if (hasLoadedOnce.value) {
+    loadDashboardPage()
+  }
   scheduleTrendChartRender()
 })
 
@@ -328,202 +477,1421 @@ onUnmounted(() => {
     clearTimeout(trendChartTimer)
     trendChartTimer = null
   }
+  if (lastUpdatedTimer) {
+    clearInterval(lastUpdatedTimer)
+    lastUpdatedTimer = null
+  }
 })
+
+const updatedHint = computed(() => {
+  // 触发重新计算（通过 lastUpdatedTick）
+  void lastUpdatedTick.value
+  return lastUpdatedText()
+})
+
+function statusBadgeType(status: number | null | undefined) {
+  if (isRunningLog(status)) return 'primary'
+  if (isSuccessLog(status)) return 'success'
+  return 'danger'
+}
+
+function statusBadgeText(status: number | null | undefined) {
+  if (isRunningLog(status)) return '运行中'
+  if (isSuccessLog(status)) return '成功'
+  return '失败'
+}
+
+function triggerLabel(taskType: string | undefined) {
+  switch (taskType) {
+    case 'manual': return '手动执行'
+    case 'startup': return '启动执行'
+    default: return '定时任务'
+  }
+}
+
+function envLabel(log: any) {
+  const labels = labelsOf(log)
+  if (labels.length > 0) return labels[0] || 'default'
+  return taskTypeOf(log) === 'manual' ? 'manual' : 'cron'
+}
+
+function envBadgeColor(env: string) {
+  switch (env) {
+    case 'prod':
+    case 'production': return { bg: 'rgba(16, 185, 129, 0.1)', color: '#10b981' }
+    case 'staging': return { bg: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b' }
+    case 'test': return { bg: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6' }
+    case 'local': return { bg: 'rgba(148, 163, 184, 0.15)', color: '#64748b' }
+    case 'manual': return { bg: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b' }
+    case 'cron': return { bg: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6' }
+    default: return { bg: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6' }
+  }
+}
+
+function viewLog(log: any) {
+  router.push({ path: '/logs', query: { task_id: log.task_id } })
+}
+
+function rerunLog(log: any) {
+  router.push({ path: '/tasks', query: { task_id: log.task_id, action: 'run' } })
+}
 </script>
+
+<template>
+  <div class="dashboard-page">
+    <!-- ============ Hero: Welcome banner + Quick actions ============ -->
+    <section class="hero-row">
+      <div class="hero-banner">
+        <div class="hero-banner__bg">
+          <span class="hero-banner__bubble bubble-1"></span>
+          <span class="hero-banner__bubble bubble-2"></span>
+          <span class="hero-banner__bubble bubble-3"></span>
+        </div>
+        <div class="hero-banner__content">
+          <h2 class="hero-banner__title">
+            {{ greeting }}，{{ authStore.user?.username || 'User' }}
+            <span class="wave-emoji">👋</span>
+          </h2>
+          <p class="hero-banner__sub">{{ greetingSub }}</p>
+        </div>
+        <div class="hero-banner__art">
+          <svg viewBox="0 0 220 140" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="screenG" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stop-color="#ffffff" stop-opacity="0.95" />
+                <stop offset="100%" stop-color="#ffffff" stop-opacity="0.55" />
+              </linearGradient>
+              <linearGradient id="chartG" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#a78bfa" />
+                <stop offset="100%" stop-color="#7c3aed" />
+              </linearGradient>
+            </defs>
+            <!-- 行星圆环 -->
+            <ellipse cx="160" cy="38" rx="48" ry="9" stroke="rgba(255,255,255,0.4)" stroke-width="1.4" fill="none" />
+            <circle cx="160" cy="38" r="14" fill="#fbbf24" />
+            <circle cx="160" cy="38" r="14" fill="url(#chartG)" opacity="0.4" />
+            <!-- 主屏幕 -->
+            <rect x="58" y="34" width="92" height="68" rx="8" fill="url(#screenG)" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" />
+            <rect x="65" y="42" width="32" height="6" rx="3" fill="#a78bfa" opacity="0.85" />
+            <rect x="65" y="52" width="48" height="4" rx="2" fill="#c4b5fd" opacity="0.7" />
+            <rect x="65" y="60" width="36" height="4" rx="2" fill="#c4b5fd" opacity="0.55" />
+            <!-- 折线图 -->
+            <polyline points="65,90 78,80 91,86 104,72 117,78 130,68 143,74"
+                      stroke="#7c3aed" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+            <circle cx="143" cy="74" r="2.4" fill="#7c3aed" />
+            <!-- 火箭 -->
+            <g transform="translate(28 64) rotate(-22)">
+              <path d="M0 14 L10 0 L18 4 L18 22 L10 26 Z" fill="#ffffff" opacity="0.92" />
+              <circle cx="11" cy="10" r="2.2" fill="#7c3aed" />
+              <path d="M2 22 L-3 30 L4 26 Z" fill="#fbbf24" opacity="0.85" />
+            </g>
+            <!-- 装饰小气泡 -->
+            <circle cx="28" cy="32" r="3" fill="rgba(255,255,255,0.7)" />
+            <circle cx="200" cy="100" r="4" fill="rgba(255,255,255,0.55)" />
+            <circle cx="190" cy="86" r="2" fill="rgba(255,255,255,0.85)" />
+            <!-- 文档卡 -->
+            <rect x="160" y="78" width="34" height="26" rx="4" fill="#ffffff" opacity="0.92" />
+            <rect x="164" y="84" width="20" height="3" rx="1.5" fill="#a78bfa" opacity="0.7" />
+            <rect x="164" y="90" width="16" height="3" rx="1.5" fill="#c4b5fd" opacity="0.6" />
+            <rect x="164" y="96" width="12" height="3" rx="1.5" fill="#c4b5fd" opacity="0.6" />
+          </svg>
+        </div>
+      </div>
+
+      <div class="hero-quick">
+        <div class="hero-quick__header">
+          <span class="hero-quick__title">快捷操作</span>
+        </div>
+        <div class="hero-quick__grid">
+          <button
+            v-for="action in quickActions"
+            :key="action.key"
+            class="quick-tile"
+            @click="action.action"
+          >
+            <span class="quick-tile__icon" :style="{ background: action.bg, color: action.color }">
+              <el-icon :size="18"><component :is="action.icon" /></el-icon>
+            </span>
+            <span class="quick-tile__label">{{ action.label }}</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 4 Stat Cards ============ -->
+    <section class="stat-grid">
+      <div
+        v-for="card in statCards"
+        :key="card.key"
+        class="stat-card"
+        @click="router.push(card.link)"
+      >
+        <div class="stat-card__main">
+          <span class="stat-card__label">{{ card.label }}</span>
+          <span class="stat-card__value" :style="{ color: card.color }">
+            <CountUp :end-val="card.value" :duration="1.2" :decimals="card.decimals || 0" :suffix="card.suffix || ''" />
+          </span>
+          <span class="stat-card__delta">
+            <template v-if="card.delta !== null && card.delta !== undefined">
+              <span class="stat-card__delta-prefix">{{ card.sub }}</span>
+              <span
+                v-if="card.delta === 0"
+                class="stat-card__delta-value is-flat"
+              >持平</span>
+              <span
+                v-else
+                class="stat-card__delta-value"
+                :class="card.delta > 0 ? 'is-up' : 'is-down'"
+              >
+                <el-icon :size="11">
+                  <component :is="card.delta > 0 ? ArrowUp : ArrowDown" />
+                </el-icon>
+                {{ card.delta > 0 ? '+' : '' }}{{ card.delta }}{{ card.deltaSuffix || '' }}
+              </span>
+            </template>
+            <template v-else>
+              <span class="stat-card__delta-prefix">{{ card.sub }}</span>
+            </template>
+          </span>
+        </div>
+        <div class="stat-card__icon" :style="{ background: card.bgIcon, color: card.color }">
+          <el-icon :size="20" :class="{ 'icon-spin': card.spinning }">
+            <component :is="card.icon" />
+          </el-icon>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ Middle row: Trend / Resources / Activity ============ -->
+    <section class="middle-grid">
+      <!-- 执行趋势 -->
+      <div class="panel panel--trend">
+        <div class="panel-header">
+          <div class="panel-header__title">
+            <el-icon class="panel-header__icon" :size="14" style="color: #3b82f6"><TrendCharts /></el-icon>
+            <span>执行趋势</span>
+          </div>
+          <div class="panel-header__actions">
+            <div class="seg-btn-group">
+              <button
+                class="seg-btn"
+                :class="{ 'is-active': trendRange === 7 }"
+                @click="trendRange = 7"
+              >近7天</button>
+              <button
+                class="seg-btn"
+                :class="{ 'is-active': trendRange === 30 }"
+                @click="trendRange = 30"
+              >近30天</button>
+            </div>
+          </div>
+        </div>
+        <div ref="trendChartHostRef" class="trend-chart-shell">
+          <ExecutionTrendChart v-if="showTrendChart" :stats="dashboardData.daily_stats || []" />
+          <div v-else class="trend-chart-placeholder">
+            <div class="placeholder-bar"></div>
+            <div class="placeholder-bar placeholder-bar--short"></div>
+            <div class="placeholder-legend"><span></span><span></span><span></span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 系统资源 -->
+      <div class="panel panel--resource">
+        <div class="panel-header">
+          <div class="panel-header__title">
+            <el-icon class="panel-header__icon" :size="14" style="color: #10b981"><Cpu /></el-icon>
+            <span>系统资源</span>
+            <span class="panel-header__hint">最近更新：{{ updatedHint }}</span>
+          </div>
+          <div v-if="canViewSystemDetails" class="panel-header__actions">
+            <button class="text-link" @click="router.push('/admin/settings')">
+              查看详情 <el-icon :size="11"><ArrowRight /></el-icon>
+            </button>
+          </div>
+        </div>
+        <div class="resource-list">
+          <div v-for="r in resourceItems" :key="r.key" class="resource-row">
+            <div class="resource-row__icon" :style="{ background: r.iconBg, color: r.iconColor }">
+              <el-icon :size="16"><component :is="r.icon" /></el-icon>
+            </div>
+            <div class="resource-row__body">
+              <div class="resource-row__top">
+                <span class="resource-row__label">{{ r.label }}</span>
+                <span class="resource-row__detail">{{ r.detail }}</span>
+                <span class="resource-row__pct">{{ r.percent.toFixed(1) }}%</span>
+              </div>
+              <div class="resource-bar">
+                <div class="resource-bar__fill" :style="{ width: Math.min(r.percent, 100) + '%', background: r.barColor }"></div>
+              </div>
+            </div>
+          </div>
+          <div class="resource-row">
+            <div class="resource-row__icon" style="background: rgba(6, 182, 212, 0.12); color: #06b6d4">
+              <el-icon :size="16"><Promotion /></el-icon>
+            </div>
+            <div class="resource-row__body">
+              <div class="resource-row__top">
+                <span class="resource-row__label">网络</span>
+                <span class="resource-row__detail">
+                  <span class="net-speed-badge net-speed-badge--down">
+                    <el-icon :size="10"><ArrowDown /></el-icon> {{ formatNetSpeed(sysInfo.net_rx_speed) }}
+                  </span>
+                  <span class="net-speed-badge net-speed-badge--up">
+                    <el-icon :size="10"><ArrowUp /></el-icon> {{ formatNetSpeed(sysInfo.net_tx_speed) }}
+                  </span>
+                </span>
+              </div>
+              <div class="net-activity-bar">
+                <div class="net-activity-bar__track">
+                  <div class="net-activity-bar__pulse" :class="{ 'is-active': (sysInfo.net_rx_speed || 0) + (sysInfo.net_tx_speed || 0) > 0 }"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 最近活动 -->
+      <div class="panel panel--activity">
+        <div class="panel-header">
+          <div class="panel-header__title">
+            <el-icon class="panel-header__icon" :size="14" style="color: #f59e0b"><Refresh /></el-icon>
+            <span>最近活动</span>
+          </div>
+          <div class="panel-header__actions">
+            <button class="text-link" @click="router.push('/logs')">
+              查看全部 <el-icon :size="11"><ArrowRight /></el-icon>
+            </button>
+          </div>
+        </div>
+        <div class="activity-feed">
+          <div v-if="activityList.length === 0" class="empty-hint">暂无活动</div>
+          <div
+            v-for="(act, idx) in activityList"
+            :key="act.id || idx"
+            class="activity-item"
+          >
+            <span class="activity-item__icon" :class="`is-${act.type}`">
+              <el-icon :size="12">
+                <component :is="act.type === 'success' ? CircleCheck : (act.type === 'failed' ? CircleClose : Loading)" />
+              </el-icon>
+            </span>
+            <div class="activity-item__body">
+              <span class="activity-item__title">{{ act.title }}</span>
+              <span class="activity-item__desc">{{ act.desc }}</span>
+            </div>
+            <span class="activity-item__time">{{ relativeTime(act.time) }}</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ Bottom row: Recent task table / Task stats ring ============ -->
+    <section class="bottom-grid">
+      <!-- 最近执行任务 -->
+      <div class="panel panel--logs">
+        <div class="panel-header">
+          <div class="panel-header__title">
+            <el-icon class="panel-header__icon" :size="14" style="color: #8b5cf6"><Document /></el-icon>
+            <span>最近执行任务</span>
+            <div class="seg-btn-group seg-btn-group--mini">
+              <button
+                v-for="opt in [{label:'全部',value:'all'},{label:'成功',value:'success'},{label:'失败',value:'failed'},{label:'运行中',value:'running'}]"
+                :key="opt.value"
+                class="seg-btn"
+                :class="{ 'is-active': logFilter === opt.value }"
+                @click="logFilter = opt.value as any"
+              >{{ opt.label }}</button>
+            </div>
+          </div>
+          <div class="panel-header__actions">
+            <button class="text-link" @click="router.push('/logs')">
+              查看更多 <el-icon :size="11"><ArrowRight /></el-icon>
+            </button>
+          </div>
+        </div>
+        <div v-if="isMobile" class="log-mobile-list">
+          <div v-if="filteredLogs.length === 0" class="empty-hint">暂无记录</div>
+          <div v-for="log in filteredLogs" :key="log.id" class="log-mobile-card">
+            <div class="log-mobile-card__head">
+              <span class="log-mobile-card__name">{{ log.task_name || '未命名任务' }}</span>
+              <span class="log-status-chip" :class="`is-${statusBadgeType(log.status)}`">
+                {{ statusBadgeText(log.status) }}
+              </span>
+            </div>
+            <div class="log-mobile-card__meta">
+              <span>{{ formatTime(log.created_at) }}</span>
+              <span v-if="log.duration != null">耗时 {{ log.duration.toFixed(1) }}s</span>
+            </div>
+          </div>
+        </div>
+        <table v-else class="log-table">
+          <thead>
+            <tr>
+              <th>任务名称</th>
+              <th class="col-center">状态</th>
+              <th>执行时间</th>
+              <th class="col-center">耗时</th>
+              <th class="col-center">触发方式</th>
+              <th class="col-center">环境</th>
+              <th class="col-center">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-if="filteredLogs.length === 0">
+              <td colspan="7" class="empty-cell">暂无记录</td>
+            </tr>
+            <tr v-for="log in filteredLogs" :key="log.id">
+              <td>
+                <span class="log-cell-name">{{ log.task_name || '未命名任务' }}</span>
+              </td>
+              <td class="col-center">
+                <span class="log-status-chip" :class="`is-${statusBadgeType(log.status)}`">
+                  {{ statusBadgeText(log.status) }}
+                </span>
+              </td>
+              <td><span class="log-cell-time">{{ formatTime(log.created_at) }}</span></td>
+              <td class="col-center"><span class="log-cell-duration">{{ log.duration != null ? log.duration.toFixed(1) + 's' : '-' }}</span></td>
+              <td class="col-center"><span class="log-cell-trigger">{{ triggerLabel(taskTypeOf(log)) }}</span></td>
+              <td class="col-center">
+                <span
+                  class="env-chip"
+                  :style="{ background: envBadgeColor(envLabel(log)).bg, color: envBadgeColor(envLabel(log)).color }"
+                >{{ envLabel(log) }}</span>
+              </td>
+              <td class="col-center">
+                <div class="log-cell-actions">
+                  <button class="icon-btn" title="查看日志" @click="viewLog(log)">
+                    <el-icon :size="14"><View /></el-icon>
+                  </button>
+                  <button class="icon-btn" title="重新运行" @click="rerunLog(log)">
+                    <el-icon :size="14"><Refresh /></el-icon>
+                  </button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 任务统计 -->
+      <div class="panel panel--stats">
+        <div class="panel-header">
+          <div class="panel-header__title">
+            <el-icon class="panel-header__icon" :size="14" style="color: #ec4899"><TrendCharts /></el-icon>
+            <span>任务统计</span>
+            <span class="panel-header__hint">近{{ trendRange }}天</span>
+          </div>
+          <div class="panel-header__actions">
+            <button class="text-link" @click="router.push('/logs')">
+              查看更多 <el-icon :size="11"><ArrowRight /></el-icon>
+            </button>
+          </div>
+        </div>
+        <div class="task-stats-body">
+          <div class="task-donut">
+            <svg viewBox="0 0 140 140">
+              <circle cx="70" cy="70" r="50" fill="none" stroke="var(--el-fill-color)" stroke-width="14" />
+              <circle
+                v-for="(seg, idx) in donutSegments()"
+                :key="idx"
+                cx="70" cy="70" r="50" fill="none"
+                :stroke="seg.color"
+                stroke-width="14"
+                stroke-linecap="round"
+                :stroke-dasharray="seg.dasharray"
+                :stroke-dashoffset="seg.dashoffset"
+                transform="rotate(-90 70 70)"
+                style="transition: stroke-dasharray 0.6s ease, stroke-dashoffset 0.6s ease"
+              />
+            </svg>
+            <div class="task-donut__center">
+              <span class="task-donut__value">
+                <CountUp :end-val="taskStats.total" :duration="1.2" />
+              </span>
+              <span class="task-donut__label">总任务数</span>
+            </div>
+          </div>
+          <div class="task-legend">
+            <div class="legend-row">
+              <span class="legend-row__dot" style="background: #10b981"></span>
+              <span class="legend-row__label">成功</span>
+              <span class="legend-row__value">{{ taskStats.success.toLocaleString() }}</span>
+              <span class="legend-row__pct">({{ taskStats.successPct }}%)</span>
+            </div>
+            <div class="legend-row">
+              <span class="legend-row__dot" style="background: #ef4444"></span>
+              <span class="legend-row__label">失败</span>
+              <span class="legend-row__value">{{ taskStats.failed.toLocaleString() }}</span>
+              <span class="legend-row__pct">({{ taskStats.failedPct }}%)</span>
+            </div>
+            <div class="legend-row">
+              <span class="legend-row__dot" style="background: #3b82f6"></span>
+              <span class="legend-row__label">运行中</span>
+              <span class="legend-row__value">{{ taskStats.running.toLocaleString() }}</span>
+              <span class="legend-row__pct">({{ taskStats.runningPct }}%)</span>
+            </div>
+            <div class="legend-row">
+              <span class="legend-row__dot" style="background: #94a3b8"></span>
+              <span class="legend-row__label">跳过</span>
+              <span class="legend-row__value">{{ taskStats.skipped.toLocaleString() }}</span>
+              <span class="legend-row__pct">({{ taskStats.skippedPct }}%)</span>
+            </div>
+          </div>
+        </div>
+        <div class="task-stats-footer">
+          <span class="task-stats-footer__label">平均执行时长</span>
+          <span class="task-stats-footer__value">{{ avgDuration }}s</span>
+        </div>
+      </div>
+    </section>
+  </div>
+</template>
 
 <style scoped lang="scss">
 .dashboard-page {
-  padding: 0;
-}
-
-.page-header {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
+  flex-direction: column;
+  gap: 16px;
 }
 
-.page-title {
-  font-size: 20px;
-  font-weight: 700;
+// ============ Hero ============
+.hero-row {
+  display: grid;
+  grid-template-columns: 1fr 360px;
+  gap: 16px;
+}
+
+.hero-banner {
+  position: relative;
+  border-radius: 16px;
+  padding: 22px 26px;
+  overflow: hidden;
+  background: linear-gradient(135deg, #ede9fe 0%, #e0e7ff 50%, #dbeafe 100%);
+  border: 1px solid rgba(139, 92, 246, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 130px;
+}
+
+.hero-banner__bg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.hero-banner__bubble {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.45);
+  filter: blur(18px);
+
+  &.bubble-1 { width: 120px; height: 120px; top: -40px; left: 30%; }
+  &.bubble-2 { width: 80px; height: 80px; bottom: -20px; left: 60%; background: rgba(167, 139, 250, 0.35); }
+  &.bubble-3 { width: 60px; height: 60px; top: 30%; right: 4%; background: rgba(96, 165, 250, 0.35); }
+}
+
+.hero-banner__content {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  min-width: 0;
+}
+
+.hero-banner__title {
   margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: #1e293b;
+  line-height: 1.3;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.wave-emoji {
+  display: inline-block;
+  animation: wave 1.6s ease-in-out 0.4s 2;
+  transform-origin: 70% 70%;
+}
+
+@keyframes wave {
+  0%, 100% { transform: rotate(0deg); }
+  20% { transform: rotate(14deg); }
+  40% { transform: rotate(-10deg); }
+  60% { transform: rotate(12deg); }
+  80% { transform: rotate(-4deg); }
+}
+
+.hero-banner__sub {
+  margin: 8px 0 0;
+  font-size: 14px;
+  color: rgba(30, 41, 59, 0.7);
+  line-height: 1.5;
+}
+
+.hero-banner__art {
+  position: relative;
+  z-index: 1;
+  width: 220px;
+  height: 140px;
+  flex-shrink: 0;
+}
+
+.hero-banner__art svg {
+  width: 100%;
+  height: 100%;
+}
+
+.hero-quick {
+  border-radius: 16px;
+  padding: 16px 18px 12px;
+  background: var(--el-bg-color);
+  border: 1px solid var(--el-border-color-lighter);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.hero-quick__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.hero-quick__title {
+  font-size: 14px;
+  font-weight: 700;
   color: var(--el-text-color-primary);
 }
 
-.page-subtitle {
-  font-size: 13px;
-  color: var(--el-text-color-secondary);
+.hero-quick__grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
 }
 
-.stat-card {
-  border-radius: 10px;
-  padding: 16px 20px;
-  cursor: pointer;
-  border: none;
+.quick-tile {
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  transition: all 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-  will-change: transform, box-shadow;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 4px;
+  border: none;
+  background: transparent;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.18s, transform 0.18s;
 
   &:hover {
-    transform: translate3d(0, -3px, 0);
-    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.1);
+    background: var(--el-fill-color-light);
+    transform: translateY(-2px);
   }
 }
 
-.stat-label {
-  font-size: 13px;
-  color: #8c8c8c;
-  margin-bottom: 8px;
-}
-
-.stat-value {
-  font-size: 28px;
-  font-weight: 700;
-  line-height: 1.2;
-}
-
-.stat-icon-box {
-  width: 52px;
-  height: 52px;
-  border-radius: 14px;
+.quick-tile__icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.6);
-  backdrop-filter: blur(6px);
-  color: var(--icon-color);
-  flex-shrink: 0;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: transform 0.2s;
 
-  .stat-card:hover & {
-    transform: scale(1.1) rotate(8deg);
+  .quick-tile:hover & {
+    transform: scale(1.08);
   }
 }
 
-.card-title-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.title-dot {
-  width: 3px;
-  height: 14px;
-  border-radius: 2px;
-  display: inline-block;
-  flex-shrink: 0;
-}
-
-.title-text {
-  font-weight: 600;
-  font-size: 14px;
-}
-
-.title-sub {
+.quick-tile__label {
   font-size: 12px;
-  color: var(--el-text-color-secondary);
-  font-weight: 400;
+  color: var(--el-text-color-regular);
+  font-weight: 500;
+  white-space: nowrap;
 }
 
-.resource-item {
-  text-align: center;
+// ============ Stat Grid ============
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
 }
 
-.resource-header {
+.stat-card {
+  background: var(--el-bg-color);
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 14px;
+  padding: 16px 18px;
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+
+  &:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.08);
+    border-color: var(--el-border-color);
+  }
 }
 
-.resource-label {
+.stat-card__main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.stat-card__label {
   font-size: 13px;
   color: var(--el-text-color-secondary);
   font-weight: 500;
 }
 
-.resource-value {
-  font-size: 20px;
+.stat-card__value {
+  font-size: 26px;
   font-weight: 700;
+  line-height: 1.15;
+  font-family: 'Inter', var(--dd-font-ui), -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.01em;
 }
 
-.resource-detail {
-  font-size: 11px;
+.stat-card__delta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
   color: var(--el-text-color-placeholder);
-  margin-top: 4px;
+  flex-wrap: wrap;
 }
 
-.chart-card {
-  :deep(.el-card__header) {
-    padding: 14px 20px;
+.stat-card__delta-prefix {
+  color: var(--el-text-color-placeholder);
+}
+
+.stat-card__delta-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 6px;
+
+  &.is-up {
+    color: #10b981;
+    background: rgba(16, 185, 129, 0.1);
+  }
+
+  &.is-down {
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.1);
+  }
+
+  &.is-flat {
+    color: var(--el-text-color-secondary);
+    background: var(--el-fill-color);
+    padding: 1px 8px;
   }
 }
 
-.trend-chart-shell {
-  min-height: 280px;
+.stat-card__icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
-.trend-chart-placeholder {
-  height: 280px;
-  border-radius: 16px;
-  padding: 20px 18px;
-  background: linear-gradient(180deg, rgba(64, 158, 255, 0.06), rgba(64, 158, 255, 0.015));
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
+.icon-spin {
+  animation: spin 2.4s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+// ============ Middle Grid ============
+.middle-grid {
+  display: grid;
+  grid-template-columns: 1.5fr 1.2fr 1fr;
+  gap: 16px;
+  align-items: stretch;
+}
+
+.bottom-grid {
+  display: grid;
+  grid-template-columns: 2.4fr 1fr;
   gap: 16px;
 }
 
-.trend-chart-placeholder__bar {
-  height: 12px;
-  width: 100%;
-  border-radius: 999px;
-  background: linear-gradient(90deg, rgba(64, 158, 255, 0.18), rgba(103, 194, 58, 0.1), rgba(245, 108, 108, 0.14));
-  animation: trend-placeholder-pulse 1.6s ease-in-out infinite;
+.panel {
+  background: var(--el-bg-color);
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
 }
 
-.trend-chart-placeholder__bar--short {
-  width: 72%;
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+
+.panel-header__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--el-text-color-primary);
+  flex-wrap: wrap;
+}
+
+.panel-header__icon {
+  flex-shrink: 0;
+}
+
+.panel-header__hint {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--el-text-color-placeholder);
+}
+
+.panel-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.text-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--el-color-primary);
+  font-size: 12px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  transition: background 0.15s;
+
+  &:hover {
+    background: var(--el-color-primary-light-9);
+  }
+}
+
+.seg-btn-group {
+  display: inline-flex;
+  background: var(--el-fill-color-light);
+  border-radius: 8px;
+  padding: 2px;
+  gap: 2px;
+
+  &--mini {
+    margin-left: 8px;
+  }
+}
+
+.seg-btn {
+  border: none;
+  background: transparent;
+  padding: 4px 10px;
+  font-size: 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--el-text-color-secondary);
+  transition: all 0.18s;
+
+  &:hover {
+    color: var(--el-text-color-primary);
+  }
+
+  &.is-active {
+    background: var(--el-bg-color);
+    color: var(--el-color-primary);
+    font-weight: 600;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  }
+}
+
+// ============ Trend Chart ============
+.trend-chart-shell {
+  flex: 1;
+  min-height: 240px;
+  padding: 8px 10px 12px;
+}
+
+.trend-chart-placeholder {
+  height: 240px;
+  border-radius: 10px;
+  padding: 18px;
+  background: linear-gradient(180deg, rgba(64, 158, 255, 0.04), transparent);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 14px;
+}
+
+.placeholder-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(59, 130, 246, 0.15), rgba(16, 185, 129, 0.08));
+  animation: placeholderPulse 1.6s ease-in-out infinite;
+}
+
+.placeholder-bar--short {
+  width: 65%;
   animation-delay: 0.12s;
 }
 
-.trend-chart-placeholder__legend {
-  display: inline-flex;
+.placeholder-legend {
+  display: flex;
   gap: 10px;
 }
 
-.trend-chart-placeholder__legend span {
-  width: 56px;
-  height: 8px;
+.placeholder-legend span {
+  width: 48px;
+  height: 6px;
   border-radius: 999px;
-  background: rgba(140, 140, 140, 0.14);
+  background: rgba(140, 140, 140, 0.12);
 }
 
-@keyframes trend-placeholder-pulse {
-  0%, 100% {
-    opacity: 0.6;
-    transform: translateY(0);
+@keyframes placeholderPulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+// ============ Resource ============
+.resource-list {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 18px;
+}
+
+.resource-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.resource-row__icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.resource-row__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.resource-row__top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+
+.resource-row__label {
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+
+.resource-row__detail {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.resource-row__pct {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--el-text-color-primary);
+  font-family: 'Inter', var(--dd-font-ui), sans-serif;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+
+.resource-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--el-fill-color);
+  overflow: hidden;
+}
+
+.resource-bar__fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.net-speed-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--dd-font-mono, monospace);
+
+  &--down {
+    background: rgba(59, 130, 246, 0.1);
+    color: #3b82f6;
   }
 
-  50% {
-    opacity: 1;
-    transform: translateY(-2px);
+  &--up {
+    background: rgba(16, 185, 129, 0.1);
+    color: #10b981;
   }
+}
+
+.net-activity-bar {
+  margin-top: 6px;
+}
+
+.net-activity-bar__track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--el-fill-color);
+  overflow: hidden;
+  position: relative;
+}
+
+.net-activity-bar__pulse {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 30%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #06b6d4, #3b82f6);
+  opacity: 0.3;
+  transform: translateX(-100%);
+
+  &.is-active {
+    opacity: 1;
+    animation: net-pulse 1.8s ease-in-out infinite;
+  }
+}
+
+@keyframes net-pulse {
+  0% { transform: translateX(-100%); }
+  50% { transform: translateX(230%); }
+  100% { transform: translateX(-100%); }
+}
+
+// ============ Activity ============
+.activity-feed {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 8px 14px 12px;
+  gap: 4px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.activity-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 6px;
+  border-radius: 10px;
+  transition: background 0.15s;
+
+  &:hover {
+    background: var(--el-fill-color-light);
+  }
+}
+
+.activity-item__icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+
+  &.is-success { background: rgba(16, 185, 129, 0.12); color: #10b981; }
+  &.is-failed { background: rgba(239, 68, 68, 0.12); color: #ef4444; }
+  &.is-running { background: rgba(59, 130, 246, 0.12); color: #3b82f6; }
+}
+
+.activity-item__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.activity-item__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+  line-height: 1.3;
+}
+
+.activity-item__desc {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.activity-item__time {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--el-text-color-placeholder);
+  margin-top: 3px;
+}
+
+// ============ Recent Logs Table ============
+.log-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+
+  thead {
+    background: var(--el-fill-color-light);
+  }
+
+  th {
+    text-align: left;
+    font-weight: 600;
+    font-size: 12px;
+    color: var(--el-text-color-secondary);
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--el-border-color-lighter);
+    white-space: nowrap;
+  }
+
+  tbody tr {
+    transition: background 0.15s;
+
+    &:hover {
+      background: var(--el-fill-color-light);
+    }
+  }
+
+  td {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--el-border-color-lighter);
+    color: var(--el-text-color-primary);
+    vertical-align: middle;
+  }
+
+  tbody tr:last-child td {
+    border-bottom: none;
+  }
+}
+
+.col-center {
+  text-align: center;
+}
+
+.empty-cell {
+  text-align: center;
+  padding: 28px;
+  color: var(--el-text-color-placeholder);
+  font-size: 13px;
+}
+
+.empty-hint {
+  text-align: center;
+  padding: 28px;
+  color: var(--el-text-color-placeholder);
+  font-size: 13px;
+}
+
+.log-cell-name {
+  font-weight: 500;
+  color: var(--el-text-color-primary);
+}
+
+.log-cell-time,
+.log-cell-duration {
+  font-size: 12.5px;
+  color: var(--el-text-color-secondary);
+  font-family: 'Inter', var(--dd-font-ui), sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+.log-cell-trigger {
+  font-size: 12.5px;
+  color: var(--el-text-color-secondary);
+}
+
+.log-status-chip {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.4;
+
+  &.is-success {
+    background: rgba(16, 185, 129, 0.12);
+    color: #10b981;
+  }
+
+  &.is-danger {
+    background: rgba(239, 68, 68, 0.12);
+    color: #ef4444;
+  }
+
+  &.is-primary {
+    background: rgba(59, 130, 246, 0.12);
+    color: #3b82f6;
+  }
+}
+
+.env-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 500;
+  font-family: 'Inter', var(--dd-font-ui), sans-serif;
+  letter-spacing: 0.02em;
+}
+
+.log-cell-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.icon-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--el-text-color-placeholder);
+  transition: all 0.15s;
+
+  &:hover {
+    background: var(--el-fill-color);
+    color: var(--el-color-primary);
+  }
+}
+
+.log-mobile-list {
+  padding: 8px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.log-mobile-card {
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--el-fill-color-light);
+}
+
+.log-mobile-card__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.log-mobile-card__name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+
+.log-mobile-card__meta {
+  display: flex;
+  gap: 12px;
+  font-size: 11.5px;
+  color: var(--el-text-color-secondary);
+}
+
+// ============ Task Stats ============
+.task-stats-body {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+}
+
+.task-donut {
+  position: relative;
+  width: 130px;
+  height: 130px;
+  flex-shrink: 0;
+
+  svg { width: 100%; height: 100%; }
+}
+
+.task-donut__center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+.task-donut__value {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--el-text-color-primary);
+  font-family: 'Inter', var(--dd-font-ui), sans-serif;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.01em;
+}
+
+.task-donut__label {
+  font-size: 11px;
+  color: var(--el-text-color-placeholder);
+}
+
+.task-legend {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.legend-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+}
+
+.legend-row__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.legend-row__label {
+  flex: 1;
+  color: var(--el-text-color-regular);
+}
+
+.legend-row__value {
+  font-weight: 700;
+  color: var(--el-text-color-primary);
+  font-family: 'Inter', var(--dd-font-ui), sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+.legend-row__pct {
+  font-size: 11.5px;
+  color: var(--el-text-color-placeholder);
+}
+
+.task-stats-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 18px;
+  border-top: 1px solid var(--el-border-color-lighter);
+  font-size: 12.5px;
+}
+
+.task-stats-footer__label {
+  color: var(--el-text-color-secondary);
+}
+
+.task-stats-footer__value {
+  font-weight: 700;
+  color: var(--el-color-primary);
+  font-family: 'Inter', var(--dd-font-ui), sans-serif;
+  font-variant-numeric: tabular-nums;
+  font-size: 13.5px;
+}
+
+// ============ Responsive ============
+@media (max-width: 1280px) {
+  .hero-row { grid-template-columns: 1fr; }
+  .hero-banner__art { width: 180px; height: 110px; }
+  .middle-grid { grid-template-columns: 1.4fr 1fr; }
+  .panel--activity { grid-column: 1 / -1; }
+  .bottom-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 960px) {
+  .stat-grid { grid-template-columns: repeat(2, 1fr); }
+  .middle-grid { grid-template-columns: 1fr; }
+  .hero-quick__grid { grid-template-columns: repeat(5, 1fr); }
 }
 
 @media (max-width: 768px) {
-  .page-header {
-    margin-bottom: 14px;
-  }
+  .hero-banner { padding: 16px 18px; min-height: auto; }
+  .hero-banner__title { font-size: 18px; }
+  .hero-banner__sub { font-size: 13px; }
+  .hero-banner__art { display: none; }
 
-  .card-title-bar {
-    flex-wrap: wrap;
-  }
+  .hero-quick__grid { grid-template-columns: repeat(5, 1fr); gap: 4px; }
+  .quick-tile__icon { width: 34px; height: 34px; }
+  .quick-tile__label { font-size: 11px; }
 
-  .resource-item {
-    margin-bottom: 14px;
-  }
+  .stat-grid { gap: 10px; }
+  .stat-card { padding: 14px; }
+  .stat-card__value { font-size: 22px; }
+  .stat-card__icon { width: 38px; height: 38px; }
+
+  .panel-header { padding: 12px 14px; flex-wrap: wrap; }
+  .panel-header__title { font-size: 13px; flex-wrap: wrap; }
+  .seg-btn-group--mini { margin-left: 0; margin-top: 4px; }
+
+  .resource-list { padding: 14px; }
+  .resource-row__top { gap: 6px; }
+
+  .task-stats-body { flex-direction: column; gap: 16px; padding: 16px; }
+  .task-donut { width: 120px; height: 120px; }
+  .task-legend { width: 100%; }
 }
 </style>

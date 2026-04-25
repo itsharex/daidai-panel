@@ -273,12 +273,16 @@ export function useScriptWorkspaceActions({
   async function handleRollback(versionId: number) {
     try {
       await ElMessageBox.confirm('确定要回滚到此版本吗？', '确认回滚', { type: 'warning' })
+    } catch {
+      return
+    }
+    try {
       await scriptApi.rollback(versionId)
       ElMessage.success('回滚成功')
       showVersionDialog.value = false
       await loadFileContent(selectedFile.value)
-    } catch {
-      // cancelled
+    } catch (err: any) {
+      ElMessage.error(err?.response?.data?.error || '回滚失败')
     }
   }
 

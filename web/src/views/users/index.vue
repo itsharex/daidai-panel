@@ -20,10 +20,24 @@ const showResetPwdDialog = ref(false)
 const createForm = ref({ username: '', password: '', role: 'operator' })
 const resetPwdForm = ref({ id: 0, username: '', password: '' })
 
+const roleFilter = ref('')
+
+const userStats = computed(() => {
+  const all = users.value
+  const adminCount = all.filter(u => u.role === 'admin').length
+  const operatorCount = all.filter(u => u.role === 'operator').length
+  const viewerCount = all.filter(u => u.role === 'viewer').length
+  return { totalCount: all.length, adminCount, operatorCount, viewerCount }
+})
+
 const filteredUsers = computed(() => {
+  let list = users.value
+  if (roleFilter.value) {
+    list = list.filter(u => u.role === roleFilter.value)
+  }
   const k = keyword.value.trim().toLowerCase()
-  if (!k) return users.value
-  return users.value.filter(u =>
+  if (!k) return list
+  return list.filter(u =>
     (u.username || '').toLowerCase().includes(k) ||
     (u.role || '').toLowerCase().includes(k)
   )
@@ -59,9 +73,7 @@ function openCreate() {
 
 function validatePassword(pwd: string): string | null {
   if (pwd.length < 6) return '密码至少 6 位'
-  if (pwd.length > 72) return '密码不能超过 72 位'
-  // 至少包含字母和数字
-  if (!/[A-Za-z]/.test(pwd) || !/\d/.test(pwd)) return '密码需同时包含字母和数字'
+  if (pwd.length > 128) return '密码不能超过 128 位'
   return null
 }
 
@@ -189,31 +201,75 @@ function getRoleName(role: string) {
   <div class="users-page">
     <div class="page-header">
       <div>
-        <h2>用户管理</h2>
-        <span class="page-subtitle">管理系统用户账户及权限角色</span>
+        <h2>👥 用户管理</h2>
+        <p class="page-subtitle">管理系统内所有用户的权限和角色，控制用户对系统各功能的访问权限</p>
       </div>
       <div class="header-actions">
-        <el-input
-          v-model="keyword"
-          placeholder="搜索用户名/角色"
-          clearable
-          style="width: 220px"
-          @input="handleSearch"
-        >
-          <template #prefix><el-icon><Search /></el-icon></template>
-        </el-input>
         <el-button type="primary" @click="openCreate">
-          <el-icon><Plus /></el-icon>新建用户
+          <el-icon><Plus /></el-icon> 新建用户
         </el-button>
       </div>
     </div>
 
+    <div class="stat-cards">
+      <div class="stat-card">
+        <div class="stat-card__content">
+          <span class="stat-card__label">总用户</span>
+          <span class="stat-card__value">{{ userStats.totalCount }}</span>
+          <span class="stat-card__sub">系统用户</span>
+        </div>
+        <div class="stat-card__icon stat-card__icon--blue">
+          <el-icon :size="22"><User /></el-icon>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card__content">
+          <span class="stat-card__label">管理员</span>
+          <span class="stat-card__value stat-card__value--red">{{ userStats.adminCount }}</span>
+          <span class="stat-card__sub">最高权限</span>
+        </div>
+        <div class="stat-card__icon stat-card__icon--red">
+          <el-icon :size="22"><Star /></el-icon>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card__content">
+          <span class="stat-card__label">操作员</span>
+          <span class="stat-card__value stat-card__value--orange">{{ userStats.operatorCount }}</span>
+          <span class="stat-card__sub">操作权限</span>
+        </div>
+        <div class="stat-card__icon stat-card__icon--orange">
+          <el-icon :size="22"><Operation /></el-icon>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card__content">
+          <span class="stat-card__label">观察者</span>
+          <span class="stat-card__value stat-card__value--green">{{ userStats.viewerCount }}</span>
+          <span class="stat-card__sub">只读权限</span>
+        </div>
+        <div class="stat-card__icon stat-card__icon--green">
+          <el-icon :size="22"><View /></el-icon>
+        </div>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <div class="toolbar__left">
+        <div class="status-tabs">
+          <button :class="['status-tab', { active: roleFilter === '' }]" @click="roleFilter = ''; handleSearch()">全部</button>
+          <button :class="['status-tab', { active: roleFilter === 'admin' }]" @click="roleFilter = 'admin'; handleSearch()">管理员</button>
+          <button :class="['status-tab', { active: roleFilter === 'operator' }]" @click="roleFilter = 'operator'; handleSearch()">操作员</button>
+          <button :class="['status-tab', { active: roleFilter === 'viewer' }]" @click="roleFilter = 'viewer'; handleSearch()">观察者</button>
+        </div>
+        <el-input v-model="keyword" placeholder="搜索用户名/角色" clearable class="toolbar__search" @input="handleSearch">
+          <template #prefix><el-icon><Search /></el-icon></template>
+        </el-input>
+      </div>
+    </div>
+
     <div v-if="isMobile" class="dd-mobile-list">
-      <div
-        v-for="row in pagedUsers"
-        :key="row.id"
-        class="dd-mobile-card"
-      >
+      <div v-for="row in pagedUsers" :key="row.id" class="dd-mobile-card">
         <div class="dd-mobile-card__header">
           <div class="dd-mobile-card__title-wrap">
             <span class="dd-mobile-card__title">{{ row.username }}</span>
@@ -222,25 +278,14 @@ function getRoleName(role: string) {
               <el-tag v-if="row.two_factor_enabled" size="small" type="success" effect="plain">2FA</el-tag>
             </div>
           </div>
-          <el-switch
-            :model-value="row.enabled"
-            size="small"
-            :disabled="row.username === authStore.user?.username"
-            @change="handleToggle(row)"
-          />
+          <el-switch :model-value="row.enabled" size="small" :disabled="row.username === authStore.user?.username" @change="handleToggle(row)" />
         </div>
-
         <div class="dd-mobile-card__body">
           <div class="dd-mobile-card__grid">
             <div class="dd-mobile-card__field">
               <span class="dd-mobile-card__label">角色</span>
               <div class="dd-mobile-card__value">
-                <el-select
-                  :model-value="row.role"
-                  size="small"
-                  :disabled="row.username === authStore.user?.username"
-                  @change="(val: string) => handleRoleChange(row, val)"
-                >
+                <el-select :model-value="row.role" size="small" :disabled="row.username === authStore.user?.username" @change="(val: string) => handleRoleChange(row, val)">
                   <el-option value="admin" label="管理员" />
                   <el-option value="operator" label="操作员" />
                   <el-option value="viewer" label="观察者" />
@@ -258,82 +303,77 @@ function getRoleName(role: string) {
           </div>
           <div class="dd-mobile-card__actions user-card__actions">
             <el-button size="small" type="primary" plain @click="openResetPassword(row)">重置密码</el-button>
-            <el-button
-              size="small"
-              type="danger"
-              plain
-              :disabled="row.username === authStore.user?.username"
-              @click="handleDelete(row)"
-            >
-              删除
-            </el-button>
+            <el-button size="small" type="danger" plain :disabled="row.username === authStore.user?.username" @click="handleDelete(row)">删除</el-button>
           </div>
         </div>
       </div>
-
       <el-empty v-if="!loading && pagedUsers.length === 0" description="暂无用户" />
     </div>
 
-    <el-table v-else :data="pagedUsers" v-loading="loading" stripe>
-      <el-table-column prop="id" label="ID" width="60" />
-      <el-table-column prop="username" label="用户名" min-width="150" />
-      <el-table-column prop="role" label="角色" width="140">
-        <template #default="{ row }">
-          <el-select
-            :model-value="row.role"
-            size="small"
-            :disabled="row.username === authStore.user?.username"
-            @change="(val: string) => handleRoleChange(row, val)"
-          >
-            <el-option value="admin" label="管理员" />
-            <el-option value="operator" label="操作员" />
-            <el-option value="viewer" label="观察者" />
-          </el-select>
-        </template>
-      </el-table-column>
-      <el-table-column label="2FA" width="80" align="center">
-        <template #default="{ row }">
-          <el-tag v-if="row.two_factor_enabled" size="small" type="success" effect="plain">已启用</el-tag>
-          <span v-else class="text-secondary">-</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="状态" width="80" align="center">
-        <template #default="{ row }">
-          <el-switch
-            :model-value="row.enabled"
-            size="small"
-            :disabled="row.username === authStore.user?.username"
-            @change="handleToggle(row)"
-          />
-        </template>
-      </el-table-column>
-      <el-table-column prop="last_login_at" label="最后登录" width="170">
-        <template #default="{ row }">
-          {{ row.last_login_at ? new Date(row.last_login_at).toLocaleString() : '-' }}
-        </template>
-      </el-table-column>
-      <el-table-column prop="created_at" label="创建时间" width="170">
-        <template #default="{ row }">{{ new Date(row.created_at).toLocaleString() }}</template>
-      </el-table-column>
-      <el-table-column label="操作" width="160" fixed="right">
-        <template #default="{ row }">
-          <el-button size="small" text type="primary" @click="openResetPassword(row)">重置密码</el-button>
-          <el-button
-            size="small" text type="danger"
-            :disabled="row.username === authStore.user?.username"
-            @click="handleDelete(row)"
-          >删除</el-button>
-        </template>
-      </el-table-column>
-    </el-table>
+    <div v-else class="table-card">
+      <el-table :data="pagedUsers" v-loading="loading" style="width: 100%" :header-cell-style="{ background: '#f8fafc', color: '#64748b', fontWeight: 600, fontSize: '13px' }">
+        <el-table-column prop="id" label="ID" width="60" />
+        <el-table-column prop="username" label="用户名" min-width="150">
+          <template #default="{ row }">
+            <div class="user-name-cell">
+              <div class="user-avatar">{{ (row.username || '?')[0].toUpperCase() }}</div>
+              <div class="user-name-info">
+                <span class="user-name-text">{{ row.username }}</span>
+                <el-tag size="small" :type="getRoleTag(row.role)" round>{{ getRoleName(row.role) }}</el-tag>
+              </div>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="角色" width="140">
+          <template #default="{ row }">
+            <el-select :model-value="row.role" size="small" :disabled="row.username === authStore.user?.username" @change="(val: string) => handleRoleChange(row, val)">
+              <el-option value="admin" label="管理员" />
+              <el-option value="operator" label="操作员" />
+              <el-option value="viewer" label="观察者" />
+            </el-select>
+          </template>
+        </el-table-column>
+        <el-table-column label="2FA" width="80" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="row.two_factor_enabled" size="small" type="success" effect="plain" round>已启用</el-tag>
+            <span v-else class="text-secondary">-</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="80" align="center">
+          <template #default="{ row }">
+            <el-switch :model-value="row.enabled" size="small" :disabled="row.username === authStore.user?.username" @change="handleToggle(row)" />
+          </template>
+        </el-table-column>
+        <el-table-column label="最后登录" width="170">
+          <template #default="{ row }">
+            <span v-if="row.last_login_at" class="time-text">{{ new Date(row.last_login_at).toLocaleString() }}</span>
+            <span v-else class="text-secondary">-</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="创建时间" width="170">
+          <template #default="{ row }">
+            <span class="time-text">{{ new Date(row.created_at).toLocaleString() }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="160" fixed="right" align="center">
+          <template #default="{ row }">
+            <div class="action-btns">
+              <el-button size="small" text type="primary" @click="openResetPassword(row)">重置密码</el-button>
+              <el-button size="small" text type="danger" :disabled="row.username === authStore.user?.username" @click="handleDelete(row)">删除</el-button>
+            </div>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
 
-    <div v-if="total > pageSize" class="pagination-container" style="margin-top: 12px">
+    <div class="pagination-bar">
+      <span class="pagination-total">共 {{ total }} 条数据</span>
       <el-pagination
         v-model:current-page="page"
         v-model:page-size="pageSize"
         :total="total"
         :page-sizes="[10, 20, 50, 100]"
-        :layout="isMobile ? 'prev, pager, next' : 'total, sizes, prev, pager, next, jumper'"
+        layout="sizes, prev, pager, next"
       />
     </div>
 
@@ -343,7 +383,7 @@ function getRoleName(role: string) {
           <el-input v-model="createForm.username" placeholder="3-32 位字母/数字/下划线" />
         </el-form-item>
         <el-form-item label="密码">
-          <el-input v-model="createForm.password" type="password" show-password placeholder="至少 6 位，含字母和数字" />
+          <el-input v-model="createForm.password" type="password" show-password placeholder="6-128 位密码" />
         </el-form-item>
         <el-form-item label="角色">
           <el-radio-group v-model="createForm.role">
@@ -365,7 +405,7 @@ function getRoleName(role: string) {
           <el-input :model-value="resetPwdForm.username" disabled />
         </el-form-item>
         <el-form-item label="新密码">
-          <el-input v-model="resetPwdForm.password" type="password" show-password placeholder="至少 6 位，含字母和数字" />
+          <el-input v-model="resetPwdForm.password" type="password" show-password placeholder="6-128 位密码" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -377,57 +417,130 @@ function getRoleName(role: string) {
 </template>
 
 <style scoped lang="scss">
-.users-page {
-  padding: 0;
-}
+.users-page { padding: 0; }
 
 .page-header {
   display: flex;
   justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 18px;
+  gap: 16px;
+
+  h2 { margin: 0; font-size: 22px; font-weight: 700; color: var(--el-text-color-primary); line-height: 1.3; }
+  .page-subtitle { font-size: 13px; color: var(--el-text-color-secondary); margin: 4px 0 0; }
+  .header-actions { display: flex; gap: 10px; flex-shrink: 0; }
+}
+
+.stat-cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.stat-card {
+  background: var(--el-bg-color);
+  border-radius: 14px;
+  padding: 16px 18px;
+  display: flex;
+  justify-content: space-between;
   align-items: center;
-  margin-bottom: 16px;
+  gap: 12px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  border: 1px solid var(--el-border-color-lighter);
+  transition: transform 0.22s ease, box-shadow 0.22s ease;
 
-  h2 { margin: 0; font-size: 20px; font-weight: 700; color: var(--el-text-color-primary); }
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.08);
+  }
 
-  .page-subtitle {
-    font-size: 13px;
-    color: var(--el-text-color-secondary);
-    display: block;
-    margin-top: 2px;
+  &__content { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
+  &__label { font-size: 13px; color: var(--el-text-color-secondary); font-weight: 500; }
+  &__value {
+    font-size: 26px; font-weight: 700; color: #3b82f6; line-height: 1.15;
+    font-family: 'Inter', var(--dd-font-ui), sans-serif;
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+    letter-spacing: -0.01em;
+    &--green { color: #10b981; }
+    &--orange { color: #f59e0b; }
+    &--red { color: #ef4444; }
+    &--purple { color: #8b5cf6; }
+  }
+  &__sub { font-size: 12px; color: var(--el-text-color-placeholder); }
+  &__icon {
+    width: 44px; height: 44px; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    &--blue { background: rgba(59, 130, 246, 0.12); color: #3b82f6; }
+    &--green { background: rgba(16, 185, 129, 0.12); color: #10b981; }
+    &--orange { background: rgba(245, 158, 11, 0.12); color: #f59e0b; }
+    &--red { background: rgba(239, 68, 68, 0.12); color: #ef4444; }
+    &--purple { background: rgba(139, 92, 246, 0.12); color: #8b5cf6; }
   }
 }
 
-.header-actions {
-  display: flex;
-  gap: 10px;
-  align-items: center;
+.toolbar {
+  display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; gap: 12px; flex-wrap: wrap;
+  &__left { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; flex: 1; min-width: 0; }
+  &__search { width: 260px; }
 }
 
-.user-card__actions > * {
-  flex: 1 1 calc(50% - 4px);
+.status-tabs {
+  display: inline-flex; background: var(--el-fill-color-light); border-radius: 10px; padding: 3px; gap: 2px;
 }
 
-.pagination-container {
-  display: flex;
-  justify-content: flex-end;
+.status-tab {
+  padding: 6px 14px; border-radius: 7px; border: none; background: transparent;
+  color: var(--el-text-color-secondary); font-size: 13px; font-weight: 500; cursor: pointer;
+  transition: all 0.18s; white-space: nowrap;
+  &:hover { color: var(--el-text-color-primary); }
+  &.active { background: var(--el-bg-color); color: var(--el-color-primary); box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06); font-weight: 600; }
 }
 
-.text-secondary {
-  color: var(--el-text-color-secondary);
+.table-card {
+  background: var(--el-bg-color); border-radius: 14px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04); border: 1px solid var(--el-border-color-lighter); overflow: hidden;
+}
+
+.user-name-cell { display: flex; align-items: center; gap: 12px; }
+.user-avatar {
+  width: 36px; height: 36px; border-radius: 50%;
+  background: linear-gradient(135deg, #3b82f6, #60a5fa);
+  color: #fff; display: flex; align-items: center; justify-content: center;
+  font-weight: 600; font-size: 14px; flex-shrink: 0;
+}
+.user-name-info { display: flex; align-items: center; gap: 8px; }
+.user-name-text { font-weight: 500; color: var(--el-text-color-primary); }
+.text-secondary { color: var(--el-text-color-secondary); }
+.time-text { font-family: var(--dd-font-mono); font-size: 12px; color: var(--el-text-color-regular); }
+.action-btns { display: flex; align-items: center; justify-content: center; gap: 2px; }
+.user-card__actions > * { flex: 1 1 calc(50% - 4px); }
+
+.pagination-bar {
+  margin-top: 20px; display: flex; justify-content: space-between; align-items: center; padding: 0 4px;
+}
+.pagination-total { font-size: 13px; color: var(--el-text-color-secondary); }
+
+:deep(.el-table) {
+  --el-table-border-color: #f0f0f0;
+  .el-table__header-wrapper th { border-bottom: 1px solid #e8e8e8; }
+  .el-table__row td { border-bottom: 1px solid #f5f5f5; }
+  .el-table__cell { padding: 12px 0; }
+}
+
+@media screen and (max-width: 1200px) {
+  .stat-cards { grid-template-columns: repeat(2, 1fr); }
 }
 
 @media (max-width: 768px) {
-  .page-header {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 10px;
+  .page-header { flex-direction: column; gap: 10px; margin-bottom: 14px; h2 { font-size: 18px; } }
+  .stat-cards { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .stat-card { padding: 14px 16px; &__value { font-size: 22px; } &__icon { width: 40px; height: 40px; } }
+  .toolbar { flex-direction: column; align-items: stretch; gap: 10px;
+    &__left { flex-direction: column; gap: 10px; }
+    &__search { width: 100% !important; }
   }
-  .header-actions {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  .header-actions :deep(.el-input) {
-    width: 100% !important;
-  }
+  .status-tabs { width: 100%; overflow-x: auto; }
 }
 </style>

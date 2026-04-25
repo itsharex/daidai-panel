@@ -193,9 +193,13 @@ export function useSettingsConfig() {
 
   function handleSaveSystemConfig() {
     void saveConfigKeys([
-      'auto_add_cron', 'auto_del_cron', 'default_cron_rule', 'repo_file_extensions',
-      'cpu_warn', 'memory_warn', 'disk_warn', 'notify_on_resource_warn', 'notify_on_login',
       'panel_title', 'panel_icon', 'editor_background_color', 'log_background_color', 'log_background_image'
+    ])
+  }
+
+  function handleSaveAlertConfig() {
+    void saveConfigKeys([
+      'cpu_warn', 'memory_warn', 'disk_warn', 'notify_on_resource_warn', 'notify_on_login'
     ])
   }
 
@@ -385,6 +389,7 @@ export function useSettingsConfig() {
     configForm,
     loadSystemConfigs,
     handleSaveSystemConfig,
+    handleSaveAlertConfig,
     handleIconUpload,
     handleLogBackgroundUpload,
     previewPanelAppearance,

@@ -1,13 +1,18 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, onActivated, computed, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { logApi } from '@/api/log'
 import { taskApi } from '@/api/task'
+import { useAuthStore } from '@/stores/auth'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { openAuthorizedEventStream, type EventStreamConnection } from '@/utils/sse'
 import { usePageActivity } from '@/composables/usePageActivity'
 import { useResponsive } from '@/composables/useResponsive'
 import { extractError } from '@/utils/error'
+import { canOperate } from '@/utils/roles'
 
+const route = useRoute()
+const authStore = useAuthStore()
 const logs = ref<any[]>([])
 const total = ref(0)
 const page = ref(1)
@@ -37,9 +42,18 @@ const showFileContent = ref(false)
 const fileContentData = ref('')
 const fileContentName = ref('')
 const hasRunningLogs = computed(() => logs.value.some(l => l.status === 2))
-const runningOnPage = computed(() => logs.value.filter(l => l.status === 2).length)
-const successOnPage = computed(() => logs.value.filter(l => l.status === 0).length)
-const failedOnPage = computed(() => logs.value.filter(l => l.status === 1).length)
+const routeTaskId = ref<number | null>(null)
+const pendingOpenTaskLog = ref(false)
+const canOperateLogs = computed(() => canOperate(authStore.user?.role))
+
+const logStats = computed(() => {
+  const list = logs.value
+  const totalCount = list.length
+  const successCount = list.filter(l => l.status === 0).length
+  const failedCount = list.filter(l => l.status !== 0 && l.status !== 2).length
+  const runningCount = list.filter(l => l.status === 2).length
+  return { totalCount, successCount, failedCount, runningCount }
+})
 const allSelectedOnPage = computed(() => logs.value.length > 0 && logs.value.every(l => selectedIdSet.value.has(l.id)))
 const someSelectedOnPage = computed(() => selectedIds.value.length > 0 && !allSelectedOnPage.value)
 
@@ -62,11 +76,18 @@ async function loadLogs() {
   selectedIds.value = []
   try {
     const params: any = { page: page.value, page_size: pageSize.value }
+    if (routeTaskId.value) params.task_id = routeTaskId.value
     if (statusFilter.value !== '') params.status = statusFilter.value
     if (keyword.value) params.keyword = keyword.value
     const res = await logApi.list(params)
     logs.value = res.data
     total.value = res.total
+    if (pendingOpenTaskLog.value) {
+      pendingOpenTaskLog.value = false
+      if (logs.value.length > 0) {
+        void viewDetail(logs.value[0])
+      }
+    }
   } catch (err) {
     ElMessage.error(extractError(err, '加载日志失败'))
   } finally {
@@ -110,8 +131,25 @@ watch([autoRefresh, hasRunningLogs, isPageActive], () => {
   syncAutoRefresh()
 })
 
+function syncTaskIdFromRoute(openLatest = false) {
+  const taskId = Number(route.query.task_id)
+  const nextTaskId = taskId > 0 ? taskId : null
+  routeTaskId.value = nextTaskId
+  pendingOpenTaskLog.value = openLatest && nextTaskId !== null
+}
+
+watch(
+  () => route.query.task_id,
+  () => {
+    syncTaskIdFromRoute(true)
+    page.value = 1
+    void loadLogs()
+  }
+)
+
 onMounted(async () => {
   mounted = true
+  syncTaskIdFromRoute(true)
   await loadLogs()
 })
 
@@ -245,6 +283,10 @@ async function copyCurrentLog() {
 }
 
 async function handleDelete(log: any) {
+  if (!canOperateLogs.value) {
+    ElMessage.warning('当前账号没有删除日志权限')
+    return
+  }
   try {
     await ElMessageBox.confirm('确定删除此日志记录？', '确认', { type: 'warning' })
   } catch {
@@ -260,6 +302,10 @@ async function handleDelete(log: any) {
 }
 
 async function handleClean() {
+  if (!canOperateLogs.value) {
+    ElMessage.warning('当前账号没有清理日志权限')
+    return
+  }
   let daysInput: string
   try {
     const res = await ElMessageBox.prompt('请输入保留天数（将清理该天数之前的日志）', '清理日志', {
@@ -310,7 +356,15 @@ function clearSelection() {
   selectedIds.value = []
 }
 
+function handleSelectionChange(rows: any[]) {
+  selectedIds.value = rows.map((r: any) => r.id)
+}
+
 async function handleBatchDelete() {
+  if (!canOperateLogs.value) {
+    ElMessage.warning('当前账号没有删除日志权限')
+    return
+  }
   if (selectedIds.value.length === 0) return
   try {
     await ElMessageBox.confirm(`确定删除选中的 ${selectedIds.value.length} 条日志？`, '批量删除', { type: 'warning' })
@@ -361,6 +415,10 @@ async function viewLogFile(file: any) {
 }
 
 async function deleteLogFile(file: any) {
+  if (!canOperateLogs.value) {
+    ElMessage.warning('当前账号没有删除日志文件权限')
+    return
+  }
   try {
     await ElMessageBox.confirm(`确定删除日志文件 ${file.filename}？`, '确认', { type: 'warning' })
   } catch {
@@ -393,209 +451,204 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="logs-page">
-    <!-- ======= Page hero ======= -->
-    <header class="page-hero">
-      <div class="page-hero-main">
-        <div class="page-hero-title-row">
-          <div class="page-hero-icon" aria-hidden="true">
-            <el-icon :size="20"><Tickets /></el-icon>
-          </div>
-          <div>
-            <h1 class="page-hero-title">执行日志</h1>
-            <p class="page-hero-subtitle">所有定时任务的历史运行记录与实时输出</p>
-          </div>
-        </div>
-
-        <div class="page-hero-stats">
-          <div class="stat-chip">
-            <span class="stat-chip-value">{{ total }}</span>
-            <span class="stat-chip-label">总记录</span>
-          </div>
-          <div class="stat-chip stat-chip--running" v-if="runningOnPage > 0">
-            <span class="stat-chip-dot" aria-hidden="true"></span>
-            <span class="stat-chip-value">{{ runningOnPage }}</span>
-            <span class="stat-chip-label">运行中</span>
-          </div>
-          <div class="stat-chip stat-chip--success" v-if="successOnPage > 0">
-            <span class="stat-chip-value">{{ successOnPage }}</span>
-            <span class="stat-chip-label">本页成功</span>
-          </div>
-          <div class="stat-chip stat-chip--failed" v-if="failedOnPage > 0">
-            <span class="stat-chip-value">{{ failedOnPage }}</span>
-            <span class="stat-chip-label">本页失败</span>
-          </div>
-        </div>
+    <!-- ======= Page Header ======= -->
+    <div class="page-header">
+      <div>
+        <h2>📋 执行日志</h2>
+        <p class="page-subtitle">查看和管理所有任务的执行记录，支持按状态、时间等条件筛选</p>
       </div>
-
-      <div class="page-hero-actions">
+      <div class="header-actions">
         <el-button
-          class="hero-btn hero-btn--refresh"
           :type="autoRefresh ? 'primary' : 'default'"
           @click="toggleAutoRefresh"
         >
           <el-icon><Refresh /></el-icon>
           <span>{{ autoRefresh ? '停止刷新' : '自动刷新' }}</span>
         </el-button>
-        <el-button class="hero-btn" @click="handleClean">
+        <el-button v-if="canOperateLogs" @click="handleClean">
           <el-icon><Delete /></el-icon>
           <span>清理日志</span>
         </el-button>
       </div>
-    </header>
+    </div>
 
-    <!-- ======= Filter pill ======= -->
-    <div class="filter-bar">
-      <div class="filter-search">
-        <el-icon class="filter-search-icon"><Search /></el-icon>
-        <input
-          v-model="keyword"
-          class="filter-search-input"
-          placeholder="按任务名搜索..."
-          @keyup.enter="handleSearch"
-        />
-        <button v-if="keyword" class="filter-search-clear" @click="(keyword = '', handleSearch())" aria-label="清除搜索">
-          <el-icon :size="14"><Close /></el-icon>
-        </button>
+    <!-- ======= Stat Cards + Trend Chart ======= -->
+    <div class="stat-cards">
+      <div class="stat-card">
+        <div class="stat-card__content">
+          <span class="stat-card__label">当前页记录</span>
+          <span class="stat-card__value">{{ logStats.totalCount }}</span>
+          <span class="stat-card__sub">本页日志</span>
+        </div>
+        <div class="stat-card__icon stat-card__icon--blue">
+          <el-icon :size="22"><Tickets /></el-icon>
+        </div>
       </div>
-      <div class="filter-status">
-        <button
-          class="filter-chip"
-          :class="{ active: statusFilter === '' }"
-          @click="(statusFilter = '', handleSearch())"
-        >全部</button>
-        <button
-          class="filter-chip filter-chip--success"
-          :class="{ active: statusFilter === '0' }"
-          @click="(statusFilter = '0', handleSearch())"
-        >
-          <span class="filter-chip-dot"></span>成功
-        </button>
-        <button
-          class="filter-chip filter-chip--failed"
-          :class="{ active: statusFilter === '1' }"
-          @click="(statusFilter = '1', handleSearch())"
-        >
-          <span class="filter-chip-dot"></span>失败
-        </button>
-        <button
-          class="filter-chip filter-chip--running"
-          :class="{ active: statusFilter === '2' }"
-          @click="(statusFilter = '2', handleSearch())"
-        >
-          <span class="filter-chip-dot"></span>运行中
-        </button>
+      <div class="stat-card">
+        <div class="stat-card__content">
+          <span class="stat-card__label">成功</span>
+          <span class="stat-card__value stat-card__value--green">{{ logStats.successCount }}</span>
+          <span class="stat-card__sub">当前页</span>
+        </div>
+        <div class="stat-card__icon stat-card__icon--green">
+          <el-icon :size="22"><CircleCheck /></el-icon>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card__content">
+          <span class="stat-card__label">失败</span>
+          <span class="stat-card__value stat-card__value--red">{{ logStats.failedCount }}</span>
+          <span class="stat-card__sub">当前页</span>
+        </div>
+        <div class="stat-card__icon stat-card__icon--red">
+          <el-icon :size="22"><CircleClose /></el-icon>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card__content">
+          <span class="stat-card__label">运行中</span>
+          <span class="stat-card__value stat-card__value--orange">{{ logStats.runningCount }}</span>
+          <span class="stat-card__sub">当前页</span>
+        </div>
+        <div class="stat-card__icon stat-card__icon--orange">
+          <el-icon :size="22"><Loading /></el-icon>
+        </div>
       </div>
     </div>
 
-    <!-- ======= List ======= -->
-    <div class="logs-list" v-loading="loading">
-      <div class="logs-list-header" v-if="!isMobile && logs.length > 0">
-        <el-checkbox
-          :model-value="allSelectedOnPage"
-          :indeterminate="someSelectedOnPage"
-          @update:model-value="toggleSelectAll"
-        />
-        <span class="logs-list-header-hint">{{ logs.length > 0 ? `本页 ${logs.length} 条` : '' }}</span>
+    <!-- ======= Toolbar ======= -->
+    <div class="toolbar">
+      <div class="toolbar__left">
+        <div class="status-tabs">
+          <button :class="['status-tab', { active: statusFilter === '' }]" @click="statusFilter = ''; handleSearch()">全部记录</button>
+          <button :class="['status-tab', { active: statusFilter === '0' }]" @click="statusFilter = '0'; handleSearch()">成功</button>
+          <button :class="['status-tab', { active: statusFilter === '1' }]" @click="statusFilter = '1'; handleSearch()">失败</button>
+          <button :class="['status-tab', { active: statusFilter === '2' }]" @click="statusFilter = '2'; handleSearch()">运行中</button>
+        </div>
+        <el-input v-model="keyword" placeholder="搜索任务名称..." clearable class="toolbar__search" @keyup.enter="handleSearch" @clear="handleSearch">
+          <template #prefix><el-icon><Search /></el-icon></template>
+        </el-input>
       </div>
-
-      <div v-if="!loading && logs.length === 0" class="logs-empty">
-        <el-icon :size="32" class="logs-empty-icon"><Tickets /></el-icon>
-        <div class="logs-empty-title">暂无执行日志</div>
-        <div class="logs-empty-sub">任务执行后会自动产生记录，也可以刷新一下试试</div>
+      <div class="toolbar__right">
+        <div v-if="canOperateLogs && selectedIds.length > 0" class="batch-actions">
+          <el-button size="small" @click="clearSelection">取消选择</el-button>
+          <el-button size="small" type="danger" @click="handleBatchDelete">批量删除</el-button>
+        </div>
       </div>
+    </div>
 
+    <!-- ======= Mobile Card Layout ======= -->
+    <div v-if="isMobile" class="dd-mobile-list" v-loading="loading">
       <div
         v-for="row in logs"
         :key="row.id"
-        class="log-row"
-        :class="{
-          'log-row--running': row.status === 2,
-          'log-row--failed': row.status === 1,
-          'log-row--selected': isSelected(row.id)
-        }"
+        class="dd-mobile-card log-card"
       >
-        <el-checkbox
-          class="log-row-check"
-          :model-value="isSelected(row.id)"
-          @change="toggleSelected(row.id, $event)"
-          @click.stop
-        />
-        <div class="log-row-status">
-          <span class="status-indicator" :class="'status-indicator--' + getStatusType(row.status)">
-            <span v-if="row.status === 2" class="status-indicator-pulse"></span>
-          </span>
-        </div>
-        <div class="log-row-main" @click="viewDetail(row)">
-          <div class="log-row-title-line">
-            <span class="log-row-title">{{ row.task_name || `任务#${row.task_id}` }}</span>
-            <span class="log-row-id">#{{ row.id }}</span>
-            <span class="log-row-status-label" :class="'log-row-status-label--' + getStatusType(row.status)">
+        <div class="dd-mobile-card__header">
+          <div class="dd-mobile-card__title-wrap">
+            <div class="dd-mobile-card__selection">
+              <el-checkbox v-if="canOperateLogs" :model-value="isSelected(row.id)" @change="toggleSelected(row.id, $event)" />
+              <span class="dd-mobile-card__title">{{ row.task_name || `任务#${row.task_id}` }}</span>
+            </div>
+            <el-tag :type="getStatusType(row.status)" size="small" :class="row.status === 2 ? 'tag-with-dot' : ''">
+              <span v-if="row.status === 2" class="pulse-dot"></span>
               {{ getStatusText(row.status) }}
-            </span>
-          </div>
-          <div class="log-row-meta">
-            <span class="log-row-meta-item">
-              <el-icon :size="11"><Timer /></el-icon>
-              {{ formatDuration(row.duration) }}
-            </span>
-            <span class="log-row-meta-item">
-              <el-icon :size="11"><Calendar /></el-icon>
-              {{ formatTime(row.started_at) }}
-            </span>
-            <span class="log-row-meta-item log-row-meta-item--muted" v-if="row.ended_at">
-              → {{ formatTime(row.ended_at) }}
-            </span>
+            </el-tag>
           </div>
         </div>
-        <div class="log-row-actions">
-          <el-tooltip content="查看日志" placement="top">
-            <button class="row-icon-btn row-icon-btn--primary" @click="viewDetail(row)" aria-label="查看日志">
-              <el-icon :size="15"><View /></el-icon>
-            </button>
-          </el-tooltip>
-          <el-tooltip content="日志文件" placement="top">
-            <button class="row-icon-btn" @click="browseLogFiles(row)" aria-label="日志文件">
-              <el-icon :size="15"><Folder /></el-icon>
-            </button>
-          </el-tooltip>
-          <el-tooltip content="删除" placement="top">
-            <button class="row-icon-btn row-icon-btn--danger" @click="handleDelete(row)" aria-label="删除">
-              <el-icon :size="15"><Delete /></el-icon>
-            </button>
-          </el-tooltip>
+
+        <div class="dd-mobile-card__body">
+          <div class="dd-mobile-card__grid">
+            <div class="dd-mobile-card__field">
+              <span class="dd-mobile-card__label">耗时</span>
+              <span class="dd-mobile-card__value">{{ formatDuration(row.duration) }}</span>
+            </div>
+            <div class="dd-mobile-card__field">
+              <span class="dd-mobile-card__label">开始时间</span>
+              <span class="dd-mobile-card__value time-text">{{ formatTime(row.started_at) }}</span>
+            </div>
+            <div class="dd-mobile-card__field" v-if="row.ended_at">
+              <span class="dd-mobile-card__label">结束时间</span>
+              <span class="dd-mobile-card__value time-text">{{ formatTime(row.ended_at) }}</span>
+            </div>
+          </div>
+
+          <div class="dd-mobile-card__actions">
+            <el-button type="primary" size="small" @click="viewDetail(row)">查看日志</el-button>
+            <el-button size="small" @click="browseLogFiles(row)">日志文件</el-button>
+            <el-button v-if="canOperateLogs" size="small" type="danger" plain @click="handleDelete(row)">删除</el-button>
+          </div>
         </div>
       </div>
+
+      <el-empty v-if="!loading && logs.length === 0" description="暂无执行日志" />
     </div>
 
-    <div class="pagination-bar" v-if="total > 0">
+    <!-- ======= Desktop Table ======= -->
+    <div v-else class="table-card">
+      <el-table
+        v-loading="loading"
+        :data="logs"
+        style="width: 100%"
+        :header-cell-style="{ background: '#f8fafc', color: '#64748b', fontWeight: 600, fontSize: '13px' }"
+        :row-style="{ cursor: 'pointer' }"
+        @selection-change="handleSelectionChange"
+        @row-click="viewDetail"
+      >
+        <el-table-column v-if="canOperateLogs" type="selection" width="40" />
+        <el-table-column label="任务名称" min-width="200">
+          <template #default="{ row }">
+            <div class="task-name-cell">
+              <div class="task-name-info">
+                <span class="task-name-text">{{ row.task_name || `任务#${row.task_id}` }}</span>
+                <span class="task-name-sub">#{{ row.id }}</span>
+              </div>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="100" align="center">
+          <template #default="{ row }">
+            <el-tag :type="getStatusType(row.status)" size="small" round :class="row.status === 2 ? 'tag-with-dot' : ''">
+              <span v-if="row.status === 2" class="pulse-dot"></span>
+              {{ getStatusText(row.status) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="耗时" width="100" align="center">
+          <template #default="{ row }">
+            <span class="time-text">{{ formatDuration(row.duration) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="执行时间" width="180" align="center">
+          <template #default="{ row }">
+            <span class="time-text">{{ formatTime(row.started_at) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="180" fixed="right" align="center">
+          <template #default="{ row }">
+            <div class="action-btns">
+              <el-button type="primary" text size="small" @click.stop="viewDetail(row)">查看</el-button>
+              <el-button text size="small" @click.stop="browseLogFiles(row)">文件</el-button>
+              <el-button v-if="canOperateLogs" type="danger" text size="small" @click.stop="handleDelete(row)">删除</el-button>
+            </div>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
+
+    <!-- ======= Pagination ======= -->
+    <div class="pagination-bar">
+      <span class="pagination-total">共 {{ total }} 条数据</span>
       <el-pagination
         v-model:current-page="page"
         v-model:page-size="pageSize"
         :total="total"
         :page-sizes="[10, 20, 50, 100]"
-        :layout="isMobile ? 'prev, pager, next' : 'total, sizes, prev, pager, next'"
-        background
+        :layout="isMobile ? 'prev, pager, next' : 'sizes, prev, pager, next'"
         @current-change="loadLogs"
         @size-change="loadLogs"
       />
     </div>
-
-    <!-- ======= Floating batch bar ======= -->
-    <transition name="batch-bar">
-      <div v-if="selectedIds.length > 0" class="batch-bar" role="toolbar">
-        <div class="batch-bar-info">
-          <span class="batch-bar-count">{{ selectedIds.length }}</span>
-          <span>条已选中</span>
-        </div>
-        <div class="batch-bar-actions">
-          <el-button @click="clearSelection">取消选择</el-button>
-          <el-button type="danger" @click="handleBatchDelete">
-            <el-icon><Delete /></el-icon>
-            <span>批量删除</span>
-          </el-button>
-        </div>
-      </div>
-    </transition>
 
     <!-- ======= Detail dialog ======= -->
     <el-dialog
@@ -689,7 +742,7 @@ onBeforeUnmount(() => {
         <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">
             <el-button type="primary" text size="small" @click="viewLogFile(row)">查看</el-button>
-            <el-button type="danger" text size="small" @click="deleteLogFile(row)">删除</el-button>
+            <el-button v-if="canOperateLogs" type="danger" text size="small" @click="deleteLogFile(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -705,353 +758,264 @@ onBeforeUnmount(() => {
 <style scoped lang="scss">
 .logs-page {
   --logs-accent: #22c55e;
-  --logs-ai-accent: #6366f1;
   --logs-border-soft: color-mix(in srgb, var(--el-border-color-light) 85%, transparent);
   --logs-surface: var(--el-bg-color);
-  --logs-surface-muted: color-mix(in srgb, var(--el-fill-color) 70%, transparent);
 
   padding: 0;
-  font-family: var(--dd-font-ui);
-  position: relative;
+  font-size: 14px;
 }
 
-/* =============== Hero =============== */
-.page-hero {
+/* =============== Page Header =============== */
+.page-header {
   display: flex;
-  align-items: flex-start;
   justify-content: space-between;
-  gap: 20px;
-  flex-wrap: wrap;
-  padding: 22px 24px;
-  border-radius: 16px;
-  margin-bottom: 16px;
-  background:
-    linear-gradient(135deg,
-      color-mix(in srgb, var(--logs-accent) 12%, transparent) 0%,
-      color-mix(in srgb, var(--logs-ai-accent) 10%, transparent) 50%,
-      transparent 100%),
-    var(--logs-surface);
-  border: 1px solid var(--logs-border-soft);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  align-items: flex-start;
+  margin-bottom: 18px;
+  gap: 16px;
+
+  h2 {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--el-text-color-primary);
+    line-height: 1.3;
+  }
+
+  .page-subtitle {
+    font-size: 13px;
+    color: var(--el-text-color-secondary);
+    margin: 4px 0 0;
+  }
+
+  .header-actions {
+    display: flex;
+    gap: 10px;
+    flex-shrink: 0;
+  }
 }
 
-.page-hero-main {
-  display: flex;
-  flex-direction: column;
+.stat-cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
   gap: 14px;
-  min-width: 0;
-  flex: 1 1 420px;
+  margin-bottom: 18px;
 }
 
-.page-hero-title-row {
+.stat-card {
+  background: var(--el-bg-color);
+  border-radius: 14px;
+  padding: 16px 18px;
   display: flex;
+  justify-content: space-between;
   align-items: center;
   gap: 12px;
-}
-
-.page-hero-icon {
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  background: linear-gradient(135deg, #22c55e, #16a34a);
-  box-shadow: 0 8px 18px -10px rgba(34, 197, 94, 0.55);
-  flex-shrink: 0;
-}
-
-.page-hero-title {
-  font-size: 20px;
-  font-weight: 700;
-  margin: 0;
-  letter-spacing: 0.2px;
-  color: var(--el-text-color-primary);
-  line-height: 1.2;
-}
-
-.page-hero-subtitle {
-  font-size: 13px;
-  margin: 2px 0 0;
-  color: var(--el-text-color-secondary);
-  line-height: 1.4;
-}
-
-.page-hero-stats {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.stat-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 14px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--el-fill-color) 90%, transparent);
-  border: 1px solid var(--logs-border-soft);
-  font-family: var(--dd-font-ui);
-  line-height: 1.2;
-}
-
-.stat-chip-value {
-  font-size: 16px;
-  font-weight: 700;
-  font-family: var(--dd-font-mono);
-  color: var(--el-text-color-primary);
-  letter-spacing: 0.3px;
-}
-
-.stat-chip-label {
-  font-size: 11.5px;
-  color: var(--el-text-color-secondary);
-}
-
-.stat-chip-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--el-color-warning);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--el-color-warning) 28%, transparent);
-  animation: pulse 1.6s ease-in-out infinite;
-}
-
-.stat-chip--running {
-  background: color-mix(in srgb, var(--el-color-warning) 12%, transparent);
-  border-color: color-mix(in srgb, var(--el-color-warning) 35%, transparent);
-}
-
-.stat-chip--success {
-  background: color-mix(in srgb, var(--logs-accent) 12%, transparent);
-  border-color: color-mix(in srgb, var(--logs-accent) 30%, transparent);
-  .stat-chip-value { color: color-mix(in srgb, var(--logs-accent) 80%, var(--el-text-color-primary)); }
-}
-
-.stat-chip--failed {
-  background: color-mix(in srgb, var(--el-color-danger) 12%, transparent);
-  border-color: color-mix(in srgb, var(--el-color-danger) 30%, transparent);
-  .stat-chip-value { color: var(--el-color-danger); }
-}
-
-.page-hero-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.hero-btn {
-  border-radius: 10px;
-  padding: 0 14px;
-  height: 34px;
-  font-weight: 500;
-}
-
-.hero-btn--refresh {
-  box-shadow: 0 4px 10px -6px color-mix(in srgb, var(--el-color-primary) 50%, transparent);
-}
-
-/* =============== Filter =============== */
-.filter-bar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-bottom: 12px;
-  padding: 8px 10px;
-  border-radius: 12px;
-  background: var(--logs-surface);
-  border: 1px solid var(--logs-border-soft);
-}
-
-.filter-search {
-  position: relative;
-  display: flex;
-  align-items: center;
-  flex: 1 1 280px;
-  min-width: 240px;
-  padding: 0 10px;
-  height: 34px;
-  border-radius: 8px;
-  background: var(--logs-surface-muted);
-  border: 1px solid transparent;
-  transition: border-color 0.15s, background 0.15s;
-
-  &:focus-within {
-    border-color: color-mix(in srgb, var(--logs-accent) 55%, transparent);
-    background: var(--logs-surface);
-  }
-}
-
-.filter-search-icon {
-  color: var(--el-text-color-placeholder);
-  margin-right: 6px;
-  flex-shrink: 0;
-}
-
-.filter-search-input {
-  flex: 1;
-  border: none;
-  outline: none;
-  background: transparent;
-  font-size: 13.5px;
-  font-family: var(--dd-font-ui);
-  color: var(--el-text-color-primary);
-
-  &::placeholder {
-    color: var(--el-text-color-placeholder);
-  }
-}
-
-.filter-search-clear {
-  border: none;
-  background: transparent;
-  color: var(--el-text-color-placeholder);
-  cursor: pointer;
-  display: inline-flex;
-  padding: 2px;
-  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  border: 1px solid var(--el-border-color-lighter);
+  transition: transform 0.22s ease, box-shadow 0.22s ease;
 
   &:hover {
-    color: var(--el-text-color-regular);
-    background: var(--el-fill-color);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.08);
+  }
+
+  &__content {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    flex: 1;
+  }
+
+  &__label {
+    font-size: 13px;
+    color: var(--el-text-color-secondary);
+    font-weight: 500;
+  }
+
+  &__value {
+    font-size: 26px;
+    font-weight: 700;
+    color: #3b82f6;
+    line-height: 1.15;
+    font-family: 'Inter', var(--dd-font-ui), sans-serif;
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+    letter-spacing: -0.01em;
+
+    &--green { color: #10b981; }
+    &--red { color: #ef4444; }
+    &--orange { color: #f59e0b; }
+    &--purple { color: #8b5cf6; }
+  }
+
+  &__sub {
+    font-size: 12px;
+    color: var(--el-text-color-placeholder);
+  }
+
+  &__icon {
+    width: 44px; height: 44px; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    &--blue { background: rgba(59, 130, 246, 0.12); color: #3b82f6; }
+    &--green { background: rgba(16, 185, 129, 0.12); color: #10b981; }
+    &--orange { background: rgba(245, 158, 11, 0.12); color: #f59e0b; }
+    &--red { background: rgba(239, 68, 68, 0.12); color: #ef4444; }
   }
 }
 
-.filter-status {
-  display: inline-flex;
-  gap: 4px;
-  padding: 2px;
-  background: var(--logs-surface-muted);
-  border-radius: 10px;
+/* =============== Toolbar =============== */
+.toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+  gap: 12px;
+  flex-wrap: wrap;
+
+  &__left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    flex: 1;
+    min-width: 0;
+  }
+
+  &__right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  &__search {
+    width: 260px;
+  }
 }
 
-.filter-chip {
+.status-tabs {
   display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 0 12px;
-  height: 30px;
-  border-radius: 8px;
+  background: var(--el-fill-color-light);
+  border-radius: 10px;
+  padding: 3px;
+  gap: 2px;
+}
+
+.status-tab {
+  padding: 6px 14px;
+  border-radius: 7px;
   border: none;
   background: transparent;
-  font-size: 12.5px;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
   font-weight: 500;
-  color: var(--el-text-color-regular);
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition: all 0.18s;
+  white-space: nowrap;
 
-  &:hover:not(.active) {
-    background: color-mix(in srgb, var(--el-fill-color) 80%, transparent);
+  &:hover {
+    color: var(--el-text-color-primary);
   }
 
   &.active {
     background: var(--el-bg-color);
-    color: var(--el-text-color-primary);
+    color: var(--el-color-primary);
     box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+    font-weight: 600;
   }
 }
 
-.filter-chip-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  display: inline-block;
-}
-
-.filter-chip--success .filter-chip-dot { background: var(--logs-accent); }
-.filter-chip--failed .filter-chip-dot { background: var(--el-color-danger); }
-.filter-chip--running .filter-chip-dot { background: var(--el-color-warning); }
-
-/* =============== List =============== */
-.logs-list {
+.batch-actions {
   display: flex;
-  flex-direction: column;
   gap: 8px;
-  min-height: 200px;
 }
 
-.logs-list-header {
+/* =============== Table Card =============== */
+.table-card {
+  background: var(--el-bg-color);
+  border-radius: 14px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  border: 1px solid var(--el-border-color-lighter);
+  overflow: hidden;
+}
+
+.task-name-cell {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 0 12px;
-  min-height: 28px;
+  gap: 8px;
 }
 
-.logs-list-header-hint {
+.task-name-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.task-name-text {
+  font-weight: 500;
+  color: var(--el-text-color-primary);
+}
+
+.task-name-sub {
   font-size: 12px;
+  font-family: var(--dd-font-mono);
   color: var(--el-text-color-placeholder);
 }
 
-.logs-empty {
+.time-text {
+  font-family: var(--dd-font-mono);
+  font-size: 12px;
+  color: var(--el-text-color-regular);
+}
+
+.text-muted {
+  color: var(--el-text-color-placeholder);
+}
+
+.action-btns {
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 60px 20px;
-  text-align: center;
-  border-radius: 14px;
-  background: var(--logs-surface-muted);
-  border: 1px dashed var(--logs-border-soft);
+  gap: 2px;
 }
 
-.logs-empty-icon {
-  color: var(--el-text-color-placeholder);
-  margin-bottom: 10px;
+:deep(.tag-with-dot) {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 5px;
 }
 
-.logs-empty-title {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--el-text-color-primary);
-  margin-bottom: 4px;
+:deep(.el-table) {
+  --el-table-border-color: #f0f0f0;
+
+  .el-table__header-wrapper th {
+    border-bottom: 1px solid #e8e8e8;
+  }
+
+  .el-table__row td {
+    border-bottom: 1px solid #f5f5f5;
+  }
+
+  .el-table__cell {
+    padding: 12px 0;
+  }
 }
 
-.logs-empty-sub {
-  font-size: 12.5px;
+/* =============== Pagination =============== */
+.pagination-bar {
+  margin-top: 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 4px;
+}
+
+.pagination-total {
+  font-size: 13px;
   color: var(--el-text-color-secondary);
 }
 
-.log-row {
-  display: grid;
-  grid-template-columns: 28px 14px 1fr auto;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  border-radius: 12px;
-  background: var(--logs-surface);
-  border: 1px solid var(--logs-border-soft);
-  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s, transform 0.15s;
-
-  &:hover {
-    border-color: color-mix(in srgb, var(--logs-accent) 30%, var(--logs-border-soft));
-    box-shadow: 0 4px 10px -8px rgba(15, 23, 42, 0.12);
-  }
-
-  &--selected {
-    border-color: color-mix(in srgb, var(--logs-accent) 55%, transparent);
-    background: color-mix(in srgb, var(--logs-accent) 6%, var(--logs-surface));
-  }
-
-  &--running {
-    border-color: color-mix(in srgb, var(--el-color-warning) 30%, var(--logs-border-soft));
-  }
-
-  &--failed {
-    border-color: color-mix(in srgb, var(--el-color-danger) 22%, var(--logs-border-soft));
-  }
-}
-
-.log-row-check {
-  justify-self: center;
-}
-
-.log-row-status {
-  justify-self: center;
-}
-
+/* =============== Status Indicator (for dialog) =============== */
 .status-indicator {
   position: relative;
   width: 10px;
@@ -1074,38 +1038,6 @@ onBeforeUnmount(() => {
   animation: orb-ripple 1.6s ease-out infinite;
 }
 
-.log-row-main {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  cursor: pointer;
-}
-
-.log-row-title-line {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.log-row-title {
-  font-size: 14.5px;
-  font-weight: 600;
-  color: var(--el-text-color-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 100%;
-}
-
-.log-row-id {
-  font-size: 11px;
-  font-family: var(--dd-font-mono);
-  color: var(--el-text-color-placeholder);
-  letter-spacing: 0.3px;
-}
-
 .log-row-status-label {
   display: inline-flex;
   align-items: center;
@@ -1123,134 +1055,14 @@ onBeforeUnmount(() => {
   &--info { background: var(--el-fill-color); color: var(--el-text-color-secondary); }
 }
 
-.log-row-meta {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-  flex-wrap: wrap;
-}
-
-.log-row-meta-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-
-  &--muted {
-    color: var(--el-text-color-placeholder);
-  }
-}
-
-.log-row-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-}
-
-.row-icon-btn {
-  width: 30px;
-  height: 30px;
-  padding: 0;
-  border: 1px solid transparent;
-  background: transparent;
-  border-radius: 8px;
-  color: var(--el-text-color-secondary);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.15s;
-
-  &:hover {
-    background: var(--el-fill-color);
-    color: var(--el-text-color-primary);
-    border-color: var(--logs-border-soft);
-  }
-
-  &--primary:hover {
-    color: var(--logs-accent);
-    border-color: color-mix(in srgb, var(--logs-accent) 40%, transparent);
-    background: color-mix(in srgb, var(--logs-accent) 8%, transparent);
-  }
-
-  &--danger:hover {
-    color: var(--el-color-danger);
-    border-color: color-mix(in srgb, var(--el-color-danger) 40%, transparent);
-    background: color-mix(in srgb, var(--el-color-danger) 8%, transparent);
-  }
-}
-
-/* =============== Pagination =============== */
-.pagination-bar {
-  margin-top: 16px;
-  display: flex;
-  justify-content: flex-end;
-}
-
-/* =============== Batch floating bar =============== */
-.batch-bar {
-  position: fixed;
-  bottom: 24px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 100;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 10px 14px 10px 18px;
-  border-radius: 999px;
-  background: var(--el-bg-color);
-  border: 1px solid var(--logs-border-soft);
-  box-shadow: 0 12px 36px -12px rgba(15, 23, 42, 0.25), 0 4px 12px -4px rgba(15, 23, 42, 0.15);
-}
-
-.batch-bar-info {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  color: var(--el-text-color-regular);
-}
-
-.batch-bar-count {
-  font-family: var(--dd-font-mono);
-  font-weight: 700;
-  font-size: 14px;
-  color: var(--logs-accent);
-}
-
-.batch-bar-actions {
-  display: inline-flex;
-  gap: 6px;
-}
-
-.batch-bar-enter-active,
-.batch-bar-leave-active {
-  transition: all 0.22s ease;
-}
-
-.batch-bar-enter-from,
-.batch-bar-leave-to {
-  opacity: 0;
-  transform: translate(-50%, 12px);
-}
-
 /* =============== Detail dialog =============== */
-// 注意：.log-detail-dialog 通过 el-dialog 组件的 class 属性直接透传到 .el-dialog 元素自身，
-// 两个 class 在同一个元素上，不是父子关系，所以 flex / max-height 等约束要直接写在 :deep(.log-detail-dialog) 层级。
 :deep(.log-detail-dialog) {
   border-radius: 14px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  // 固定窗口尺寸：不随日志内容多少变化，内部日志区用 flex:1 + overflow:auto 在窗口内滚动。
-  // 只写 max-height 会让日志少时 dialog 被塌陷成一条，所以 height 和 max-height 同时写，既固定又兜底。
   height: 88vh;
   max-height: 88vh;
-  // align-center 模式下 el-overlay-dialog 是 flex 容器，用 margin: auto 让 dialog 垂直+水平居中；
-  // 如果写成 margin: 0 auto 上下 margin 会变成 0，dialog 会贴到容器底部。
   margin: auto;
 
   .el-dialog__header {
@@ -1471,52 +1283,98 @@ onBeforeUnmount(() => {
 
 @media (prefers-reduced-motion: reduce) {
   .status-indicator-pulse,
-  .stat-chip-dot,
   .detail-status-item--live::before { animation: none; }
 }
 
-/* =============== Mobile =============== */
-@media (max-width: 768px) {
-  .page-hero {
-    padding: 16px 18px;
+/* =============== Responsive: 1200px =============== */
+@media screen and (max-width: 1200px) {
+  .stat-section {
+    grid-template-columns: 1fr;
   }
 
-  .page-hero-title { font-size: 17px; }
-  .page-hero-actions { width: 100%; }
-  .page-hero-actions .hero-btn { flex: 1; }
+  .stat-cards {
+    grid-template-columns: repeat(2, 1fr);
+  }
 
-  .log-row {
-    grid-template-columns: 20px 12px 1fr;
+  .trend-chart-card {
+    width: 100%;
+  }
+}
+
+/* =============== Mobile: 768px =============== */
+@media screen and (max-width: 768px) {
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
     gap: 10px;
-    padding: 12px;
-  }
+    margin-bottom: 14px;
 
-  .log-row-actions {
-    grid-column: 1 / -1;
-    border-top: 1px dashed var(--logs-border-soft);
-    padding-top: 10px;
-    margin-top: 4px;
-    justify-content: stretch;
-    gap: 6px;
+    h2 { font-size: 18px; }
 
-    .row-icon-btn {
-      flex: 1;
-      border: 1px solid var(--logs-border-soft);
+    .header-actions {
+      width: 100%;
+      flex-wrap: wrap;
     }
   }
 
-  .batch-bar {
-    left: 12px;
-    right: 12px;
-    transform: none;
-    bottom: 16px;
-    justify-content: space-between;
-    border-radius: 14px;
+  .stat-section {
+    grid-template-columns: 1fr;
   }
 
-  .batch-bar-enter-from,
-  .batch-bar-leave-to {
-    transform: translateY(12px);
+  .stat-cards {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+
+  .stat-card {
+    padding: 14px 16px;
+
+    &__value {
+      font-size: 22px;
+    }
+
+    &__sparkline {
+      width: 48px;
+      height: 20px;
+    }
+  }
+
+  .trend-chart-card {
+    width: 100%;
+  }
+
+  .toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+
+    &__left {
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    &__search {
+      width: 100% !important;
+    }
+
+    &__right {
+      justify-content: flex-end;
+    }
+  }
+
+  .status-tabs {
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .batch-actions {
+    flex-wrap: wrap;
+  }
+
+  .pagination-bar {
+    flex-direction: column;
+    gap: 10px;
+    align-items: center;
   }
 
   .detail-hero {

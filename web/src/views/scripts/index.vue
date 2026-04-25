@@ -198,50 +198,59 @@ async function handleCancelEdit() {
 </script>
 
 <template>
-  <div class="scripts-page" :class="{ mobile: isMobile, 'mobile-show-editor': isMobile && mobileShowEditor }">
-    <ScriptsSidebar
-      :is-mobile="isMobile"
-      :mobile-show-editor="mobileShowEditor"
-      :tree-loading="treeLoading"
-      :file-tree="fileTree"
-      :allow-drag="allowDrag"
-      :allow-drop="allowDrop"
-      :on-open-create-file="openCreateFileDialog"
-      :on-open-create-dir="openCreateDirDialog"
-      :on-open-upload="openUploadDialog"
-      :on-open-code-runner="openCodeRunner"
-      :on-refresh="loadTree"
-      :on-node-click="handleNodeClick"
-      :on-node-drop="handleNodeDrop"
-      :on-open-rename="openRename"
-      :on-delete="handleDelete"
-      :on-move-to-root="handleMoveToRoot"
-    />
+  <div class="scripts-page" :class="{ mobile: isMobile }">
+    <div class="page-header">
+      <div>
+        <h2>脚本管理</h2>
+        <p class="page-subtitle">在线编辑、调试和管理您的自动化脚本文件</p>
+      </div>
+    </div>
 
-    <ScriptsEditorPane
-      v-model:file-content="fileContent"
-      v-model:is-editing="isEditing"
-      :is-mobile="isMobile"
-      :mobile-show-editor="mobileShowEditor"
-      :selected-file="selectedFile"
-      :is-binary="isBinary"
-      :has-changes="hasChanges"
-      :saving="saving"
-      :formatting="formatting"
-      :loading="loading"
-      :editor-language="editorLanguage"
-      :on-mobile-back="handleMobileBack"
-      :on-debug-run="handleDebugRun"
-      :on-open-ai="openSelectedFileAIDialog"
-      :on-add-to-task="handleAddToTask"
-      :on-save="handleSave"
-      :on-cancel-edit="handleCancelEdit"
-      :on-format="handleFormat"
-      :on-load-versions="loadVersions"
-      :on-open-rename="openSelectedFileRenameDialog"
-      :on-download="handleDownload"
-      :on-delete="handleDeleteSelectedFile"
-    />
+    <div class="scripts-workspace" :class="{ 'mobile-show-editor': isMobile && mobileShowEditor }">
+      <ScriptsSidebar
+        :is-mobile="isMobile"
+        :mobile-show-editor="mobileShowEditor"
+        :tree-loading="treeLoading"
+        :file-tree="fileTree"
+        :allow-drag="allowDrag"
+        :allow-drop="allowDrop"
+        :on-open-create-file="openCreateFileDialog"
+        :on-open-create-dir="openCreateDirDialog"
+        :on-open-upload="openUploadDialog"
+        :on-open-code-runner="openCodeRunner"
+        :on-refresh="loadTree"
+        :on-node-click="handleNodeClick"
+        :on-node-drop="handleNodeDrop"
+        :on-open-rename="openRename"
+        :on-delete="handleDelete"
+        :on-move-to-root="handleMoveToRoot"
+      />
+
+      <ScriptsEditorPane
+        v-model:file-content="fileContent"
+        v-model:is-editing="isEditing"
+        :is-mobile="isMobile"
+        :mobile-show-editor="mobileShowEditor"
+        :selected-file="selectedFile"
+        :is-binary="isBinary"
+        :has-changes="hasChanges"
+        :saving="saving"
+        :formatting="formatting"
+        :loading="loading"
+        :editor-language="editorLanguage"
+        :on-mobile-back="handleMobileBack"
+        :on-debug-run="handleDebugRun"
+        :on-open-ai="openSelectedFileAIDialog"
+        :on-add-to-task="handleAddToTask"
+        :on-save="handleSave"
+        :on-cancel-edit="handleCancelEdit"
+        :on-format="handleFormat"
+        :on-load-versions="loadVersions"
+        :on-open-rename="openSelectedFileRenameDialog"
+        :on-download="handleDownload"
+        :on-delete="handleDeleteSelectedFile"
+      />
+    </div>
 
     <ScriptManageDialogs
       v-model:show-create-file-dialog="showCreateFileDialog"
@@ -345,49 +354,109 @@ async function handleCancelEdit() {
 
 <style scoped lang="scss">
 .scripts-page {
-  --scripts-accent: #22c55e;
-  --scripts-ai-accent-start: #6366f1;
-  --scripts-ai-accent-end: #8b5cf6;
+  --scripts-accent: #3b82f6;
+  --scripts-ai-accent-start: #8b5cf6;
+  --scripts-ai-accent-end: #6366f1;
   --scripts-surface: var(--el-bg-color);
   --scripts-surface-muted: color-mix(in srgb, var(--el-fill-color) 70%, transparent);
-  --scripts-border-soft: color-mix(in srgb, var(--el-border-color-light) 85%, transparent);
+  --scripts-border-soft: var(--el-border-color-lighter);
 
-  display: flex;
-  height: calc(100dvh - 120px);
-  gap: 0;
+  padding: 0;
   font-size: 14px;
   font-family: var(--dd-font-ui);
-  background: var(--el-bg-color);
+}
+
+/* ---- Page Header (design system) ---- */
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 18px;
+  gap: 16px;
+
+  h2 {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--el-text-color-primary);
+    line-height: 1.3;
+  }
+
+  .page-subtitle {
+    font-size: 13px;
+    color: var(--el-text-color-secondary);
+    margin: 4px 0 0;
+  }
+}
+
+/* ---- Workspace (3-panel container) ---- */
+.scripts-workspace {
+  display: flex;
+  height: calc(100dvh - 180px);
+  gap: 0;
+  background: var(--scripts-surface);
   border-radius: 14px;
   overflow: hidden;
-  border: 1px solid var(--scripts-border-soft);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  border: 1px solid var(--el-border-color-lighter);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
 }
 
+/* ---- Sidebar deep overrides ---- */
+:deep(.scripts-sidebar) {
+  border-right: 1px solid var(--el-border-color-lighter);
+  background: var(--el-bg-color);
+}
+
+/* ---- Editor deep overrides ---- */
+:deep(.scripts-editor) {
+  background: var(--el-bg-color);
+}
+
+:deep(.editor-hero) {
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+
+:deep(.editor-statusbar) {
+  border-top: 1px solid var(--el-border-color-lighter);
+}
+
+/* ---- Mobile layout ---- */
 .scripts-page.mobile {
-  flex-direction: column;
-  height: calc(100dvh - 100px);
-  border-radius: 0;
-  border: none;
-  box-shadow: none;
+  .page-header {
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 14px;
 
-  :deep(.scripts-sidebar) {
-    width: 100%;
-    min-width: unset;
-    flex: 1;
-    border-right: none;
-    border-bottom: 1px solid var(--scripts-border-soft);
+    h2 {
+      font-size: 18px;
+    }
   }
 
-  :deep(.scripts-editor) {
-    width: 100%;
-    flex: 1;
-  }
-}
+  .scripts-workspace {
+    flex-direction: column;
+    height: calc(100dvh - 160px);
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
 
-.scripts-page.mobile.mobile-show-editor {
-  :deep(.scripts-editor) {
-    height: 100%;
+    :deep(.scripts-sidebar) {
+      width: 100%;
+      min-width: unset;
+      flex: 1;
+      border-right: none;
+      border-bottom: 1px solid #f0f0f0;
+    }
+
+    :deep(.scripts-editor) {
+      width: 100%;
+      flex: 1;
+    }
+  }
+
+  .scripts-workspace.mobile-show-editor {
+    :deep(.scripts-editor) {
+      height: 100%;
+    }
   }
 }
 </style>

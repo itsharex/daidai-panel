@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Document, Folder, Refresh, Search, VideoPlay } from '@element-plus/icons-vue'
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { onActivated, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import AICodeWorkspace from './components/AICodeWorkspace.vue'
@@ -48,11 +48,12 @@ const {
   treeLoading,
   isEditing,
   editorLanguage,
-  handleResize,
   loadTree,
   loadFileContent,
+  openFile,
   handleNodeClick
 } = browser
+let skipInitialActivated = true
 
 const {
   showCodeRunner,
@@ -150,25 +151,13 @@ function getTreeIcon(node: TreeNode) {
   return node.isLeaf ? Document : Folder
 }
 
-function resetSelection() {
-  selectedFile.value = ''
-  fileContent.value = ''
-  originalContent.value = ''
-  isBinary.value = false
-  isEditing.value = false
-}
-
 function openScriptsPage() {
   router.push(selectedFile.value ? { path: '/scripts', query: { file: selectedFile.value } } : '/scripts')
 }
 
 async function openFileFromRoute(fileParam?: string) {
   if (!fileParam) return
-  selectedFile.value = fileParam
-  const loaded = await loadFileContent(fileParam)
-  if (!loaded) {
-    selectedFile.value = ''
-  }
+  await openFile(fileParam)
   await router.replace({ path: '/ai-code' })
 }
 
@@ -223,7 +212,6 @@ watch(prompt, (val) => {
 })
 
 onMounted(() => {
-  window.addEventListener('resize', handleResize)
   void loadTree()
   void loadAIConfig()
   const touched = (() => {
@@ -240,8 +228,16 @@ onMounted(() => {
   }
 })
 
+onActivated(() => {
+  if (skipInitialActivated) {
+    skipInitialActivated = false
+    return
+  }
+  void loadTree()
+  void loadAIConfig()
+})
+
 onBeforeUnmount(() => {
-  window.removeEventListener('resize', handleResize)
 })
 </script>
 
@@ -250,7 +246,7 @@ onBeforeUnmount(() => {
     <div class="page-header">
       <div class="page-copy">
         <div class="page-kicker">Ai Code</div>
-        <h1>AI 脚本助手</h1>
+        <h1>🤖 AI 脚本助手</h1>
         <p>选择现有脚本进行修改或修复，也可以直接生成新脚本并保存到脚本目录。</p>
       </div>
       <div class="page-actions">
@@ -384,16 +380,26 @@ onBeforeUnmount(() => {
   min-height: 0;
 }
 
+/* ---- Page Header ---- */
 .page-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  padding: 18px 20px;
-  border: 1px solid var(--el-border-color-light);
+  padding: 22px 26px;
+  border: 1px solid color-mix(in srgb, var(--el-color-primary) 12%, var(--el-border-color-lighter));
   border-radius: 16px;
   background:
-    linear-gradient(135deg, color-mix(in srgb, var(--el-color-primary-light-9) 42%, white) 0%, var(--el-bg-color) 58%);
+    linear-gradient(135deg,
+      rgba(167, 139, 250, 0.16) 0%,
+      rgba(96, 165, 250, 0.10) 50%,
+      var(--el-bg-color) 100%);
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.05);
+  transition: box-shadow 0.22s, transform 0.22s;
+
+  &:hover {
+    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.08);
+  }
 }
 
 .page-copy {
@@ -401,14 +407,15 @@ onBeforeUnmount(() => {
 
   h1 {
     margin: 6px 0 8px;
-    font-size: 24px;
+    font-size: 22px;
+    font-weight: 700;
     line-height: 1.15;
     color: var(--el-text-color-primary);
   }
 
   p {
     margin: 0;
-    font-size: 14px;
+    font-size: 13px;
     line-height: 1.65;
     color: var(--el-text-color-secondary);
   }
@@ -432,26 +439,35 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
 }
 
+/* ---- Page Body ---- */
 .page-body {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: 320px minmax(0, 1fr);
+  grid-template-columns: 300px minmax(0, 1fr);
   gap: 16px;
 }
 
+/* ---- Panels ---- */
 .browser-panel,
 .workspace-panel {
   min-height: 0;
-  border: 1px solid var(--el-border-color-light);
-  border-radius: 16px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 14px;
   background: var(--el-bg-color);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  transition: box-shadow 0.22s;
+
+  &:hover {
+    box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
+  }
 }
 
+/* ---- Browser (Left) Panel ---- */
 .browser-panel {
   display: flex;
   flex-direction: column;
-  padding: 14px;
+  padding: 16px;
 }
 
 .browser-header {
@@ -459,7 +475,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
 }
 
 .browser-title {
@@ -472,7 +488,18 @@ onBeforeUnmount(() => {
 }
 
 .browser-search {
-  margin-bottom: 12px;
+  margin-bottom: 14px;
+
+  :deep(.el-input__wrapper) {
+    border-radius: 8px;
+    box-shadow: 0 0 0 1px #e8e8e8 inset;
+    transition: box-shadow 0.2s;
+
+    &:hover,
+    &.is-focus {
+      box-shadow: 0 0 0 1px var(--el-color-primary) inset;
+    }
+  }
 }
 
 .browser-tree {
@@ -481,9 +508,14 @@ onBeforeUnmount(() => {
   overflow: auto;
   padding-right: 2px;
 
+  :deep(.el-tree) {
+    background: transparent;
+  }
+
   :deep(.el-tree-node__content) {
-    height: 36px;
+    height: 34px;
     border-radius: 8px;
+    transition: background-color 0.15s;
   }
 
   :deep(.el-tree-node__content:hover) {
@@ -517,33 +549,42 @@ onBeforeUnmount(() => {
   font-size: 9px;
   font-weight: 700;
   font-family: var(--dd-font-mono);
-  padding: 1px 4px;
-  border-radius: 3px;
+  padding: 1px 5px;
+  border-radius: 4px;
   background: var(--el-fill-color);
   color: var(--el-text-color-secondary);
   flex-shrink: 0;
 }
 
+/* ---- Workspace (Center) Panel ---- */
 .workspace-panel {
   padding: 16px;
   overflow: hidden;
 }
 
+/* ---- Mobile ---- */
 .ai-code-page.mobile {
   height: auto;
 
-  .page-header,
-  .page-actions,
-  .page-body {
-    display: flex;
+  .page-header {
     flex-direction: column;
+    padding: 16px;
+    gap: 10px;
+
+    .page-copy h1 {
+      font-size: 18px;
+    }
   }
 
   .page-actions {
+    display: flex;
+    flex-direction: column;
     align-items: stretch;
   }
 
   .page-body {
+    display: flex;
+    flex-direction: column;
     gap: 12px;
   }
 

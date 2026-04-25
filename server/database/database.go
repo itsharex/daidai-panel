@@ -146,6 +146,13 @@ func EnsureColumns() {
 		{"hook_script", "TEXT DEFAULT ''"},
 	})
 
+	ensureTableColumns("notify_channels", []columnDef{
+		{"today_send_count", "INTEGER DEFAULT 0"},
+		{"today_send_date", "VARCHAR(10) DEFAULT ''"},
+		{"last_test_at", "DATETIME"},
+		{"last_test_status", "VARCHAR(16) DEFAULT ''"},
+	})
+
 	ensureTableColumns("open_apps", []columnDef{
 		{"rate_limit", "INTEGER DEFAULT 0"},
 		{"call_count", "INTEGER DEFAULT 0"},

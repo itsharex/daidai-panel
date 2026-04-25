@@ -20,6 +20,9 @@
 
 呆呆面板 (Daidai Panel) 是一款轻量级定时任务管理平台，采用 Go (Gin) + Vue3 (Element Plus) + SQLite 架构，专注于脚本托管与自动化任务调度。支持 Python、Node.js、Shell、TypeScript、Go 等多语言脚本的定时执行与可视化管理，内置 18 种消息推送渠道、订阅管理、环境变量、依赖管理、Open API 等功能。Docker 一键部署，开箱即用。
 
+> 最新稳定版：`v2.1.4` · [更新日志](./docs/release-notes/v2.1.4.md)<br>
+> 本次重点：UI 界面重构，覆盖仪表盘、定时任务、执行日志、环境变量、订阅管理、脚本管理、AI Code、系统设置等核心页面。
+
 ## 功能特性
 
 - **定时任务** — Cron 表达式调度，支持重试、超时、任务依赖、前后置钩子
@@ -94,15 +97,19 @@
 
 | 功能 | 截图 |
 |------|------|
-| 登录页面 | ![登录](./images/登录.png) |
 | 仪表盘 | ![仪表盘](./images/仪表盘.png) |
 | 定时任务 | ![定时任务](./images/定时任务.png) |
+| 执行日志 | ![执行日志](./images/执行日志.png) |
+| 用户管理 | ![用户管理](./images/用户管理.png) |
 | 脚本管理 | ![脚本管理](./images/脚本管理.png) |
+| AI Code | ![AI Code](./images/AI%20Code.png) |
 | 环境变量 | ![环境变量](./images/环境变量.png) |
 | 订阅管理 | ![订阅管理](./images/订阅管理.png) |
-| 消息通知 | ![消息通知](./images/消息通知.png) |
+| 通知渠道 | ![通知渠道](./images/通知渠道.png) |
+| Open API | ![Open API](./images/Open%20API.png) |
 | 依赖管理 | ![依赖管理](./images/依赖管理.png) |
-| API 文档 | ![API文档](./images/接口文档.png) |
+| 系统设置 | ![系统设置](./images/系统设置.png) |
+| 个人设置 | ![个人设置](./images/个人设置.png) |
 
 </details>
 
@@ -180,7 +187,7 @@ docker run -d --pull=always \
 docker compose -f docker-compose.debian.yml up -d
 
 # 或基于源码本地构建
-docker build --build-arg VERSION=2.1.0 -f Dockerfile.debian -t daidai-panel:debian-local .
+docker build --build-arg VERSION=2.1.4 -f Dockerfile.debian -t daidai-panel:debian-local .
 ```
 
 ### Windows 单机版（不走 Docker）
@@ -371,7 +378,7 @@ docker compose -f docker-compose.debian.yml up -d
 本地基于源码自己构建的镜像，重新 build 即可：
 
 ```bash
-docker build --build-arg VERSION=2.1.0 -f Dockerfile.debian -t daidai-panel:debian-local .
+docker build --build-arg VERSION=2.1.4 -f Dockerfile.debian -t daidai-panel:debian-local .
 ```
 
 ## 容器命令 `ddp`

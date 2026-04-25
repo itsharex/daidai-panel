@@ -2,6 +2,7 @@
 import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { subscriptionApi } from '@/api/subscription'
 import { sshKeyApi } from '@/api/notification'
+import { configApi } from '@/api/system'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { openAuthorizedEventStream, type EventStreamConnection } from '@/utils/sse'
 import { useResponsive } from '@/composables/useResponsive'
@@ -15,11 +16,38 @@ const keyword = ref('')
 const selectedIds = ref<number[]>([])
 const selectedIdSet = computed(() => new Set(selectedIds.value))
 const { isMobile, dialogFullscreen } = useResponsive()
+const typeFilter = ref<'' | 'git-repo' | 'single-file' | 'disabled'>('')
+
+const filteredSubList = computed(() => {
+  if (!typeFilter.value) return subList.value
+  if (typeFilter.value === 'disabled') return subList.value.filter(s => !s.enabled)
+  return subList.value.filter(s => s.type === typeFilter.value)
+})
+
+const subStats = computed(() => {
+  const list = filteredSubList.value
+  const totalCount = list.length
+  const enabledCount = list.filter(s => s.enabled).length
+  const pullCount = list.filter(s => s.last_pull_at).length
+  const errorCount = list.filter(s => s.status !== 0).length
+  return { totalCount, enabledCount, pullCount, errorCount }
+})
 
 const showEditDialog = ref(false)
 const showLogDialog = ref(false)
+const showSettingsDialog = ref(false)
 const isCreate = ref(true)
 const qlCommand = ref('')
+
+const settingsLoading = ref(false)
+const settingsSaving = ref(false)
+const settingsForm = ref({
+  github_mirror: '',
+  auto_add_cron: true,
+  auto_del_cron: true,
+  default_cron_rule: '',
+  repo_file_extensions: ''
+})
 
 const GITHUB_MIRROR_STORAGE_KEY = 'subscription.github_mirror'
 const DEFAULT_GITHUB_MIRROR = 'https://gh-proxy.com/'
@@ -52,6 +80,12 @@ const editForm = ref({
 })
 
 const sshKeys = ref<any[]>([])
+const showSSHKeyManageDialog = ref(false)
+const showSSHKeyDialog = ref(false)
+const isCreateSSHKey = ref(true)
+const sshKeyForm = ref({ id: 0, name: '', private_key: '' })
+const sshKeyLoading = ref(false)
+
 const logList = ref<any[]>([])
 const logTotal = ref(0)
 const logPage = ref(1)
@@ -75,6 +109,8 @@ async function loadData() {
   try {
     const res = await subscriptionApi.list({
       keyword: keyword.value || undefined,
+      type: typeFilter.value && typeFilter.value !== 'disabled' ? typeFilter.value : undefined,
+      enabled: typeFilter.value === 'disabled' ? false : undefined,
       page: page.value,
       page_size: pageSize.value
     })
@@ -88,10 +124,14 @@ async function loadData() {
 }
 
 async function loadSSHKeys() {
+  sshKeyLoading.value = true
   try {
     const res = await sshKeyApi.list()
     sshKeys.value = res.data || []
   } catch { /* ignore */ }
+  finally {
+    sshKeyLoading.value = false
+  }
 }
 
 onMounted(() => {
@@ -108,6 +148,15 @@ onBeforeUnmount(() => {
 })
 
 function handleSearch() {
+  page.value = 1
+  loadData()
+}
+
+function handleTypeFilter(value: '' | 'git-repo' | 'single-file' | 'disabled') {
+  if (typeFilter.value === value) {
+    return
+  }
+  typeFilter.value = value
   page.value = 1
   loadData()
 }
@@ -138,25 +187,62 @@ function addGithubMirror(url: string): string {
   return url
 }
 
-async function handleConfigMirror() {
+function readCfgBool(cfgs: Record<string, any>, key: string, fallback: boolean): boolean {
+  const entry = cfgs[key]
+  const raw = String(entry?.value ?? entry?.default_value ?? (fallback ? 'true' : 'false')).trim().toLowerCase()
+  if (['true', '1', 'yes', 'on'].includes(raw)) return true
+  if (['false', '0', 'no', 'off'].includes(raw)) return false
+  return fallback
+}
+
+function readCfgStr(cfgs: Record<string, any>, key: string, fallback = ''): string {
+  const entry = cfgs[key]
+  const raw = entry?.value ?? entry?.default_value ?? fallback
+  return raw === null || raw === undefined ? fallback : String(raw)
+}
+
+async function handleOpenSettings() {
+  showSettingsDialog.value = true
+  settingsForm.value.github_mirror = githubMirror.value
+  settingsLoading.value = true
   try {
-    const { value } = await ElMessageBox.prompt(
-      '请输入 GitHub 镜像加速地址（留空则使用默认值）',
-      'GitHub 镜像配置',
-      {
-        inputValue: githubMirror.value,
-        inputPlaceholder: DEFAULT_GITHUB_MIRROR,
-        inputPattern: /^(https?:\/\/.+)?$/,
-        inputErrorMessage: '请输入有效的 URL（需以 http:// 或 https:// 开头）',
-        confirmButtonText: '保存',
-        cancelButtonText: '取消',
-      }
-    )
-    const mirror = (value || '').trim() || DEFAULT_GITHUB_MIRROR
+    const res = await configApi.list()
+    const cfgs = res.data || {}
+    settingsForm.value.auto_add_cron = readCfgBool(cfgs, 'auto_add_cron', true)
+    settingsForm.value.auto_del_cron = readCfgBool(cfgs, 'auto_del_cron', true)
+    settingsForm.value.default_cron_rule = readCfgStr(cfgs, 'default_cron_rule', '')
+    settingsForm.value.repo_file_extensions = readCfgStr(cfgs, 'repo_file_extensions', '')
+  } catch (err: any) {
+    ElMessage.error(err?.response?.data?.error || '加载订阅设置失败')
+  } finally {
+    settingsLoading.value = false
+  }
+}
+
+async function handleSaveSettings() {
+  const mirrorRaw = (settingsForm.value.github_mirror || '').trim()
+  if (mirrorRaw && !/^https?:\/\/.+/.test(mirrorRaw)) {
+    ElMessage.warning('镜像地址需以 http:// 或 https:// 开头')
+    return
+  }
+  settingsSaving.value = true
+  try {
+    await configApi.batchSet({
+      auto_add_cron: settingsForm.value.auto_add_cron ? 'true' : 'false',
+      auto_del_cron: settingsForm.value.auto_del_cron ? 'true' : 'false',
+      default_cron_rule: settingsForm.value.default_cron_rule,
+      repo_file_extensions: settingsForm.value.repo_file_extensions
+    })
+    const mirror = mirrorRaw || DEFAULT_GITHUB_MIRROR
     githubMirror.value = normalizeMirror(mirror)
     localStorage.setItem(GITHUB_MIRROR_STORAGE_KEY, githubMirror.value)
-    ElMessage.success('镜像地址已保存')
-  } catch { /* cancelled */ }
+    ElMessage.success('订阅设置已保存')
+    showSettingsDialog.value = false
+  } catch (err: any) {
+    ElMessage.error(err?.response?.data?.error || '保存失败')
+  } finally {
+    settingsSaving.value = false
+  }
 }
 
 function deriveSubscriptionSaveDir(url: string): string {
@@ -476,6 +562,55 @@ function getStatusText(status: number) {
   return status === 0 ? '正常' : '失败'
 }
 
+function openCreateSSHKey() {
+  isCreateSSHKey.value = true
+  sshKeyForm.value = { id: 0, name: '', private_key: '' }
+  showSSHKeyDialog.value = true
+}
+
+function openEditSSHKey(row: any) {
+  isCreateSSHKey.value = false
+  sshKeyForm.value = { id: row.id, name: row.name, private_key: '' }
+  showSSHKeyDialog.value = true
+}
+
+async function handleSaveSSHKey() {
+  if (!sshKeyForm.value.name.trim()) {
+    ElMessage.warning('名称不能为空')
+    return
+  }
+  if (isCreateSSHKey.value && !sshKeyForm.value.private_key.trim()) {
+    ElMessage.warning('私钥不能为空')
+    return
+  }
+  try {
+    const data: any = { name: sshKeyForm.value.name }
+    if (sshKeyForm.value.private_key) {
+      data.private_key = sshKeyForm.value.private_key
+    }
+    if (isCreateSSHKey.value) {
+      await sshKeyApi.create(data)
+      ElMessage.success('创建成功')
+    } else {
+      await sshKeyApi.update(sshKeyForm.value.id, data)
+      ElMessage.success('更新成功')
+    }
+    showSSHKeyDialog.value = false
+    loadSSHKeys()
+  } catch {
+    ElMessage.error(isCreateSSHKey.value ? '创建失败' : '更新失败')
+  }
+}
+
+async function handleDeleteSSHKey(id: number) {
+  try {
+    await ElMessageBox.confirm('确定要删除该 SSH 密钥吗？', '确认删除', { type: 'warning' })
+    await sshKeyApi.delete(id)
+    ElMessage.success('删除成功')
+    loadSSHKeys()
+  } catch { /* cancelled */ }
+}
+
 function viewLogDetail(log: any) {
   logDetailContent.value = log.content || '(无日志内容)'
   showLogDetail.value = true
@@ -486,37 +621,87 @@ function viewLogDetail(log: any) {
   <div class="subscriptions-page">
     <div class="page-header">
       <div>
-        <h2>订阅管理</h2>
-        <span class="page-subtitle">管理 Git 仓库和单文件自动拉取订阅</span>
+        <h2>📦 订阅管理</h2>
+        <p class="page-subtitle">管理 Git 仓库和单文件自动拉取订阅，自动获取最新脚本和资源文件</p>
       </div>
-      <div class="header-left">
-        <el-input
-          v-model="keyword"
-          placeholder="搜索订阅名称或 URL"
-          clearable
-          style="width: 260px"
-          @keyup.enter="handleSearch"
-          @clear="handleSearch"
-        >
+      <div class="header-actions">
+        <el-button @click="showSSHKeyManageDialog = true; loadSSHKeys()" title="SSH 密钥管理">
+          <el-icon><Key /></el-icon> SSH 密钥
+        </el-button>
+        <el-button @click="handleOpenSettings" title="订阅设置">
+          <el-icon><Setting /></el-icon>
+        </el-button>
+      </div>
+    </div>
+
+    <div class="stat-cards">
+      <div class="stat-card">
+        <div class="stat-card__content">
+          <span class="stat-card__label">当前页订阅</span>
+          <span class="stat-card__value">{{ subStats.totalCount }}</span>
+          <span class="stat-card__sub">本页展示订阅</span>
+        </div>
+        <div class="stat-card__icon stat-card__icon--blue">
+          <el-icon :size="22"><Connection /></el-icon>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card__content">
+          <span class="stat-card__label">本页启用</span>
+          <span class="stat-card__value stat-card__value--green">{{ subStats.enabledCount }}</span>
+          <span class="stat-card__sub">当前页启用订阅</span>
+        </div>
+        <div class="stat-card__icon stat-card__icon--green">
+          <el-icon :size="22"><Check /></el-icon>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card__content">
+          <span class="stat-card__label">已拉取</span>
+          <span class="stat-card__value stat-card__value--orange">{{ subStats.pullCount }}</span>
+          <span class="stat-card__sub">当前页曾拉取订阅</span>
+        </div>
+        <div class="stat-card__icon stat-card__icon--orange">
+          <el-icon :size="22"><Download /></el-icon>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card__content">
+          <span class="stat-card__label">异常</span>
+          <span class="stat-card__value stat-card__value--red">{{ subStats.errorCount }}</span>
+          <span class="stat-card__sub">当前页需要关注</span>
+        </div>
+        <div class="stat-card__icon stat-card__icon--red">
+          <el-icon :size="22"><CircleClose /></el-icon>
+        </div>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <div class="toolbar__left">
+        <div class="status-tabs">
+          <button :class="['status-tab', { active: typeFilter === '' }]" @click="handleTypeFilter('')">全部</button>
+          <button :class="['status-tab', { active: typeFilter === 'git-repo' }]" @click="handleTypeFilter('git-repo')">仓库</button>
+          <button :class="['status-tab', { active: typeFilter === 'single-file' }]" @click="handleTypeFilter('single-file')">单文件</button>
+          <button :class="['status-tab', { active: typeFilter === 'disabled' }]" @click="handleTypeFilter('disabled')">已禁用</button>
+        </div>
+        <el-input v-model="keyword" placeholder="搜索订阅名称或 URL" clearable class="toolbar__search" @keyup.enter="handleSearch" @clear="handleSearch">
           <template #prefix><el-icon><Search /></el-icon></template>
         </el-input>
       </div>
-      <div class="header-right">
+      <div class="toolbar__right">
+        <el-button v-if="selectedIds.length > 0" type="danger" plain size="small" @click="handleBatchDelete">
+          <el-icon><Delete /></el-icon> 批量删除
+        </el-button>
         <el-button type="primary" @click="openCreate">
-          <el-icon><Plus /></el-icon>新建
-        </el-button>
-        <el-button @click="handleBatchDelete" :disabled="selectedIds.length === 0">
-          <el-icon><Delete /></el-icon>批量删除
-        </el-button>
-        <el-button @click="handleConfigMirror" title="配置 GitHub 镜像加速地址">
-          <el-icon><Setting /></el-icon>镜像设置
+          <el-icon><Plus /></el-icon> 新建订阅
         </el-button>
       </div>
     </div>
 
     <div v-if="isMobile" class="dd-mobile-list">
       <div
-        v-for="row in subList"
+        v-for="row in filteredSubList"
         :key="row.id"
         class="dd-mobile-card"
       >
@@ -581,89 +766,86 @@ function viewLogDetail(log: any) {
         </div>
       </div>
 
-      <el-empty v-if="!loading && subList.length === 0" description="暂无订阅" />
+      <el-empty v-if="!loading && filteredSubList.length === 0" description="暂无订阅" />
     </div>
 
-    <el-table
-      v-else
-      :data="subList"
-      v-loading="loading"
-      @selection-change="handleSelectionChange"
-      stripe
-    >
-      <el-table-column type="selection" width="50" />
-      <el-table-column prop="name" label="名称" min-width="150" />
-      <el-table-column prop="type" label="类型" width="120">
-        <template #default="{ row }">
-          <el-tag size="small" :type="row.type === 'git-repo' ? '' : 'warning'">
-            {{ row.type === 'git-repo' ? 'Git 仓库' : '单文件' }}
-          </el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column prop="url" label="URL" min-width="250" show-overflow-tooltip />
-      <el-table-column prop="branch" label="分支" width="100" />
-      <el-table-column prop="schedule" label="定时拉取" min-width="160" show-overflow-tooltip>
-        <template #default="{ row }">
-          {{ row.schedule || '手动拉取' }}
-        </template>
-      </el-table-column>
-      <el-table-column label="状态" width="80" align="center">
-        <template #default="{ row }">
-          <el-tag size="small" :type="getStatusTag(row.status)">{{ getStatusText(row.status) }}</el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column label="启用" width="80" align="center">
-        <template #default="{ row }">
-          <el-switch :model-value="row.enabled" size="small" @change="handleToggle(row)" />
-        </template>
-      </el-table-column>
-      <el-table-column prop="last_pull_at" label="最后拉取" width="170">
-        <template #default="{ row }">
-          {{ row.last_pull_at ? new Date(row.last_pull_at).toLocaleString() : '-' }}
-        </template>
-      </el-table-column>
-      <el-table-column label="操作" width="200" fixed="right">
-        <template #default="{ row }">
-          <div class="action-group">
-            <el-dropdown trigger="click" @command="(cmd: string) => handlePullWithMode(row, cmd)">
-              <el-button size="small" type="success" plain circle>
-                <el-icon><Download /></el-icon>
-              </el-button>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item command="default">按订阅设置拉取</el-dropdown-item>
-                  <el-dropdown-item command="force">覆盖拉取</el-dropdown-item>
-                  <el-dropdown-item command="keep">保留本地修改拉取</el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
-            <el-tooltip content="日志" placement="top">
-              <el-button size="small" type="info" plain circle @click="openLogs(row.id)">
-                <el-icon><Tickets /></el-icon>
-              </el-button>
-            </el-tooltip>
-            <el-tooltip content="编辑" placement="top">
-              <el-button size="small" type="primary" plain circle @click="openEdit(row)">
-                <el-icon><Edit /></el-icon>
-              </el-button>
-            </el-tooltip>
-            <el-tooltip content="删除" placement="top">
-              <el-button size="small" type="danger" plain circle @click="handleDelete(row.id)">
-                <el-icon><Delete /></el-icon>
-              </el-button>
-            </el-tooltip>
-          </div>
-        </template>
-      </el-table-column>
-    </el-table>
+    <div v-else class="table-card">
+      <el-table
+        :data="filteredSubList"
+        v-loading="loading"
+        @selection-change="handleSelectionChange"
+        style="width: 100%"
+        :header-cell-style="{ background: '#f8fafc', color: '#64748b', fontWeight: 600, fontSize: '13px' }"
+      >
+        <el-table-column type="selection" width="40" />
+        <el-table-column prop="name" label="名称" min-width="120">
+          <template #default="{ row }">
+            <div class="sub-name-cell">
+              <span class="sub-name-text">{{ row.name }}</span>
+              <el-tag size="small" :type="row.type === 'git-repo' ? '' : 'warning'" round>
+                {{ row.type === 'git-repo' ? 'Git' : '文件' }}
+              </el-tag>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column prop="url" label="URL" min-width="160" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span class="url-text">{{ row.url }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="branch" label="分支" width="80" />
+        <el-table-column prop="schedule" label="定时拉取" width="110">
+          <template #default="{ row }">
+            <code v-if="row.schedule" class="cron-text">{{ row.schedule }}</code>
+            <span v-else class="text-muted">手动</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="70" align="center">
+          <template #default="{ row }">
+            <el-tag size="small" :type="getStatusTag(row.status)" round>{{ getStatusText(row.status) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="启用" width="60" align="center">
+          <template #default="{ row }">
+            <el-switch :model-value="row.enabled" size="small" @change="handleToggle(row)" />
+          </template>
+        </el-table-column>
+        <el-table-column prop="last_pull_at" label="最后拉取" width="150">
+          <template #default="{ row }">
+            <span v-if="row.last_pull_at" class="time-text">{{ new Date(row.last_pull_at).toLocaleString() }}</span>
+            <span v-else class="text-muted">-</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="200" fixed="right" align="center">
+          <template #default="{ row }">
+            <div class="action-btns">
+              <el-dropdown trigger="click" @command="(cmd: string) => handlePullWithMode(row, cmd)">
+                <el-button size="small" type="success" text>拉取</el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="default">按订阅设置</el-dropdown-item>
+                    <el-dropdown-item command="force">覆盖拉取</el-dropdown-item>
+                    <el-dropdown-item command="keep">保留本地</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+              <el-button size="small" text @click="openLogs(row.id)">日志</el-button>
+              <el-button size="small" text type="primary" @click="openEdit(row)">编辑</el-button>
+              <el-button size="small" text type="danger" @click="handleDelete(row.id)">删除</el-button>
+            </div>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
 
-    <div class="pagination-container" v-if="total > pageSize">
+    <div class="pagination-bar">
+      <span class="pagination-total">共 {{ total }} 条数据</span>
       <el-pagination
         v-model:current-page="page"
         v-model:page-size="pageSize"
         :total="total"
         :page-sizes="[20, 50, 100]"
-        layout="total, sizes, prev, pager, next"
+        layout="sizes, prev, pager, next"
         @current-change="loadData"
         @size-change="() => { page = 1; loadData() }"
       />
@@ -794,121 +976,230 @@ function viewLogDetail(log: any) {
         <el-button @click="showPullLog = false">关闭</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="showSettingsDialog" title="订阅设置" width="560px" :fullscreen="dialogFullscreen">
+      <el-form
+        v-loading="settingsLoading"
+        :label-width="dialogFullscreen ? 'auto' : '140px'"
+        :label-position="dialogFullscreen ? 'top' : 'right'"
+      >
+        <el-form-item label="GitHub 镜像地址">
+          <el-input v-model="settingsForm.github_mirror" :placeholder="DEFAULT_GITHUB_MIRROR" />
+          <div class="settings-hint">留空使用默认值 {{ DEFAULT_GITHUB_MIRROR }}，拉取 GitHub 仓库时自动加速</div>
+        </el-form-item>
+        <el-form-item label="自动添加定时任务">
+          <el-switch v-model="settingsForm.auto_add_cron" inline-prompt active-text="开" inactive-text="关" />
+          <div class="settings-hint">拉取后根据脚本内容自动同步定时任务</div>
+        </el-form-item>
+        <el-form-item label="自动删除失效任务">
+          <el-switch v-model="settingsForm.auto_del_cron" inline-prompt active-text="开" inactive-text="关" />
+          <div class="settings-hint">订阅源删除脚本后，自动删除对应定时任务</div>
+        </el-form-item>
+        <el-form-item label="默认 Cron 规则">
+          <el-input v-model="settingsForm.default_cron_rule" placeholder="0 9 * * *" />
+          <div class="settings-hint">匹配不到定时规则时使用，如 0 9 * * *</div>
+        </el-form-item>
+        <el-form-item label="拉取文件后缀">
+          <el-input v-model="settingsForm.repo_file_extensions" placeholder="py js sh ts" />
+          <div class="settings-hint">空格分隔，如 py js sh ts</div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showSettingsDialog = false">取消</el-button>
+        <el-button type="primary" :loading="settingsSaving" @click="handleSaveSettings">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- SSH Key Management Dialog -->
+    <el-dialog v-model="showSSHKeyManageDialog" title="SSH 密钥管理" width="600px" :fullscreen="dialogFullscreen">
+      <div style="margin-bottom: 12px; display: flex; justify-content: flex-end">
+        <el-button type="primary" size="small" @click="openCreateSSHKey">
+          <el-icon><Plus /></el-icon> 新建密钥
+        </el-button>
+      </div>
+      <el-table :data="sshKeys" v-loading="sshKeyLoading" style="width: 100%">
+        <el-table-column prop="name" label="名称" min-width="180" />
+        <el-table-column prop="created_at" label="创建时间" width="170">
+          <template #default="{ row }">
+            <span class="time-text">{{ new Date(row.created_at).toLocaleString() }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="150" fixed="right" align="center">
+          <template #default="{ row }">
+            <div class="action-btns">
+              <el-button size="small" text type="primary" @click="openEditSSHKey(row)">编辑</el-button>
+              <el-button size="small" text type="danger" @click="handleDeleteSSHKey(row.id)">删除</el-button>
+            </div>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-empty v-if="!sshKeyLoading && sshKeys.length === 0" description="暂无 SSH 密钥" />
+    </el-dialog>
+
+    <!-- SSH Key Edit Dialog -->
+    <el-dialog v-model="showSSHKeyDialog" :title="isCreateSSHKey ? '新建 SSH 密钥' : '编辑 SSH 密钥'" width="550px" :fullscreen="dialogFullscreen" append-to-body>
+      <el-form :model="sshKeyForm" :label-width="dialogFullscreen ? 'auto' : '80px'" :label-position="dialogFullscreen ? 'top' : 'right'">
+        <el-form-item label="名称">
+          <el-input v-model="sshKeyForm.name" placeholder="密钥名称" />
+        </el-form-item>
+        <el-form-item label="私钥">
+          <el-input
+            v-model="sshKeyForm.private_key"
+            type="textarea"
+            :rows="8"
+            :placeholder="isCreateSSHKey ? '粘贴 SSH 私钥内容' : '留空不修改'"
+            spellcheck="false"
+            style="font-family: monospace"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showSSHKeyDialog = false">取消</el-button>
+        <el-button type="primary" @click="handleSaveSSHKey">{{ isCreateSSHKey ? '创建' : '保存' }}</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <style scoped lang="scss">
-.subscriptions-page {
-  padding: 0;
-}
+.subscriptions-page { padding: 0; }
 
 .page-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-  flex-wrap: wrap;
-  gap: 12px;
-
-  h2 { margin: 0; font-size: 20px; font-weight: 700; color: var(--el-text-color-primary); }
-
-  .page-subtitle {
-    font-size: 13px;
-    color: var(--el-text-color-secondary);
-    display: block;
-    margin-top: 2px;
-  }
-
-  .header-left {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-
-  .header-right {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-}
-
-.pagination-container {
-  margin-top: 16px;
-  display: flex;
-  justify-content: flex-end;
-}
-
-.action-group {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.subscription-card__title-row {
-  display: flex;
   align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
+  margin-bottom: 18px;
+  gap: 16px;
+
+  h2 { margin: 0; font-size: 22px; font-weight: 700; color: var(--el-text-color-primary); line-height: 1.3; }
+  .page-subtitle { font-size: 13px; color: var(--el-text-color-secondary); margin: 4px 0 0; }
+  .header-actions { display: flex; gap: 10px; flex-shrink: 0; }
 }
 
-.subscription-card__actions > * {
-  flex: 1 1 calc(50% - 4px);
+.stat-cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-bottom: 18px;
 }
+
+.stat-card {
+  background: var(--el-bg-color);
+  border-radius: 14px;
+  padding: 16px 18px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  border: 1px solid var(--el-border-color-lighter);
+  transition: transform 0.22s ease, box-shadow 0.22s ease;
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.08);
+  }
+
+  &__content { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
+  &__label { font-size: 13px; color: var(--el-text-color-secondary); font-weight: 500; }
+  &__value {
+    font-size: 26px; font-weight: 700; color: #3b82f6; line-height: 1.15;
+    font-family: 'Inter', var(--dd-font-ui), sans-serif;
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+    letter-spacing: -0.01em;
+    &--green { color: #10b981; }
+    &--orange { color: #f59e0b; }
+    &--red { color: #ef4444; }
+    &--purple { color: #8b5cf6; }
+  }
+  &__sub { font-size: 12px; color: var(--el-text-color-placeholder); }
+  &__icon {
+    width: 44px; height: 44px; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    &--blue { background: rgba(59, 130, 246, 0.12); color: #3b82f6; }
+    &--green { background: rgba(16, 185, 129, 0.12); color: #10b981; }
+    &--orange { background: rgba(245, 158, 11, 0.12); color: #f59e0b; }
+    &--red { background: rgba(239, 68, 68, 0.12); color: #ef4444; }
+    &--purple { background: rgba(139, 92, 246, 0.12); color: #8b5cf6; }
+  }
+}
+
+.toolbar {
+  display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; gap: 12px; flex-wrap: wrap;
+  &__left { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; flex: 1; min-width: 0; }
+  &__right { display: flex; align-items: center; gap: 8px; }
+  &__search { width: 260px; }
+}
+
+.status-tabs {
+  display: inline-flex; background: var(--el-fill-color-light); border-radius: 10px; padding: 3px; gap: 2px;
+}
+
+.status-tab {
+  padding: 6px 14px; border-radius: 7px; border: none; background: transparent;
+  color: var(--el-text-color-secondary); font-size: 13px; font-weight: 500; cursor: pointer;
+  transition: all 0.18s; white-space: nowrap;
+  &:hover { color: var(--el-text-color-primary); }
+  &.active { background: var(--el-bg-color); color: var(--el-color-primary); box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06); font-weight: 600; }
+}
+
+.table-card {
+  background: var(--el-bg-color); border-radius: 14px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04); border: 1px solid var(--el-border-color-lighter); overflow: hidden;
+}
+
+.sub-name-cell { display: flex; align-items: center; gap: 8px; }
+.sub-name-text { font-weight: 500; color: var(--el-text-color-primary); }
+.url-text { font-family: var(--dd-font-mono); font-size: 13px; color: var(--el-text-color-secondary); }
+.cron-text { font-family: var(--dd-font-mono); font-size: 13px; color: var(--el-text-color-secondary); }
+.time-text { font-family: var(--dd-font-mono); font-size: 12px; color: var(--el-text-color-regular); }
+.text-muted { color: var(--el-text-color-placeholder); }
+.action-btns { display: flex; align-items: center; justify-content: center; gap: 0; :deep(.el-button) { padding: 4px 6px; } }
+
+.pagination-bar {
+  margin-top: 20px; display: flex; justify-content: space-between; align-items: center; padding: 0 4px;
+}
+.pagination-total { font-size: 13px; color: var(--el-text-color-secondary); }
+
+:deep(.el-table) {
+  --el-table-border-color: #f0f0f0;
+  .el-table__header-wrapper th { border-bottom: 1px solid #e8e8e8; }
+  .el-table__row td { border-bottom: 1px solid #f5f5f5; }
+  .el-table__cell { padding: 12px 0; }
+}
+
+.subscription-card__title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.subscription-card__actions > * { flex: 1 1 calc(50% - 4px); }
 
 .pull-log-content {
-  background: #1e1e1e;
-  color: #d4d4d4;
-  font-family: var(--dd-font-mono, monospace);
-  font-size: 13px;
-  line-height: 1.6;
-  padding: 12px 16px;
-  border-radius: 6px;
-  max-height: 400px;
-  overflow-y: auto;
+  background: #1e1e1e; color: #d4d4d4; font-family: var(--dd-font-mono, monospace);
+  font-size: 13px; line-height: 1.6; padding: 12px 16px; border-radius: 6px;
+  max-height: 400px; overflow-y: auto;
 }
-
-.pull-log-line {
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-
-.pull-running {
-  color: #e6a23c;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
+.pull-log-line { white-space: pre-wrap; word-break: break-all; }
+.pull-running { color: #e6a23c; display: flex; align-items: center; gap: 8px; }
 .pull-spinner {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border: 2px solid rgba(230, 162, 60, 0.3);
-  border-top-color: #e6a23c;
-  border-radius: 50%;
-  animation: spin 0.7s linear infinite;
-  flex-shrink: 0;
+  display: inline-block; width: 10px; height: 10px;
+  border: 2px solid rgba(230, 162, 60, 0.3); border-top-color: #e6a23c;
+  border-radius: 50%; animation: spin 0.7s linear infinite; flex-shrink: 0;
+}
+.settings-hint { color: var(--el-text-color-secondary); font-size: 12px; margin-top: 4px; line-height: 1.4; }
+
+@media screen and (max-width: 1200px) {
+  .stat-cards { grid-template-columns: repeat(2, 1fr); }
 }
 
 @media (max-width: 768px) {
-  .page-header {
-    align-items: flex-start;
-
-    .header-left,
-    .header-right {
-      width: 100%;
-      flex-wrap: wrap;
-    }
-
-    .header-left {
-      :deep(.el-input) {
-        width: 100% !important;
-      }
-    }
+  .page-header { flex-direction: column; gap: 10px; margin-bottom: 14px; h2 { font-size: 18px; } }
+  .stat-cards { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .stat-card { padding: 14px 16px; &__value { font-size: 22px; } &__icon { width: 40px; height: 40px; } }
+  .toolbar { flex-direction: column; align-items: stretch; gap: 10px;
+    &__left { flex-direction: column; gap: 10px; }
+    &__search { width: 100% !important; }
+    &__right { justify-content: flex-end; }
   }
-
-  .subscription-card__title-row {
-    flex-direction: column;
-  }
+  .status-tabs { width: 100%; overflow-x: auto; }
+  .subscription-card__title-row { flex-direction: column; }
 }
 </style>

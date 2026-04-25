@@ -1,7 +1,7 @@
 import request from './request'
 
 export const subscriptionApi = {
-  list(params?: { keyword?: string; type?: string; page?: number; page_size?: number }) {
+  list(params?: { keyword?: string; type?: string; enabled?: boolean; page?: number; page_size?: number }) {
     return request.get('/subscriptions', { params }) as Promise<{ data: any[]; total: number; page: number; page_size: number }>
   },
 

@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { Refresh } from '@element-plus/icons-vue'
 import type { PanelUpdateStatus } from '@/api/system'
 import UpdateProgressDialog from './UpdateProgressDialog.vue'
 
@@ -28,52 +27,42 @@ defineProps<{
 </script>
 
 <template>
-  <el-card shadow="never" class="overview-card">
-    <div class="overview-center">
-      <div class="logo">
-        <img src="/favicon.svg" alt="呆呆面板" class="logo-img" />
-      </div>
-      <h2 class="panel-name">呆呆面板</h2>
-      <p class="panel-desc">轻量级定时任务管理面板</p>
-      <div class="version-stats">
-        <div class="version-item">
-          <span class="vs-label">系统版本</span>
-          <span class="vs-value">{{ currentVersion }}</span>
+  <el-card shadow="never" class="hero-card">
+    <div class="hero-layout">
+      <div class="hero-section-title">产品与版本</div>
+
+      <div class="hero-center">
+        <div class="hero-logo">
+          <img src="/favicon.svg" alt="呆呆面板" class="hero-logo-img" />
         </div>
-        <div class="version-item">
-          <span class="vs-label">技术栈</span>
-          <span class="vs-value">Gin + Vue3</span>
+        <h2 class="hero-name">呆呆面板</h2>
+        <p class="hero-desc">轻量级定时任务管理面板</p>
+
+        <div class="hero-version-row">
+          <div class="hero-version-item">
+            <span class="hero-version-label">当前版本</span>
+            <span class="hero-version-value">v{{ currentVersion }}</span>
+          </div>
+          <div class="hero-version-item">
+            <span class="hero-version-label">技术栈</span>
+            <span class="hero-version-value hero-version-value--tech">Gin + Vue3</span>
+          </div>
+        </div>
+
+        <div class="hero-actions">
+          <el-button v-if="isAdmin" type="primary" round :loading="checkingUpdate" @click="onCheckUpdate" class="hero-btn hero-btn--primary">
+            <span class="hero-btn-icon">🔍</span> 检查系统更新
+          </el-button>
+          <el-button v-if="isAdmin" type="warning" round @click="onRestartPanel" class="hero-btn hero-btn--warning">
+            <span class="hero-btn-icon">🔄</span> 重启面板
+          </el-button>
+          <el-button round @click="onOpenGitHub" class="hero-btn hero-btn--ghost">
+            <span class="hero-btn-icon">🔗</span> 访问 GitHub
+          </el-button>
         </div>
       </div>
-      <div class="overview-buttons">
-        <el-button v-if="isAdmin" type="primary" :loading="checkingUpdate" @click="onCheckUpdate">
-          <el-icon><Refresh /></el-icon>检查系统更新
-        </el-button>
-        <el-button v-if="isAdmin" type="warning" @click="onRestartPanel">
-          <el-icon><Refresh /></el-icon>重启面板
-        </el-button>
-        <el-button @click="onOpenGitHub">
-          <svg viewBox="0 0 16 16" width="16" height="16" style="margin-right: 4px; vertical-align: middle; fill: currentColor">
-            <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
-          </svg>
-          GitHub
-        </el-button>
-      </div>
-      <div v-if="isAdmin" class="auto-update-panel">
-        <div class="auto-update-copy">
-          <strong>静默更新</strong>
-          <span>每 24 小时自动检查一次新版本；检测到更新后会按当前镜像渠道自动尝试更新，并通过通知渠道反馈结果。</span>
-        </div>
-        <el-switch
-          :model-value="autoUpdateEnabled"
-          :loading="savingAutoUpdate"
-          inline-prompt
-          active-text="开"
-          inactive-text="关"
-          @change="onToggleAutoUpdate"
-        />
-      </div>
-      <div v-if="updateInfo" class="update-alert-wrap">
+
+      <div v-if="updateInfo" class="hero-alert">
         <el-alert
           :type="updateInfo.has_update ? (updateInfo.auto_update_supported ? 'success' : 'warning') : 'info'"
           :title="updateInfo.has_update ? `发现新版本 v${updateInfo.latest}` : '当前已是最新版本'"
@@ -81,49 +70,24 @@ defineProps<{
         >
           <div v-if="updateInfo.has_update">
             <p>发布时间: {{ new Date(updateInfo.published_at).toLocaleString() }}</p>
-            <p v-if="updateInfo.update_target?.mirror_host" class="update-meta">
-              系统更新镜像源：{{ updateInfo.update_target.mirror_host }}
-            </p>
-            <p v-if="updateInfo.update_target?.channel" class="update-meta">
-              更新渠道：{{ updateInfo.update_target.channel === 'debian' ? 'Debian' : 'Latest (Alpine)' }}
-            </p>
-            <p
-              v-if="updateInfo.update_target?.pull_image_name && updateInfo.update_target.pull_image_name !== updateInfo.update_target.image_name"
-              class="update-meta"
-            >
-              拉取目标：{{ updateInfo.update_target.pull_image_name }}
-            </p>
-            <p v-if="!updateInfo.auto_update_supported" class="update-disabled-reason">
-              当前部署暂不支持面板内一键更新：{{ updateInfo.update_disabled_reason || '请改用手动更新' }}
-            </p>
-            <div class="update-actions">
-              <el-button
-                v-if="isAdmin && updateInfo.auto_update_supported"
-                type="primary"
-                size="small"
-                :loading="updatingPanel"
-                @click="onStartUpdate"
-              >
-                立即更新
-              </el-button>
-              <el-button size="small" @click="onOpenReleaseNotes">查看更新日志</el-button>
+            <p v-if="updateInfo.update_target?.mirror_host" class="hero-meta">镜像源：{{ updateInfo.update_target.mirror_host }}</p>
+            <p v-if="updateInfo.update_target?.channel" class="hero-meta">渠道：{{ updateInfo.update_target.channel === 'debian' ? 'Debian' : 'Latest (Alpine)' }}</p>
+            <p v-if="!updateInfo.auto_update_supported" class="hero-meta">{{ updateInfo.update_disabled_reason || '当前部署暂不支持一键更新' }}</p>
+            <div class="hero-alert-actions">
+              <el-button v-if="isAdmin && updateInfo.auto_update_supported" type="primary" size="small" round :loading="updatingPanel" @click="onStartUpdate">立即更新</el-button>
+              <el-button size="small" round @click="onOpenReleaseNotes">查看更新日志</el-button>
             </div>
           </div>
         </el-alert>
       </div>
-      <div v-if="updateStatus && updateStatus.status && updateStatus.status !== 'idle'" class="update-alert-wrap">
+
+      <div v-if="updateStatus && updateStatus.status && updateStatus.status !== 'idle'" class="hero-alert">
         <el-alert
           :type="updateStatus.status === 'failed' ? 'error' : (updateStatus.status === 'restarting' ? 'success' : 'warning')"
           :title="updateStatus.status === 'failed' ? '更新失败' : (updateStatus.status === 'restarting' ? '正在切换到新版本' : '更新进行中')"
           :closable="false"
         >
           <p>{{ updateStatus.message }}</p>
-          <p v-if="updateStatus.container_name || updateStatus.image_name" class="update-meta">
-            {{ updateStatus.container_name || '-' }} / {{ updateStatus.image_name || '-' }}
-          </p>
-          <p v-if="updateStatus.mirror_host" class="update-meta">
-            系统更新镜像源：{{ updateStatus.mirror_host }}
-          </p>
         </el-alert>
       </div>
     </div>
@@ -140,13 +104,7 @@ defineProps<{
     :on-close="onCloseUpdateProgress"
   />
 
-  <el-dialog
-    :model-value="releaseNotesVisible"
-    title="发现新版本"
-    width="720px"
-    append-to-body
-    @close="onCloseReleaseNotes"
-  >
+  <el-dialog :model-value="releaseNotesVisible" title="发现新版本" width="720px" append-to-body @close="onCloseReleaseNotes">
     <div v-if="updateInfo" class="release-notes-shell">
       <div class="release-notes-meta">
         <strong>版本：v{{ updateInfo.latest }}</strong>
@@ -156,137 +114,148 @@ defineProps<{
       <pre class="release-notes-content">{{ updateInfo.release_notes || '当前版本未提供更新日志。' }}</pre>
     </div>
     <template #footer>
-      <div class="release-notes-footer">
-        <el-button @click="onCloseReleaseNotes">关闭</el-button>
-        <el-button v-if="isAdmin && updateInfo?.auto_update_supported" type="primary" :loading="updatingPanel" @click="onStartUpdate">
-          立即更新
-        </el-button>
-      </div>
+      <el-button @click="onCloseReleaseNotes">关闭</el-button>
+      <el-button v-if="isAdmin && updateInfo?.auto_update_supported" type="primary" :loading="updatingPanel" @click="onStartUpdate">立即更新</el-button>
     </template>
   </el-dialog>
 </template>
 
 <style scoped lang="scss">
-.overview-card {
-  :deep(.el-card__body) {
-    padding: 0;
-  }
+.hero-card {
+  border-radius: 14px;
+  border: 1px solid var(--el-border-color-lighter);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  height: 100%;
+
+  :deep(.el-card__body) { padding: 0; height: 100%; }
 }
 
-.overview-center {
+.hero-layout {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.hero-section-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--el-text-color-primary);
+  margin-bottom: 20px;
+}
+
+.hero-center {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 40px 20px;
+  text-align: center;
+  flex: 1;
 }
 
-.logo {
+.hero-logo {
   width: 72px;
   height: 72px;
-  border-radius: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  margin-bottom: 16px;
+  border-radius: 20px;
   overflow: hidden;
+  box-shadow: 0 6px 20px rgba(59, 130, 246, 0.15), 0 2px 6px rgba(0, 0, 0, 0.06);
+  margin-bottom: 14px;
 }
 
-.logo-img {
+.hero-logo-img {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  border-radius: 18px;
 }
 
-.panel-name {
-  font-size: 22px;
-  font-weight: 700;
+.hero-name {
+  font-size: 20px;
+  font-weight: 800;
   margin: 0 0 4px;
+  letter-spacing: -0.01em;
 }
 
-.panel-desc {
-  color: var(--el-text-color-secondary);
-  font-size: 14px;
-  margin: 0 0 28px;
-}
-
-.version-stats {
-  display: flex;
-  gap: 80px;
-  margin-bottom: 28px;
-}
-
-.version-item {
-  text-align: center;
-}
-
-.vs-label {
-  display: block;
+.hero-desc {
   font-size: 13px;
   color: var(--el-text-color-secondary);
-  margin-bottom: 6px;
+  margin: 0 0 16px;
 }
 
-.vs-value {
-  font-size: 22px;
-  font-weight: 700;
-}
-
-.overview-buttons {
+.hero-version-row {
   display: flex;
-  gap: 12px;
+  gap: 32px;
+  margin-bottom: 18px;
 }
 
-.auto-update-panel {
-  width: 100%;
-  max-width: 560px;
-  margin-top: 18px;
-  padding: 16px 18px;
-  border-radius: 18px;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  background:
-    linear-gradient(180deg, rgba(14, 165, 233, 0.06), rgba(255, 255, 255, 0.9)),
-    var(--el-bg-color);
-  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.06);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-}
-
-.auto-update-copy {
+.hero-version-item {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  align-items: center;
+  gap: 2px;
+}
 
-  strong {
+.hero-version-label {
+  font-size: 11px;
+  color: var(--el-text-color-placeholder);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.hero-version-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--el-color-primary);
+  font-family: 'Inter', var(--dd-font-ui), sans-serif;
+
+  &--tech {
     font-size: 14px;
-    font-weight: 700;
-  }
-
-  span {
+    font-weight: 500;
     color: var(--el-text-color-secondary);
-    font-size: 12px;
-    line-height: 1.6;
   }
 }
 
-.update-alert-wrap {
-  margin-top: 20px;
-  width: 100%;
-  max-width: 500px;
+.hero-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
 }
 
-.update-actions {
+.hero-btn {
+  font-weight: 600 !important;
+  font-size: 13px !important;
+  padding: 8px 18px !important;
+  border-radius: 20px !important;
+}
+
+.hero-btn-icon {
+  margin-right: 4px;
+}
+
+.hero-btn--ghost {
+  background: var(--el-fill-color-light) !important;
+  border-color: var(--el-border-color-light) !important;
+  color: var(--el-text-color-regular) !important;
+
+  &:hover {
+    background: var(--el-fill-color) !important;
+    color: var(--el-text-color-primary) !important;
+  }
+}
+
+.hero-alert {
+  margin-top: 16px;
+  width: 100%;
+}
+
+.hero-alert-actions {
   display: flex;
   gap: 8px;
   margin-top: 8px;
 }
 
-.update-disabled-reason,
-.update-meta {
+.hero-meta {
   color: var(--el-text-color-secondary);
+  font-size: 12px;
 }
 
 .release-notes-shell {
@@ -307,8 +276,8 @@ defineProps<{
   max-height: 46vh;
   overflow: auto;
   padding: 16px;
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--el-fill-color-light) 82%, white);
+  border-radius: 12px;
+  background: var(--el-fill-color-lighter);
   border: 1px solid var(--el-border-color-light);
   white-space: pre-wrap;
   word-break: break-word;
@@ -317,31 +286,14 @@ defineProps<{
   font-size: 13px;
 }
 
-.release-notes-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-}
-
 @media (max-width: 768px) {
-  .version-stats {
-    width: 100%;
-    gap: 20px;
-    justify-content: space-between;
-  }
-
-  .overview-buttons {
+  .hero-actions {
     width: 100%;
     flex-direction: column;
   }
 
-  .auto-update-panel {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .update-actions {
-    flex-wrap: wrap;
+  .hero-version-row {
+    gap: 24px;
   }
 }
 </style>

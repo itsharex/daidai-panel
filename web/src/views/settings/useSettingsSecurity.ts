@@ -405,8 +405,8 @@ export function useSettingsSecurity() {
       ElMessage.warning('两次输入的密码不一致')
       return
     }
-    if (newPassword.value.length < 8) {
-      ElMessage.warning('密码至少 8 位')
+    if (newPassword.value.length < 6) {
+      ElMessage.warning('密码至少 6 位')
       return
     }
     try {

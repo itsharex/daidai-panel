@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { notificationApi, sshKeyApi } from '@/api/notification'
+import { notificationApi } from '@/api/notification'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useResponsive } from '@/composables/useResponsive'
 
-const activeTab = ref('channels')
 const { isMobile, dialogFullscreen } = useResponsive()
 
 const channels = ref<any[]>([])
@@ -15,12 +14,91 @@ const showChannelDialog = ref(false)
 const isCreateChannel = ref(true)
 const channelForm = ref({ id: 0, name: '', type: 'webhook', config: '{}' })
 
-const sshKeys = ref<any[]>([])
-const sshKeyLoading = ref(false)
+// --- Search / filter state ---
+const searchKeyword = ref('')
+const filterType = ref('')
+const filterStatus = ref('')
+const channelPage = ref(1)
+const channelPageSize = ref(10)
 
-const showSSHKeyDialog = ref(false)
-const isCreateSSHKey = ref(true)
-const sshKeyForm = ref({ id: 0, name: '', private_key: '' })
+// --- Channel stats ---
+const channelStats = computed(() => {
+  const totalCount = channels.value.length
+  const enabledCount = channels.value.filter(c => c.enabled).length
+  const todaySendCount = channels.value.reduce((sum, c) => sum + (Number(c.today_send_count) || 0), 0)
+  const errorCount = channels.value.filter(c => c.last_test_status === 'error' || c.last_test_status === 'failed').length
+  return { totalCount, enabledCount, todaySendCount, errorCount }
+})
+
+// --- Filtered channels ---
+const filteredChannels = computed(() => {
+  let list = channels.value
+  if (searchKeyword.value) {
+    const kw = searchKeyword.value.toLowerCase()
+    list = list.filter(c => c.name?.toLowerCase().includes(kw) || c.type?.toLowerCase().includes(kw))
+  }
+  if (filterType.value) {
+    list = list.filter(c => c.type === filterType.value)
+  }
+  if (filterStatus.value) {
+    if (filterStatus.value === 'enabled') {
+      list = list.filter(c => c.enabled)
+    } else if (filterStatus.value === 'disabled') {
+      list = list.filter(c => !c.enabled)
+    }
+  }
+  return list
+})
+
+const pagedChannels = computed(() => {
+  const start = (channelPage.value - 1) * channelPageSize.value
+  return filteredChannels.value.slice(start, start + channelPageSize.value)
+})
+
+const filteredTotal = computed(() => filteredChannels.value.length)
+
+function handleChannelSearch() {
+  channelPage.value = 1
+}
+
+function resetFilters() {
+  searchKeyword.value = ''
+  filterType.value = ''
+  filterStatus.value = ''
+  channelPage.value = 1
+}
+
+// --- Channel type color / avatar helpers ---
+const typeColorMap: Record<string, { bg: string; color: string; badge: string }> = {
+  wecom: { bg: '#e8f5e9', color: '#4caf50', badge: 'success' },
+  wecom_app: { bg: '#e8f5e9', color: '#4caf50', badge: 'success' },
+  pushplus: { bg: '#e3f2fd', color: '#2196f3', badge: '' },
+  feishu: { bg: '#e8eaf6', color: '#3f51b5', badge: '' },
+  dingtalk: { bg: '#fff3e0', color: '#ff9800', badge: 'warning' },
+  email: { bg: '#fce4ec', color: '#e91e63', badge: 'danger' },
+  webhook: { bg: '#f3e5f5', color: '#9c27b0', badge: 'warning' },
+  custom: { bg: '#f3e5f5', color: '#9c27b0', badge: 'warning' },
+  telegram: { bg: '#e3f2fd', color: '#2196f3', badge: '' },
+  bark: { bg: '#fff8e1', color: '#ffc107', badge: 'warning' },
+  serverchan: { bg: '#e0f7fa', color: '#00bcd4', badge: '' },
+  gotify: { bg: '#e8f5e9', color: '#4caf50', badge: 'success' },
+  pushdeer: { bg: '#fff3e0', color: '#ff9800', badge: 'warning' },
+  pushme: { bg: '#e3f2fd', color: '#2196f3', badge: '' },
+  discord: { bg: '#ede7f6', color: '#673ab7', badge: '' },
+  slack: { bg: '#fce4ec', color: '#e91e63', badge: 'danger' },
+  ntfy: { bg: '#e0f2f1', color: '#009688', badge: 'success' },
+  wxpusher: { bg: '#e8f5e9', color: '#4caf50', badge: 'success' },
+}
+
+function getChannelAvatar(type: string, name: string) {
+  const colors = typeColorMap[type] || { bg: '#f5f5f5', color: '#999' }
+  const initial = (name || type || '?').charAt(0).toUpperCase()
+  return { initial, bg: colors.bg, color: colors.color }
+}
+
+function getTypeBadgeType(type: string): string {
+  return typeColorMap[type]?.badge || ''
+}
 
 const configFields = computed(() => {
   const t = channelForm.value.type
@@ -271,22 +349,9 @@ async function loadChannelTypes() {
   } catch { /* ignore */ }
 }
 
-async function loadSSHKeys() {
-  sshKeyLoading.value = true
-  try {
-    const res = await sshKeyApi.list()
-    sshKeys.value = res.data || []
-  } catch (err: any) {
-    ElMessage.error(err?.response?.data?.error || '加载 SSH 密钥失败')
-  } finally {
-    sshKeyLoading.value = false
-  }
-}
-
 onMounted(() => {
   loadChannels()
   loadChannelTypes()
-  loadSSHKeys()
 })
 
 function openCreateChannel() {
@@ -411,6 +476,8 @@ async function handleTestChannel(id: number) {
     } else {
       ElMessage.error(mainError)
     }
+  } finally {
+    await loadChannels()
   }
 }
 
@@ -419,73 +486,191 @@ function getTypeName(type: string) {
   return found?.name || type
 }
 
-function openCreateSSHKey() {
-  isCreateSSHKey.value = true
-  sshKeyForm.value = { id: 0, name: '', private_key: '' }
-  showSSHKeyDialog.value = true
-}
-
-function openEditSSHKey(row: any) {
-  isCreateSSHKey.value = false
-  sshKeyForm.value = { id: row.id, name: row.name, private_key: '' }
-  showSSHKeyDialog.value = true
-}
-
-async function handleSaveSSHKey() {
-  if (!sshKeyForm.value.name.trim()) {
-    ElMessage.warning('名称不能为空')
-    return
-  }
-  if (isCreateSSHKey.value && !sshKeyForm.value.private_key.trim()) {
-    ElMessage.warning('私钥不能为空')
-    return
-  }
+function parseChannelConfig(configText: string): Record<string, unknown> {
   try {
-    const data: any = { name: sshKeyForm.value.name }
-    if (sshKeyForm.value.private_key) {
-      data.private_key = sshKeyForm.value.private_key
-    }
-    if (isCreateSSHKey.value) {
-      await sshKeyApi.create(data)
-      ElMessage.success('创建成功')
-    } else {
-      await sshKeyApi.update(sshKeyForm.value.id, data)
-      ElMessage.success('更新成功')
-    }
-    showSSHKeyDialog.value = false
-    loadSSHKeys()
+    const parsed = JSON.parse(configText || '{}')
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
   } catch {
-    ElMessage.error(isCreateSSHKey.value ? '创建失败' : '更新失败')
+    return {}
   }
 }
 
-async function handleDeleteSSHKey(id: number) {
+function extractDisplayHost(raw: unknown): string {
+  const value = String(raw ?? '').trim()
+  if (!value) return ''
   try {
-    await ElMessageBox.confirm('确定要删除该 SSH 密钥吗？', '确认删除', { type: 'warning' })
-    await sshKeyApi.delete(id)
-    ElMessage.success('删除成功')
-    loadSSHKeys()
-  } catch { /* cancelled */ }
+    const parsed = new URL(value)
+    return parsed.host || value
+  } catch {
+    return value.length > 28 ? `${value.slice(0, 28)}...` : value
+  }
 }
+
+function splitConfigTargets(raw: unknown): string[] {
+  return String(raw ?? '')
+    .split(/[,\n;|\t ]+/)
+    .map(item => item.trim())
+    .filter(Boolean)
+}
+
+function countConfiguredConfigItems(config: Record<string, unknown>): number {
+  return Object.values(config).filter((value) => {
+    if (value === null || value === undefined) return false
+    if (Array.isArray(value)) return value.length > 0
+    return String(value).trim() !== ''
+  }).length
+}
+
+function getChannelConfigSummary(row: any): string[] {
+  const config = parseChannelConfig(row.config || '{}')
+  const lines: string[] = []
+  const configCount = countConfiguredConfigItems(config)
+
+  switch (row.type) {
+    case 'webhook':
+    case 'custom':
+      if (config.url) lines.push(`地址 ${extractDisplayHost(config.url)}`)
+      break
+    case 'dingtalk':
+    case 'wecom':
+    case 'feishu':
+    case 'discord':
+    case 'slack':
+      if (config.webhook) lines.push(`地址 ${extractDisplayHost(config.webhook)}`)
+      break
+    case 'email':
+      if (config.smtp_host) lines.push(`SMTP ${String(config.smtp_host)}`)
+      if (splitConfigTargets(config.to).length > 0) lines.push(`收件人 ${splitConfigTargets(config.to).length} 个`)
+      break
+    case 'telegram':
+      if (config.chat_id) lines.push(`Chat ${String(config.chat_id)}`)
+      if (config.api_host) lines.push(`API ${extractDisplayHost(config.api_host)}`)
+      break
+    case 'gotify':
+    case 'pushdeer':
+    case 'pushme':
+    case 'chanify':
+    case 'ntfy':
+      if (config.server) lines.push(`服务器 ${extractDisplayHost(config.server)}`)
+      if (row.type === 'ntfy' && config.topic) lines.push(`主题 ${String(config.topic)}`)
+      break
+    case 'wxpusher': {
+      const uidCount = splitConfigTargets(config.uids).length
+      const topicCount = splitConfigTargets(config.topic_ids).length
+      if (uidCount > 0) lines.push(`UID ${uidCount} 个`)
+      if (topicCount > 0) lines.push(`Topic ${topicCount} 个`)
+      break
+    }
+    case 'wecom_app':
+      if (config.agent_id) lines.push(`Agent ${String(config.agent_id)}`)
+      if (config.base_url) lines.push(`地址 ${extractDisplayHost(config.base_url)}`)
+      break
+  }
+
+  if (lines.length === 0) {
+    return configCount > 0 ? [`已配置 ${configCount} 项`] : ['未配置']
+  }
+  if (configCount > lines.length) {
+    lines.push(`共 ${configCount} 项配置`)
+  }
+  return lines.slice(0, 2)
+}
+
 </script>
 
 <template>
   <div class="notifications-page">
-    <div class="page-header-block">
-      <h2>通知渠道</h2>
-      <span class="page-subtitle">配置任务执行结果通知和 SSH 密钥管理</span>
+    <!-- Page Header -->
+    <div class="page-header">
+      <div>
+        <h2>🔔 通知渠道</h2>
+        <p class="page-subtitle">配置任务执行结果的通知渠道</p>
+      </div>
     </div>
-    <el-tabs v-model="activeTab">
-      <el-tab-pane label="通知渠道" name="channels">
-        <div class="tab-header">
-          <el-button type="primary" @click="openCreateChannel">
-            <el-icon><Plus /></el-icon>新建渠道
-          </el-button>
+
+        <!-- Stat Cards -->
+        <div class="stat-cards">
+          <div class="stat-card">
+            <div class="stat-card__content">
+              <span class="stat-card__label">渠道总数</span>
+              <span class="stat-card__value">{{ channelStats.totalCount }}</span>
+              <span class="stat-card__sub">已配置通知渠道</span>
+            </div>
+            <div class="stat-card__icon stat-card__icon--blue">
+              <el-icon :size="22"><Bell /></el-icon>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card__content">
+              <span class="stat-card__label">启用中</span>
+              <span class="stat-card__value stat-card__value--green">{{ channelStats.enabledCount }}</span>
+              <span class="stat-card__sub">正常可用渠道</span>
+            </div>
+            <div class="stat-card__icon stat-card__icon--green">
+              <el-icon :size="22"><Check /></el-icon>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card__content">
+              <span class="stat-card__label">今日发送</span>
+              <span class="stat-card__value stat-card__value--orange">{{ channelStats.todaySendCount }}</span>
+              <span class="stat-card__sub">今日成功发送通知数</span>
+            </div>
+            <div class="stat-card__icon stat-card__icon--orange">
+              <el-icon :size="22"><Message /></el-icon>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card__content">
+              <span class="stat-card__label">异常渠道</span>
+              <span class="stat-card__value stat-card__value--red">{{ channelStats.errorCount }}</span>
+              <span class="stat-card__sub">最近一次测试失败</span>
+            </div>
+            <div class="stat-card__icon stat-card__icon--red">
+              <el-icon :size="22"><CircleClose /></el-icon>
+            </div>
+          </div>
         </div>
 
+        <!-- Toolbar -->
+        <div class="toolbar">
+          <div class="toolbar__left">
+            <el-input
+              v-model="searchKeyword"
+              placeholder="搜索渠道名称或关键词..."
+              clearable
+              class="toolbar__search"
+              @keyup.enter="handleChannelSearch"
+              @clear="handleChannelSearch"
+            >
+              <template #prefix><el-icon><Search /></el-icon></template>
+            </el-input>
+            <el-select v-model="filterType" placeholder="类型" clearable class="toolbar__filter" @change="handleChannelSearch">
+              <template #prefix>类型</template>
+              <el-option label="全部" value="" />
+              <el-option v-for="t in channelTypes" :key="t.type" :label="t.name" :value="t.type" />
+            </el-select>
+            <el-select v-model="filterStatus" placeholder="状态" clearable class="toolbar__filter" @change="handleChannelSearch">
+              <template #prefix>状态</template>
+              <el-option label="全部" value="" />
+              <el-option label="启用" value="enabled" />
+              <el-option label="禁用" value="disabled" />
+            </el-select>
+            <el-button @click="resetFilters">
+              <el-icon><Refresh /></el-icon> 重置
+            </el-button>
+          </div>
+          <div class="toolbar__right">
+            <el-button type="primary" @click="openCreateChannel">
+              <el-icon><Plus /></el-icon> 新建渠道
+            </el-button>
+          </div>
+        </div>
+
+        <!-- Mobile Cards -->
         <div v-if="isMobile" class="dd-mobile-list">
           <div
-            v-for="row in channels"
+            v-for="row in pagedChannels"
             :key="row.id"
             class="dd-mobile-card"
           >
@@ -493,13 +678,19 @@ async function handleDeleteSSHKey(id: number) {
               <div class="dd-mobile-card__title-wrap">
                 <span class="dd-mobile-card__title">{{ row.name }}</span>
                 <div class="dd-mobile-card__badges">
-                  <el-tag size="small" effect="plain">{{ getTypeName(row.type) }}</el-tag>
+                  <el-tag size="small" :type="getTypeBadgeType(row.type)" effect="plain">{{ getTypeName(row.type) }}</el-tag>
                 </div>
               </div>
               <el-switch :model-value="row.enabled" size="small" @change="handleToggleChannel(row)" />
             </div>
             <div class="dd-mobile-card__body">
               <div class="dd-mobile-card__grid">
+                <div class="dd-mobile-card__field dd-mobile-card__field--full">
+                  <span class="dd-mobile-card__label">配置概览</span>
+                  <div class="dd-mobile-card__value config-summary">
+                    <span v-for="item in getChannelConfigSummary(row)" :key="item" class="config-summary__line">{{ item }}</span>
+                  </div>
+                </div>
                 <div class="dd-mobile-card__field">
                   <span class="dd-mobile-card__label">创建时间</span>
                   <span class="dd-mobile-card__value">{{ new Date(row.created_at).toLocaleString() }}</span>
@@ -512,84 +703,98 @@ async function handleDeleteSSHKey(id: number) {
               </div>
             </div>
           </div>
-          <el-empty v-if="!channelLoading && channels.length === 0" description="暂无通知渠道" />
+          <el-empty v-if="!channelLoading && pagedChannels.length === 0" description="暂无通知渠道" />
         </div>
 
-        <el-table v-else :data="channels" v-loading="channelLoading" stripe>
-          <el-table-column prop="name" label="名称" min-width="150" />
-          <el-table-column prop="type" label="类型" width="120">
-            <template #default="{ row }">
-              <el-tag size="small" effect="plain">{{ getTypeName(row.type) }}</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="启用" width="80" align="center">
-            <template #default="{ row }">
-              <el-switch :model-value="row.enabled" size="small" @change="handleToggleChannel(row)" />
-            </template>
-          </el-table-column>
-          <el-table-column prop="created_at" label="创建时间" width="170">
-            <template #default="{ row }">{{ new Date(row.created_at).toLocaleString() }}</template>
-          </el-table-column>
-          <el-table-column label="操作" width="200" fixed="right">
-            <template #default="{ row }">
-              <el-button size="small" text type="success" @click="handleTestChannel(row.id)">测试</el-button>
-              <el-button size="small" text type="primary" @click="openEditChannel(row)">编辑</el-button>
-              <el-button size="small" text type="danger" @click="handleDeleteChannel(row.id)">删除</el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-      </el-tab-pane>
-
-      <el-tab-pane label="SSH 密钥" name="ssh-keys">
-        <div class="tab-header">
-          <el-button type="primary" @click="openCreateSSHKey">
-            <el-icon><Plus /></el-icon>新建密钥
-          </el-button>
-        </div>
-
-        <div v-if="isMobile" class="dd-mobile-list">
-          <div
-            v-for="row in sshKeys"
-            :key="row.id"
-            class="dd-mobile-card"
+        <!-- Desktop Table -->
+        <div v-else class="table-card">
+          <el-table
+            :data="pagedChannels"
+            v-loading="channelLoading"
+            style="width: 100%"
+            :header-cell-style="{ background: '#f8fafc', color: '#64748b', fontWeight: 600, fontSize: '13px' }"
           >
-            <div class="dd-mobile-card__header">
-              <div class="dd-mobile-card__title-wrap">
-                <span class="dd-mobile-card__title">{{ row.name }}</span>
-                <span class="dd-mobile-card__subtitle">SSH 私钥凭据</span>
-              </div>
-            </div>
-            <div class="dd-mobile-card__body">
-              <div class="dd-mobile-card__grid">
-                <div class="dd-mobile-card__field">
-                  <span class="dd-mobile-card__label">创建时间</span>
-                  <span class="dd-mobile-card__value">{{ new Date(row.created_at).toLocaleString() }}</span>
+            <el-table-column prop="name" label="名称" min-width="180">
+              <template #default="{ row }">
+                <div class="channel-name-cell">
+                  <div
+                    class="channel-avatar"
+                    :style="{ background: getChannelAvatar(row.type, row.name).bg, color: getChannelAvatar(row.type, row.name).color }"
+                  >
+                    {{ getChannelAvatar(row.type, row.name).initial }}
+                  </div>
+                  <div class="channel-name-info">
+                    <span class="channel-name-text">{{ row.name }}</span>
+                    <span class="channel-name-sub">{{ getTypeName(row.type) }}</span>
+                  </div>
                 </div>
-              </div>
-              <div class="dd-mobile-card__actions notification-card__actions">
-                <el-button size="small" type="primary" plain @click="openEditSSHKey(row)">编辑</el-button>
-                <el-button size="small" type="danger" plain @click="handleDeleteSSHKey(row.id)">删除</el-button>
-              </div>
-            </div>
-          </div>
-          <el-empty v-if="!sshKeyLoading && sshKeys.length === 0" description="暂无 SSH 密钥" />
+              </template>
+            </el-table-column>
+            <el-table-column prop="type" label="类型" width="130">
+              <template #default="{ row }">
+                <el-tag size="small" :type="getTypeBadgeType(row.type)" effect="plain" round>{{ getTypeName(row.type) }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="配置概览" min-width="180">
+              <template #default="{ row }">
+                <div class="config-summary">
+                  <span v-for="item in getChannelConfigSummary(row)" :key="item" class="config-summary__line">{{ item }}</span>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column label="启用" width="80" align="center">
+              <template #default="{ row }">
+                <el-switch :model-value="row.enabled" size="small" @change="handleToggleChannel(row)" />
+              </template>
+            </el-table-column>
+            <el-table-column label="最近测试" width="160">
+              <template #default="{ row }">
+                <div v-if="row.last_test_at" class="test-status">
+                  <el-tag
+                    size="small"
+                    :type="row.last_test_status === 'success' ? 'success' : row.last_test_status === 'error' || row.last_test_status === 'failed' ? 'danger' : 'warning'"
+                    effect="plain"
+                    round
+                  >
+                    {{ row.last_test_status === 'success' ? '测试通过' : row.last_test_status === 'error' || row.last_test_status === 'failed' ? '测试未通过' : '未测试' }}
+                  </el-tag>
+                  <span class="time-text">{{ new Date(row.last_test_at).toLocaleDateString() }}</span>
+                </div>
+                <span v-else class="text-muted">未测试</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="created_at" label="创建时间" width="170">
+              <template #default="{ row }">
+                <div class="time-cell">
+                  <span class="time-text">{{ new Date(row.created_at).toLocaleString() }}</span>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="180" fixed="right" align="center">
+              <template #default="{ row }">
+                <div class="action-btns">
+                  <el-button size="small" text type="success" @click="handleTestChannel(row.id)">测试</el-button>
+                  <el-button size="small" text type="primary" @click="openEditChannel(row)">编辑</el-button>
+                  <el-button size="small" text type="danger" @click="handleDeleteChannel(row.id)">删除</el-button>
+                </div>
+              </template>
+            </el-table-column>
+          </el-table>
         </div>
 
-        <el-table v-else :data="sshKeys" v-loading="sshKeyLoading" stripe>
-          <el-table-column prop="name" label="名称" min-width="200" />
-          <el-table-column prop="created_at" label="创建时间" width="170">
-            <template #default="{ row }">{{ new Date(row.created_at).toLocaleString() }}</template>
-          </el-table-column>
-          <el-table-column label="操作" width="150" fixed="right">
-            <template #default="{ row }">
-              <el-button size="small" text type="primary" @click="openEditSSHKey(row)">编辑</el-button>
-              <el-button size="small" text type="danger" @click="handleDeleteSSHKey(row.id)">删除</el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-      </el-tab-pane>
-    </el-tabs>
+        <!-- Pagination -->
+        <div class="pagination-bar">
+          <span class="pagination-total">共 {{ filteredTotal }} 条</span>
+          <el-pagination
+            v-model:current-page="channelPage"
+            v-model:page-size="channelPageSize"
+            :total="filteredTotal"
+            :page-sizes="[10, 20, 50]"
+            layout="sizes, prev, pager, next"
+          />
+        </div>
 
+    <!-- Channel Dialog -->
     <el-dialog v-model="showChannelDialog" :title="isCreateChannel ? '新建通知渠道' : '编辑通知渠道'" width="600px" :fullscreen="dialogFullscreen">
       <el-form :model="channelForm" :label-width="dialogFullscreen ? 'auto' : '130px'" :label-position="dialogFullscreen ? 'top' : 'right'">
         <el-form-item label="名称">
@@ -633,27 +838,6 @@ async function handleDeleteSSHKey(id: number) {
       </template>
     </el-dialog>
 
-    <el-dialog v-model="showSSHKeyDialog" :title="isCreateSSHKey ? '新建 SSH 密钥' : '编辑 SSH 密钥'" width="550px" :fullscreen="dialogFullscreen">
-      <el-form :model="sshKeyForm" :label-width="dialogFullscreen ? 'auto' : '80px'" :label-position="dialogFullscreen ? 'top' : 'right'">
-        <el-form-item label="名称">
-          <el-input v-model="sshKeyForm.name" placeholder="密钥名称" />
-        </el-form-item>
-        <el-form-item label="私钥">
-          <el-input
-            v-model="sshKeyForm.private_key"
-            type="textarea"
-            :rows="8"
-            :placeholder="isCreateSSHKey ? '粘贴 SSH 私钥内容' : '留空不修改'"
-            spellcheck="false"
-            style="font-family: monospace"
-          />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="showSSHKeyDialog = false">取消</el-button>
-        <el-button type="primary" @click="handleSaveSSHKey">{{ isCreateSSHKey ? '创建' : '保存' }}</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
@@ -662,36 +846,191 @@ async function handleDeleteSSHKey(id: number) {
   padding: 0;
 }
 
-.page-header-block {
-  margin-bottom: 16px;
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 18px;
+  gap: 16px;
 
-  h2 { margin: 0; font-size: 20px; font-weight: 700; color: var(--el-text-color-primary); }
+  h2 { margin: 0; font-size: 22px; font-weight: 700; color: var(--el-text-color-primary); line-height: 1.3; }
+  .page-subtitle { font-size: 13px; color: var(--el-text-color-secondary); margin: 4px 0 0; }
+}
 
-  .page-subtitle {
-    font-size: 13px;
-    color: var(--el-text-color-secondary);
-    display: block;
-    margin-top: 2px;
+.stat-cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.stat-card {
+  background: var(--el-bg-color);
+  border-radius: 14px;
+  padding: 16px 18px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  border: 1px solid var(--el-border-color-lighter);
+  transition: transform 0.22s ease, box-shadow 0.22s ease;
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.08);
+  }
+
+  &__content { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
+  &__label { font-size: 13px; color: var(--el-text-color-secondary); font-weight: 500; }
+  &__value {
+    font-size: 26px; font-weight: 700; color: #3b82f6; line-height: 1.15;
+    font-family: 'Inter', var(--dd-font-ui), sans-serif;
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+    letter-spacing: -0.01em;
+    &--green { color: #10b981; }
+    &--orange { color: #f59e0b; }
+    &--red { color: #ef4444; }
+    &--purple { color: #8b5cf6; }
+  }
+  &__sub { font-size: 12px; color: var(--el-text-color-placeholder); }
+  &__icon {
+    width: 44px; height: 44px; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    &--blue { background: rgba(59, 130, 246, 0.12); color: #3b82f6; }
+    &--green { background: rgba(16, 185, 129, 0.12); color: #10b981; }
+    &--orange { background: rgba(245, 158, 11, 0.12); color: #f59e0b; }
+    &--red { background: rgba(239, 68, 68, 0.12); color: #ef4444; }
   }
 }
 
-.tab-header {
+.toolbar {
+  display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; gap: 12px; flex-wrap: wrap;
+  &__left { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex: 1; min-width: 0; }
+  &__right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  &__search { width: 260px; }
+  &__filter { width: 130px; }
+}
+
+.table-card {
+  background: var(--el-bg-color); border-radius: 14px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04); border: 1px solid var(--el-border-color-lighter); overflow: hidden;
+}
+
+.channel-name-cell {
   display: flex;
-  justify-content: flex-end;
-  margin-bottom: 16px;
+  align-items: center;
+  gap: 10px;
+}
+
+.channel-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 700;
+  flex-shrink: 0;
+  letter-spacing: 0;
+}
+
+.channel-name-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.channel-name-text {
+  font-weight: 500;
+  color: var(--el-text-color-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.channel-name-sub {
+  font-size: 12px;
+  color: var(--el-text-color-placeholder);
+}
+
+.config-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.config-summary__line {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  line-height: 1.5;
+}
+
+.test-status {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.time-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.time-text {
+  font-family: var(--dd-font-mono, monospace);
+  font-size: 12px;
+  color: var(--el-text-color-regular);
+}
+
+.creator-text {
+  font-size: 12px;
+  color: var(--el-text-color-placeholder);
+}
+
+.text-muted { color: var(--el-text-color-placeholder); }
+
+.action-btns {
+  display: flex; align-items: center; justify-content: center; gap: 2px;
+}
+
+.pagination-bar {
+  margin-top: 20px; display: flex; justify-content: space-between; align-items: center; padding: 0 4px;
+}
+
+.pagination-total {
+  font-size: 13px; color: var(--el-text-color-secondary);
 }
 
 .notification-card__actions > * {
   flex: 1 1 calc(50% - 4px);
 }
 
-@media (max-width: 768px) {
-  .tab-header {
-    justify-content: stretch;
-  }
+:deep(.el-table) {
+  --el-table-border-color: #f0f0f0;
+  .el-table__header-wrapper th { border-bottom: 1px solid #e8e8e8; }
+  .el-table__row td { border-bottom: 1px solid #f5f5f5; }
+  .el-table__cell { padding: 12px 0; }
+}
 
-  .tab-header > * {
-    width: 100%;
+@media screen and (max-width: 1200px) {
+  .stat-cards { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 768px) {
+  .page-header { flex-direction: column; gap: 10px; margin-bottom: 14px; h2 { font-size: 18px; } }
+  .stat-cards { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .stat-card { padding: 14px 16px; &__value { font-size: 22px; } &__icon { width: 40px; height: 40px; } }
+  .toolbar {
+    flex-direction: column; align-items: stretch; gap: 10px;
+    &__left { flex-direction: column; gap: 10px; }
+    &__search { width: 100% !important; }
+    &__filter { width: 100% !important; }
+    &__right { justify-content: flex-end; }
   }
 }
 </style>

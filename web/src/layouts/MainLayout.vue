@@ -19,8 +19,8 @@ import {
   Moon,
   Odometer,
   Operation,
-  SetUp,
   Setting,
+  SetUp,
   Sunny,
   Tickets,
   Timer,
@@ -51,11 +51,6 @@ function hasRole(minRole: string) {
   return (roleLevel[currentRole] || 0) >= (roleLevel[minRole] || 0)
 }
 
-const currentSection = computed(() => {
-  const matched = [...route.matched].reverse().find(item => item.meta.section)
-  return matched?.meta.section === 'admin' ? 'admin' : 'workspace'
-})
-
 const canAccessAdmin = computed(() => hasRole('admin'))
 
 const workspaceItems = [
@@ -65,7 +60,7 @@ const workspaceItems = [
   { index: '/envs', title: '环境变量', icon: Setting, minRole: 'operator' },
   { index: '/logs', title: '执行日志', icon: Tickets, minRole: 'viewer' },
   { index: '/scripts', title: '脚本管理', icon: Document, minRole: 'operator' },
-  { index: '/ai-code', title: 'Ai Code', icon: MagicStick, minRole: 'operator' },
+  { index: '/ai-code', title: 'AI Code', icon: MagicStick, minRole: 'operator' },
   { index: '/deps', title: '依赖管理', icon: Box, minRole: 'admin' },
   { index: '/api-docs', title: '接口文档', icon: Connection, minRole: 'viewer' },
   { index: '/profile', title: '个人设置', icon: User, minRole: 'viewer' },
@@ -77,6 +72,25 @@ const adminItems = [
   { index: '/admin/users', title: '用户管理', icon: UserFilled, minRole: 'admin' },
   { index: '/admin/open-api', title: 'Open API', icon: Key, minRole: 'admin' },
 ]
+
+const filteredWorkspaceItems = computed(() =>
+  workspaceItems.filter(item => hasRole(item.minRole))
+)
+
+const filteredAdminItems = computed(() =>
+  canAccessAdmin.value ? adminItems : []
+)
+
+const activeMenu = computed(() => route.path)
+
+const breadcrumb = computed(() => {
+  const matched = [...route.matched].reverse().find(item => item.meta.section)
+  const section = matched?.meta.section === 'admin' ? '管理后台' : '工作台'
+  const title = route.meta.title as string || ''
+  return { section, title }
+})
+
+const themeIcon = computed(() => (themeStore.isDark ? Sunny : Moon))
 
 onMounted(() => {
   loadPanelSettings()
@@ -93,17 +107,6 @@ watch(isMobile, (mobile) => {
   }
   drawerVisible.value = false
 }, { immediate: true })
-
-const menuItems = computed(() => {
-  const allItems = currentSection.value === 'admin' ? adminItems : workspaceItems
-  return allItems.filter(item => hasRole(item.minRole))
-})
-
-const activeMenu = computed(() => route.path)
-const sectionLabel = computed(() => currentSection.value === 'admin' ? '管理后台' : '工作台')
-const sectionActionLabel = computed(() => currentSection.value === 'admin' ? '返回工作台' : '进入后台')
-const sidebarToggleIcon = computed(() => (isMobile.value ? Operation : (isCollapsed.value ? Expand : Fold)))
-const themeIcon = computed(() => (themeStore.isDark ? Sunny : Moon))
 
 function handleMenuSelect(index: string) {
   router.push(index)
@@ -122,17 +125,13 @@ async function handleLogout() {
   await authStore.logout()
 }
 
-function toggleSection() {
-  if (!canAccessAdmin.value) return
-  router.push(currentSection.value === 'admin' ? '/dashboard' : '/admin/settings')
-  if (isMobile.value) drawerVisible.value = false
-}
-
 async function loadPanelSettings() {
   try {
     const settings = await loadCachedPanelSettings()
     if (settings?.panel_title) panelTitle.value = settings.panel_title
     if (settings?.panel_icon) panelIcon.value = settings.panel_icon
+    const routeTitle = route.meta.title as string | undefined
+    document.title = routeTitle ? `${panelTitle.value} - ${routeTitle}` : panelTitle.value
   } catch {}
 }
 
@@ -142,105 +141,206 @@ async function loadVersion() {
     if (res.data?.version) panelVersion.value = res.data.version
   } catch {}
 }
+
 </script>
 
 <template>
   <el-container class="layout-container">
-    <el-aside v-if="!isMobile" :width="isCollapsed ? '64px' : '220px'" class="layout-aside">
-      <div class="logo-area" :class="{ 'is-collapsed': isCollapsed }">
-        <div class="brand-shell">
-          <div class="brand-mark">
-            <img :src="panelIcon || '/favicon.svg'" alt="logo" class="logo-img" />
+    <!-- Desktop Sidebar -->
+    <aside v-if="!isMobile" class="layout-aside" :class="{ 'is-collapsed': isCollapsed }">
+      <!-- Logo -->
+      <div class="sidebar-logo" :class="{ 'is-collapsed': isCollapsed }">
+        <div class="logo-inner">
+          <div class="logo-icon-wrap">
+            <img :src="panelIcon || '/favicon.svg'" alt="logo" class="logo-icon" />
           </div>
-          <div v-show="!isCollapsed" class="brand-copy">
-            <span class="logo-text">{{ panelTitle }}</span>
-            <span v-if="panelVersion" class="version-badge">v{{ panelVersion }}</span>
-          </div>
+          <template v-if="!isCollapsed">
+            <span class="logo-title">{{ panelTitle }}</span>
+            <span v-if="panelVersion" class="logo-version">v{{ panelVersion }}</span>
+          </template>
         </div>
       </div>
-      <el-menu
-        :default-active="activeMenu"
-        :collapse="isCollapsed"
-        :collapse-transition="false"
-        background-color="transparent"
-        @select="handleMenuSelect"
-      >
-        <el-menu-item v-for="item in menuItems" :key="item.index" :index="item.index">
-          <el-icon><component :is="item.icon" /></el-icon>
-          <template #title>{{ item.title }}</template>
-        </el-menu-item>
-      </el-menu>
-    </el-aside>
 
+      <!-- Scrollable navigation area -->
+      <div class="sidebar-nav">
+        <el-menu
+          :default-active="activeMenu"
+          :collapse="isCollapsed"
+          :collapse-transition="false"
+          background-color="transparent"
+          @select="handleMenuSelect"
+        >
+          <el-menu-item
+            v-for="item in filteredWorkspaceItems"
+            :key="item.index"
+            :index="item.index"
+          >
+            <el-icon><component :is="item.icon" /></el-icon>
+            <template #title>{{ item.title }}</template>
+          </el-menu-item>
+        </el-menu>
+
+        <!-- Admin section -->
+        <template v-if="filteredAdminItems.length > 0">
+          <div v-if="!isCollapsed" class="nav-section-label">管理后台</div>
+          <div v-else class="nav-section-divider"></div>
+          <el-menu
+            :default-active="activeMenu"
+            :collapse="isCollapsed"
+            :collapse-transition="false"
+            background-color="transparent"
+            @select="handleMenuSelect"
+          >
+            <el-menu-item
+              v-for="item in filteredAdminItems"
+              :key="item.index"
+              :index="item.index"
+            >
+              <el-icon><component :is="item.icon" /></el-icon>
+              <template #title>{{ item.title }}</template>
+            </el-menu-item>
+          </el-menu>
+        </template>
+      </div>
+
+      <!-- User card -->
+      <div class="sidebar-user" :class="{ 'is-collapsed': isCollapsed }">
+        <div class="user-card-inner" @click="router.push('/profile')">
+          <img
+            v-if="authStore.user?.avatar_url"
+            :src="authStore.user.avatar_url"
+            alt=""
+            class="user-avatar"
+          />
+          <div v-else class="user-avatar user-avatar--placeholder">
+            {{ (authStore.user?.username || 'U').charAt(0).toUpperCase() }}
+          </div>
+          <template v-if="!isCollapsed">
+            <div class="user-info">
+              <span class="user-name">{{ authStore.user?.username || 'User' }}</span>
+              <span class="user-role">{{ authStore.user?.role === 'admin' ? '管理员' : '用户' }}</span>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- Collapse toggle -->
+      <button class="sidebar-collapse-btn" @click="toggleSidebar">
+        <el-icon><component :is="isCollapsed ? Expand : Fold" /></el-icon>
+        <span v-if="!isCollapsed" class="collapse-text">收起菜单</span>
+      </button>
+    </aside>
+
+    <!-- Mobile Drawer -->
     <el-drawer
       v-if="isMobile"
       v-model="drawerVisible"
       direction="ltr"
-      :size="240"
+      :size="260"
       :with-header="false"
       :show-close="false"
     >
-      <div class="logo-area mobile-logo">
-        <div class="brand-shell">
-          <div class="brand-mark">
-            <img :src="panelIcon || '/favicon.svg'" alt="logo" class="logo-img" />
+      <div class="sidebar-logo mobile-logo">
+        <div class="logo-inner">
+          <div class="logo-icon-wrap">
+            <img :src="panelIcon || '/favicon.svg'" alt="logo" class="logo-icon" />
           </div>
-          <div class="brand-copy">
-            <span class="logo-text">{{ panelTitle }}</span>
-            <span v-if="panelVersion" class="version-badge">v{{ panelVersion }}</span>
-          </div>
+          <span class="logo-title">{{ panelTitle }}</span>
+          <span v-if="panelVersion" class="logo-version">v{{ panelVersion }}</span>
         </div>
       </div>
-      <el-menu
-        :default-active="activeMenu"
-        background-color="transparent"
-        @select="handleMenuSelect"
-      >
-        <el-menu-item v-for="item in menuItems" :key="item.index" :index="item.index">
-          <el-icon><component :is="item.icon" /></el-icon>
-          <template #title>{{ item.title }}</template>
-        </el-menu-item>
-      </el-menu>
-      <div class="mobile-drawer-footer">
-        <el-button
-          v-if="canAccessAdmin"
-          class="mobile-footer-btn"
-          @click="toggleSection"
+
+      <div class="sidebar-nav mobile-nav">
+        <el-menu
+          :default-active="activeMenu"
+          background-color="transparent"
+          @select="handleMenuSelect"
         >
-          {{ sectionActionLabel }}
-        </el-button>
-        <div class="mobile-footer-actions">
-          <el-button text class="mobile-footer-link" @click="router.push('/profile'); drawerVisible = false">
-            个人设置
-          </el-button>
-          <el-button text class="mobile-footer-link" @click="handleLogout">
-            退出登录
-          </el-button>
+          <el-menu-item
+            v-for="item in filteredWorkspaceItems"
+            :key="item.index"
+            :index="item.index"
+          >
+            <el-icon><component :is="item.icon" /></el-icon>
+            <template #title>{{ item.title }}</template>
+          </el-menu-item>
+        </el-menu>
+
+        <template v-if="filteredAdminItems.length > 0">
+          <div class="nav-section-label">管理后台</div>
+          <el-menu
+            :default-active="activeMenu"
+            background-color="transparent"
+            @select="handleMenuSelect"
+          >
+            <el-menu-item
+              v-for="item in filteredAdminItems"
+              :key="item.index"
+              :index="item.index"
+            >
+              <el-icon><component :is="item.icon" /></el-icon>
+              <template #title>{{ item.title }}</template>
+            </el-menu-item>
+          </el-menu>
+        </template>
+      </div>
+
+      <div class="sidebar-user">
+        <div class="user-card-inner" @click="router.push('/profile'); drawerVisible = false">
+          <img
+            v-if="authStore.user?.avatar_url"
+            :src="authStore.user.avatar_url"
+            alt=""
+            class="user-avatar"
+          />
+          <div v-else class="user-avatar user-avatar--placeholder">
+            {{ (authStore.user?.username || 'U').charAt(0).toUpperCase() }}
+          </div>
+          <div class="user-info">
+            <span class="user-name">{{ authStore.user?.username || 'User' }}</span>
+            <span class="user-role">{{ authStore.user?.role === 'admin' ? '管理员' : '用户' }}</span>
+          </div>
         </div>
       </div>
     </el-drawer>
 
-    <el-container>
-      <el-header class="layout-header">
+    <!-- Main content area -->
+    <el-container class="layout-main-wrap">
+      <!-- Header -->
+      <header class="layout-header">
         <div class="header-left">
-          <el-button :icon="sidebarToggleIcon" text @click="toggleSidebar" />
-          <div v-if="isMobile" class="mobile-brand-inline">
-            <span class="mobile-title">{{ panelTitle }}</span>
-            <span v-if="panelVersion" class="mobile-version">v{{ panelVersion }}</span>
-          </div>
-          <el-tag v-if="!isMobile" size="small" effect="plain" class="section-tag">{{ sectionLabel }}</el-tag>
+          <button class="header-toggle-btn" @click="toggleSidebar">
+            <el-icon :size="18"><Operation /></el-icon>
+          </button>
+          <nav class="header-breadcrumb">
+            <span class="breadcrumb-sep">›</span>
+            <span class="breadcrumb-section">{{ breadcrumb.section }}</span>
+            <template v-if="breadcrumb.title">
+              <span class="breadcrumb-sep">›</span>
+              <span class="breadcrumb-current">{{ breadcrumb.title }}</span>
+            </template>
+          </nav>
         </div>
+
+        <div class="header-center"></div>
+
         <div class="header-right">
-          <el-button v-if="canAccessAdmin && !isMobile" text class="section-switch-btn" @click="toggleSection">
-            {{ sectionActionLabel }}
-          </el-button>
-          <el-button :icon="themeIcon" text circle class="theme-btn" @click="themeStore.toggleTheme" />
+          <button class="header-icon-btn theme-toggle" @click="themeStore.toggleTheme">
+            <el-icon :size="18"><component :is="themeIcon" /></el-icon>
+          </button>
           <el-dropdown trigger="click">
-            <span class="user-dropdown">
-              <img v-if="authStore.user?.avatar_url" :src="authStore.user.avatar_url" alt="" class="user-dropdown-avatar" />
-              <el-icon v-else><User /></el-icon>
-              <span v-if="!isMobile">{{ authStore.user?.username || 'User' }}</span>
-            </span>
+            <div class="header-user">
+              <img
+                v-if="authStore.user?.avatar_url"
+                :src="authStore.user.avatar_url"
+                alt=""
+                class="header-user-avatar"
+              />
+              <div v-else class="header-user-avatar header-user-avatar--placeholder">
+                {{ (authStore.user?.username || 'U').charAt(0).toUpperCase() }}
+              </div>
+              <span v-if="!isMobile" class="header-user-name">{{ authStore.user?.username || 'User' }}</span>
+            </div>
             <template #dropdown>
               <el-dropdown-menu>
                 <el-dropdown-item @click="router.push('/profile')">个人设置</el-dropdown-item>
@@ -250,15 +350,31 @@ async function loadVersion() {
             </template>
           </el-dropdown>
         </div>
-      </el-header>
+      </header>
 
-      <el-main class="layout-main">
+      <!-- Page content -->
+      <main class="layout-main">
         <router-view v-slot="{ Component, route: viewRoute }">
-          <keep-alive :max="3">
-            <component :is="Component" :key="viewRoute.path" />
-          </keep-alive>
+          <transition name="page-fade" mode="out-in">
+            <keep-alive :max="3">
+              <component :is="Component" :key="viewRoute.path" />
+            </keep-alive>
+          </transition>
         </router-view>
-      </el-main>
+      </main>
+
+      <!-- Footer -->
+      <footer class="layout-footer">
+        <span>© {{ new Date().getFullYear() }} {{ panelTitle }}</span>
+        <span class="footer-sep">·</span>
+        <span>开源自动化任务调度面板</span>
+        <span class="footer-sep">·</span>
+        <a href="javascript:void(0)" class="footer-link">文档中心</a>
+        <span class="footer-sep">·</span>
+        <a href="javascript:void(0)" class="footer-link">使用条款</a>
+        <span class="footer-sep">·</span>
+        <a href="javascript:void(0)" class="footer-link">隐私政策</a>
+      </footer>
     </el-container>
   </el-container>
 </template>
@@ -266,120 +382,116 @@ async function loadVersion() {
 <style scoped lang="scss">
 .layout-container {
   height: 100vh;
+  overflow: hidden;
 }
 
+// ==================== Sidebar ====================
 .layout-aside {
-  border-right: 1px solid var(--el-border-color-light);
-  transition: width 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-  overflow: hidden;
+  width: 220px;
   display: flex;
   flex-direction: column;
   background: var(--el-bg-color);
+  border-right: 1px solid var(--el-border-color-light);
+  transition: width 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  overflow: hidden;
   will-change: width;
-}
-
-.logo-area {
-  height: 60px;
-  display: flex;
-  align-items: center;
-  border-bottom: 1px solid var(--el-border-color-light);
-  flex-shrink: 0;
-  padding: 8px 10px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--el-color-primary-light-9) 48%, white) 0%, var(--el-bg-color) 100%);
+  z-index: 10;
 
   &.is-collapsed {
-    justify-content: center;
-    padding-inline: 8px;
+    width: 64px;
   }
 }
 
-.brand-shell {
-  width: 100%;
+// Logo
+.sidebar-logo {
+  height: 60px;
+  display: flex;
+  align-items: center;
+  padding: 8px 10px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--el-border-color-light);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--el-color-primary-light-9) 48%, white) 0%,
+    var(--el-bg-color) 100%
+  );
+
+  &.is-collapsed {
+    justify-content: center;
+    padding: 8px;
+  }
+}
+
+.logo-inner {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 7px 10px;
-  min-height: 42px;
   border-radius: 14px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--el-bg-color) 88%, white) 0%, var(--el-bg-color) 100%);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--el-bg-color) 88%, white) 0%,
+    var(--el-bg-color) 100%
+  );
   border: 1px solid color-mix(in srgb, var(--el-color-primary) 10%, var(--el-border-color-lighter));
   box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
-  transition: box-shadow var(--dd-transition), border-color var(--dd-transition);
+  transition: box-shadow 0.3s, border-color 0.3s;
+  width: 100%;
+  min-height: 42px;
 
-  .logo-area:hover & {
+  &:hover {
     box-shadow: 0 6px 16px rgba(15, 23, 42, 0.06);
     border-color: color-mix(in srgb, var(--el-color-primary) 18%, var(--el-border-color-lighter));
   }
 }
 
-.logo-area.is-collapsed .brand-shell {
+.is-collapsed .logo-inner {
   width: 40px;
   min-height: 40px;
   padding: 6px;
   justify-content: center;
 }
 
-.brand-mark {
+.logo-icon-wrap {
   width: 28px;
   height: 28px;
   border-radius: 9px;
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  background:
-    linear-gradient(145deg, var(--el-color-primary-light-8), var(--el-color-primary-light-9));
+  background: linear-gradient(145deg, var(--el-color-primary-light-8), var(--el-color-primary-light-9));
   border: 1px solid color-mix(in srgb, var(--el-color-primary) 18%, transparent);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.55),
-    0 4px 10px rgba(64, 158, 255, 0.12);
-  transition: transform var(--dd-transition), box-shadow var(--dd-transition);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 4px 10px rgba(64, 158, 255, 0.12);
+  transition: transform 0.3s, box-shadow 0.3s;
 
-  .logo-area:hover & {
+  .logo-inner:hover & {
     transform: translateY(-1px);
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.55),
-      0 6px 12px rgba(64, 158, 255, 0.15);
   }
 }
 
-.logo-img {
+.logo-icon {
   width: 16px;
   height: 16px;
 }
 
-.brand-copy {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 1;
-  min-width: 0;
-}
-
-.logo-text {
-  min-width: 0;
-  flex: 1;
+.logo-title {
   font-size: 15px;
-  line-height: 1;
   font-weight: 700;
   color: var(--el-text-color-primary);
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
 }
 
-.version-badge {
+.logo-version {
   flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
   padding: 3px 8px;
   border-radius: 999px;
   font-family: var(--dd-font-mono);
   font-size: 10px;
-  line-height: 1;
   font-weight: 700;
   letter-spacing: 0.04em;
   color: var(--el-color-primary-dark-2);
@@ -387,56 +499,248 @@ async function loadVersion() {
   border: 1px solid color-mix(in srgb, var(--el-color-primary) 18%, transparent);
 }
 
-.mobile-logo {
-  border-bottom: 1px solid var(--el-border-color-light);
-  justify-content: flex-start;
-  padding: 10px 12px;
+// Navigation
+.sidebar-nav {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 6px 0;
+
+  &::-webkit-scrollbar {
+    width: 3px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 3px;
+  }
+
+  &:hover::-webkit-scrollbar-thumb {
+    background: var(--el-border-color);
+  }
 }
 
-.mobile-brand-inline {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 8px;
-  min-width: 0;
-}
-
-.mobile-title {
-  min-width: 0;
-  font-size: 15px;
-  line-height: 1;
+.nav-section-label {
+  padding: 16px 20px 6px;
+  font-size: 11px;
   font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--el-text-color-placeholder);
+  user-select: none;
+}
+
+.nav-section-divider {
+  height: 1px;
+  margin: 8px 16px;
+  background: var(--el-border-color-lighter);
+}
+
+// Quick Environments
+.sidebar-envs {
+  flex-shrink: 0;
+  padding: 0 12px;
+  border-top: 1px solid var(--el-border-color-lighter);
+  margin-top: 4px;
+}
+
+.envs-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 4px 4px;
+}
+
+.envs-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--el-text-color-placeholder);
+  text-transform: uppercase;
+}
+
+.envs-add-btn {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  border: 1px solid var(--el-border-color-lighter);
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--el-text-color-placeholder);
+  transition: all 0.2s;
+
+  &:hover {
+    border-color: var(--el-color-primary);
+    color: var(--el-color-primary);
+    background: var(--el-color-primary-light-9);
+  }
+}
+
+.envs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 8px;
+}
+
+.env-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.2s;
+
+  &:hover {
+    background: var(--el-fill-color-light);
+  }
+}
+
+.env-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.env-info {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.env-name {
+  font-size: 12px;
+  font-weight: 500;
   color: var(--el-text-color-primary);
-  letter-spacing: 0.01em;
+  line-height: 1.3;
+}
+
+.env-key {
+  font-size: 10px;
+  color: var(--el-text-color-placeholder);
+  font-family: var(--dd-font-mono);
+}
+
+// User card
+.sidebar-user {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  border-top: 1px solid var(--el-border-color-lighter);
+
+  &.is-collapsed {
+    padding: 8px;
+    display: flex;
+    justify-content: center;
+  }
+}
+
+.user-card-inner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.2s;
+
+  &:hover {
+    background: var(--el-fill-color-light);
+  }
+
+  .is-collapsed & {
+    padding: 6px;
+    justify-content: center;
+  }
+}
+
+.user-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.user-avatar--placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--el-color-primary-light-5), var(--el-color-primary));
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.user-info {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.user-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+  line-height: 1.3;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.mobile-version {
-  flex-shrink: 0;
-  padding: 2px 6px;
-  border-radius: 999px;
-  font-family: var(--dd-font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 1.1;
-  color: var(--el-color-primary);
-  background: color-mix(in srgb, var(--el-color-primary) 10%, var(--el-bg-color));
-  border: 1px solid color-mix(in srgb, var(--el-color-primary) 18%, transparent);
+.user-role {
+  font-size: 11px;
+  color: var(--el-text-color-placeholder);
+  line-height: 1.3;
 }
 
+// Collapse button
+.sidebar-collapse-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 40px;
+  margin: 4px 12px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--el-border-color-lighter);
+  background: transparent;
+  cursor: pointer;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  transition: all 0.2s;
+
+  &:hover {
+    background: var(--el-fill-color-light);
+    color: var(--el-color-primary);
+    border-color: var(--el-color-primary-light-7);
+  }
+}
+
+.collapse-text {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+// ==================== Header ====================
 .layout-header {
   height: 60px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid var(--el-border-color-light);
+  gap: 16px;
   padding: 0 20px;
   background: var(--el-bg-color);
-  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--el-border-color-light);
   position: sticky;
   top: 0;
   z-index: 20;
+  flex-shrink: 0;
 }
 
 .header-left {
@@ -446,88 +750,232 @@ async function loadVersion() {
   min-width: 0;
 }
 
-.header-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.section-tag {
-  border-radius: 999px;
-  padding: 0 10px;
-}
-
-.section-switch-btn {
-  font-weight: 600;
-  border-radius: 999px;
-}
-
-.user-dropdown {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
-  padding: 6px 12px;
+.header-toggle-btn {
+  width: 34px;
+  height: 34px;
   border-radius: 8px;
-  transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-  font-weight: 500;
+  border: 1px solid var(--el-border-color-lighter);
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--el-text-color-regular);
+  transition: all 0.2s;
+  flex-shrink: 0;
 
   &:hover {
     background: var(--el-fill-color-light);
     color: var(--el-color-primary);
-    transform: translateY(-1px);
+    border-color: var(--el-color-primary-light-7);
   }
 }
 
-.user-dropdown-avatar {
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
+.header-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+  min-width: 0;
+}
+
+.breadcrumb-sep {
+  color: var(--el-text-color-placeholder);
+  font-weight: 300;
+  font-size: 15px;
+}
+
+.breadcrumb-section {
+  white-space: nowrap;
+  color: var(--el-text-color-secondary);
+}
+
+.breadcrumb-current {
+  white-space: nowrap;
+  color: var(--el-text-color-primary);
+  font-weight: 600;
+}
+
+.header-center {
+  flex: 1;
+  max-width: 480px;
+  display: flex;
+  justify-content: center;
+}
+
+.header-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 10px;
+  background: var(--el-fill-color-light);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.2s;
+
+  &:hover {
+    background: var(--el-fill-color);
+    border-color: var(--el-border-color-lighter);
+  }
+}
+
+.search-icon {
+  color: var(--el-text-color-placeholder);
+  flex-shrink: 0;
+}
+
+.search-placeholder {
+  flex: 1;
+  font-size: 13px;
+  color: var(--el-text-color-placeholder);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.search-kbd {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: var(--dd-font-mono);
+  color: var(--el-text-color-placeholder);
+  background: var(--el-bg-color);
+  border: 1px solid var(--el-border-color-lighter);
+  line-height: 1.2;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.header-icon-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--el-text-color-regular);
+  transition: all 0.25s;
+  position: relative;
+
+  &:hover {
+    background: var(--el-fill-color-light);
+    color: var(--el-color-primary);
+  }
+}
+
+.theme-toggle {
+  &:hover {
+    transform: rotate(20deg) scale(1.1);
+  }
+}
+
+.notification-dot {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #f56c6c;
+  border: 1.5px solid var(--el-bg-color);
+}
+
+.header-user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  outline: none;
+
+  &:hover {
+    background: var(--el-fill-color-light);
+  }
+}
+
+.header-user-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
   object-fit: cover;
   flex-shrink: 0;
 }
 
-.layout-main {
-  background: var(--el-bg-color-page);
-  overflow-y: auto;
-  padding: 20px;
+.header-user-avatar--placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--el-color-primary-light-5), var(--el-color-primary));
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
 }
 
-.mobile-drawer-footer {
+.header-user-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--el-text-color-primary);
+  white-space: nowrap;
+}
+
+// ==================== Main ====================
+.layout-main-wrap {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 14px 12px 18px;
-  border-top: 1px solid var(--el-border-color-light);
-  margin-top: 8px;
+  min-height: 0;
+  overflow: hidden;
 }
 
-.mobile-footer-btn {
-  width: 100%;
-}
-
-.mobile-footer-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.mobile-footer-link {
+.layout-main {
   flex: 1;
-  justify-content: center;
+  overflow-y: auto;
+  padding: 20px;
+  background: var(--el-bg-color-page);
 }
 
-.theme-btn {
-  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+// ==================== Footer ====================
+.layout-footer {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 12px 20px;
+  font-size: 12px;
+  color: var(--el-text-color-placeholder);
+  background: var(--el-bg-color-page);
+  border-top: 1px solid var(--el-border-color-lighter);
+  flex-wrap: wrap;
+}
+
+.footer-sep {
+  color: var(--el-border-color);
+}
+
+.footer-link {
+  color: var(--el-text-color-secondary);
+  transition: color 0.2s;
 
   &:hover {
-    transform: rotate(20deg) scale(1.15) !important;
-  }
-
-  &:active {
-    transform: rotate(0deg) scale(0.95) !important;
+    color: var(--el-color-primary);
   }
 }
 
+// ==================== Page transition ====================
 .page-fade-enter-active {
   animation: pageEnter 0.22s ease-out;
 }
@@ -552,51 +1000,42 @@ async function loadVersion() {
   to { opacity: 0; }
 }
 
+// ==================== Mobile drawer ====================
+.mobile-logo {
+  border-bottom: 1px solid var(--el-border-color-light);
+}
+
+.mobile-nav {
+  flex: 1;
+}
+
+// ==================== Mobile responsive ====================
 @media screen and (max-width: 768px) {
   .layout-header {
-    padding: 0 10px;
     height: 54px;
+    padding: 0 12px;
+    gap: 8px;
   }
 
   .layout-main {
     padding: max(12px, env(safe-area-inset-top)) 12px calc(16px + env(safe-area-inset-bottom));
   }
 
-  .logo-area {
-    height: 56px;
-    padding: 8px 10px;
+  .header-center {
+    display: none;
   }
 
-  .brand-shell {
-    min-height: 38px;
-    padding: 6px 9px;
-  }
-
-  .brand-mark {
-    width: 26px;
-    height: 26px;
-  }
-
-  .logo-img {
-    width: 15px;
-    height: 15px;
-  }
-
-  .header-left {
-    gap: 6px;
+  .header-breadcrumb {
+    font-size: 12px;
   }
 
   .header-right {
     gap: 2px;
   }
 
-  .user-dropdown {
-    padding: 6px 8px;
-  }
-
-  .mobile-brand-inline {
-    min-width: 0;
-    max-width: 52vw;
+  .layout-footer {
+    padding: 10px 12px;
+    font-size: 11px;
   }
 }
 </style>

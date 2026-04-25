@@ -89,6 +89,9 @@ async function handleCopyMachineCode(code: string) {
 
 .mt-card {
   margin-top: 16px;
+  border-radius: 12px;
+  border: 1px solid #f0f0f0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 
 .system-info-grid {
@@ -98,7 +101,7 @@ async function handleCopyMachineCode(code: string) {
 }
 
 .si-item {
-  padding: 4px 0;
+  padding: 8px 0;
 }
 
 .si-label {
@@ -111,6 +114,7 @@ async function handleCopyMachineCode(code: string) {
   font-size: 14px;
   font-weight: 600;
   word-break: break-word;
+  color: var(--el-text-color-primary);
 }
 
 .si-item-wide {

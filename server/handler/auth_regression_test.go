@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"daidai-panel/config"
 	"daidai-panel/database"
 	"daidai-panel/handler"
 	"daidai-panel/middleware"
@@ -494,6 +495,27 @@ func TestCORSAllowsConfiguredAndSameOriginAuthorizationRequests(t *testing.T) {
 	}
 	if !strings.Contains(configuredRec.Header().Get("Access-Control-Allow-Headers"), "Authorization") {
 		t.Fatalf("expected Authorization in allow headers, got %q", configuredRec.Header().Get("Access-Control-Allow-Headers"))
+	}
+
+	config.C.CORS.Origins = []string{"http://localhost:5173"}
+	loopbackEngine := gin.New()
+	loopbackEngine.Use(middleware.CORS())
+	loopbackEngine.GET("/ping", func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	})
+
+	loopbackAlias := httptest.NewRequest(http.MethodOptions, "/ping", nil)
+	loopbackAlias.Header.Set("Origin", "http://127.0.0.1:5173")
+	loopbackAlias.Header.Set("Access-Control-Request-Method", http.MethodGet)
+	loopbackAlias.Header.Set("Access-Control-Request-Headers", "Authorization")
+	loopbackAliasRec := httptest.NewRecorder()
+	loopbackEngine.ServeHTTP(loopbackAliasRec, loopbackAlias)
+
+	if loopbackAliasRec.Code != http.StatusNoContent {
+		t.Fatalf("expected loopback alias preflight status 204, got %d", loopbackAliasRec.Code)
+	}
+	if loopbackAliasRec.Header().Get("Access-Control-Allow-Origin") != "http://127.0.0.1:5173" {
+		t.Fatalf("expected loopback alias origin to be echoed, got %q", loopbackAliasRec.Header().Get("Access-Control-Allow-Origin"))
 	}
 
 	sameOrigin := httptest.NewRequest(http.MethodOptions, "/ping", nil)

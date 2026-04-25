@@ -35,7 +35,7 @@ const { dialogFullscreen } = useResponsive()
             <el-input v-model="oldPassword" type="password" show-password placeholder="当前密码" />
           </el-form-item>
           <el-form-item label="* 新密码">
-            <el-input v-model="newPassword" type="password" show-password placeholder="新密码（至少 8 位）" />
+            <el-input v-model="newPassword" type="password" show-password placeholder="新密码（至少 6 位）" />
           </el-form-item>
           <el-form-item label="* 确认密码">
             <el-input v-model="confirmPassword" type="password" show-password placeholder="再次输入新密码" />

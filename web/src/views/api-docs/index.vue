@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
+import { Search } from '@element-plus/icons-vue'
 import type { ApiCategory, ApiEndpoint } from './apiData'
 
 type ApiDocsModule = typeof import('./apiData')
@@ -30,19 +31,19 @@ const filteredCategories = computed(() => {
 })
 
 const currentEndpoint = computed<ApiEndpoint | null>(() => {
-  for (const cat of apiCategories.value) {
+  for (const cat of filteredCategories.value) {
     for (const ep of cat.endpoints) {
       if (ep.id === selectedId.value) return ep
     }
   }
-  return apiCategories.value[0]?.endpoints[0] || null
+  return filteredCategories.value[0]?.endpoints[0] || null
 })
 
 const currentCategory = computed(() => {
-  for (const cat of apiCategories.value) {
+  for (const cat of filteredCategories.value) {
     if (cat.endpoints.some(ep => ep.id === selectedId.value)) return cat
   }
-  return apiCategories.value[0] || null
+  return filteredCategories.value[0] || null
 })
 
 const codeExamples = computed<Record<string, string>>(() => {
@@ -69,6 +70,21 @@ onMounted(async () => {
   selectedId.value = module.apiCategories[0]?.endpoints[0]?.id || ''
   apiLoading.value = false
 })
+
+watch(filteredCategories, (categories) => {
+  const firstVisibleId = categories[0]?.endpoints[0]?.id || ''
+  if (!firstVisibleId) {
+    selectedId.value = ''
+    return
+  }
+
+  const selectionStillVisible = categories.some(cat =>
+    cat.endpoints.some(ep => ep.id === selectedId.value)
+  )
+  if (!selectionStillVisible) {
+    selectedId.value = firstVisibleId
+  }
+}, { immediate: true })
 
 watch(currentEndpoint, endpoint => {
   const names = Object.keys(endpoint?.helperExamples || {})
@@ -118,7 +134,7 @@ function methodClass(method: string) {
     <div class="page-header">
       <h3 class="page-title">
         <el-icon><Connection /></el-icon>
-        开发接口文档
+        📖 开发接口文档
       </h3>
       <el-button class="mobile-menu-btn" @click="mobileMenuOpen = true">
         <el-icon><Menu /></el-icon>
@@ -128,7 +144,7 @@ function methodClass(method: string) {
 
     <el-drawer v-model="mobileMenuOpen" title="接口列表" direction="ltr" size="280px" :z-index="2000">
       <div class="sider-search">
-        <el-input v-model="searchText" placeholder="搜索接口..." clearable prefix-icon="Search" />
+        <el-input v-model="searchText" placeholder="搜索接口..." clearable :prefix-icon="Search" />
         <div class="sider-count">共 {{ totalEndpoints }} 个接口</div>
       </div>
       <div class="sider-menu">
@@ -149,7 +165,7 @@ function methodClass(method: string) {
     <div class="api-layout">
       <div class="api-sider">
         <div class="sider-search">
-          <el-input v-model="searchText" placeholder="搜索接口..." clearable prefix-icon="Search" />
+          <el-input v-model="searchText" placeholder="搜索接口..." clearable :prefix-icon="Search" />
           <div class="sider-count">共 {{ totalEndpoints }} 个接口</div>
         </div>
         <div class="sider-menu">

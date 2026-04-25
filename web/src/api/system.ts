@@ -40,7 +40,7 @@ export interface PanelUpdateStatus {
 
 export const systemApi = {
   info: () => request.get('/system/info'),
-  dashboard: () => request.get('/system/dashboard'),
+  dashboard: (range?: number) => request.get('/system/dashboard', { params: range ? { range } : undefined }),
   stats: () => request.get('/system/stats'),
   version: () => request.get('/system/version'),
   publicVersion: () => request.get('/system/public-version'),
@@ -62,6 +62,9 @@ export const systemApi = {
     request.post('/system/restore', { filename, password }, { timeout: 0 }),
   deleteBackup: (filename: string) =>
     request.delete('/system/backup', { params: { filename } }),
+  healthCheck() {
+    return request.get('/system/health-check') as Promise<{ items: Array<{ name: string; status: string; message?: string }> }>
+  },
   uploadBackup: (file: File) => {
     const formData = new FormData()
     formData.append('file', file)

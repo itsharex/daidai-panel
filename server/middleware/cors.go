@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"net/url"
+	"net"
 	"strings"
 	"time"
 
@@ -12,12 +13,46 @@ import (
 )
 
 func matchesConfiguredOrigin(origin string, allowedOrigins []string) bool {
+	normalizedOrigin := normalizeConfiguredOrigin(origin)
 	for _, allowed := range allowedOrigins {
-		if strings.EqualFold(strings.TrimSpace(allowed), origin) {
+		if normalizeConfiguredOrigin(allowed) == normalizedOrigin {
 			return true
 		}
 	}
 	return false
+}
+
+func normalizeConfiguredOrigin(origin string) string {
+	trimmed := strings.TrimSpace(origin)
+	if trimmed == "" {
+		return ""
+	}
+
+	parsed, err := url.Parse(trimmed)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return strings.ToLower(trimmed)
+	}
+
+	hostname := strings.ToLower(parsed.Hostname())
+	if isLoopbackHost(hostname) {
+		hostname = "loopback"
+	}
+
+	port := parsed.Port()
+	if port != "" {
+		hostname = net.JoinHostPort(hostname, port)
+	}
+
+	return strings.ToLower(parsed.Scheme) + "://" + hostname
+}
+
+func isLoopbackHost(hostname string) bool {
+	switch hostname {
+	case "localhost", "127.0.0.1", "::1":
+		return true
+	default:
+		return false
+	}
 }
 
 func extractHost(value string) string {

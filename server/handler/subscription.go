@@ -107,6 +107,7 @@ func NewSubscriptionHandler() *SubscriptionHandler {
 func (h *SubscriptionHandler) List(c *gin.Context) {
 	keyword := c.Query("keyword")
 	subType := c.Query("type")
+	enabledRaw := c.Query("enabled")
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 
@@ -125,6 +126,12 @@ func (h *SubscriptionHandler) List(c *gin.Context) {
 	}
 	if subType != "" {
 		query = query.Where("type = ?", subType)
+	}
+	if enabledRaw != "" {
+		enabled, err := strconv.ParseBool(enabledRaw)
+		if err == nil {
+			query = query.Where("enabled = ?", enabled)
+		}
 	}
 
 	var total int64

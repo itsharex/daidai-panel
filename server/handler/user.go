@@ -23,9 +23,28 @@ func (h *UserHandler) List(c *gin.Context) {
 	var users []model.User
 	database.DB.Order("created_at ASC").Find(&users)
 
+	userIDs := make([]uint, 0, len(users))
+	for _, user := range users {
+		userIDs = append(userIDs, user.ID)
+	}
+
+	twoFactorEnabled := make(map[uint]bool, len(userIDs))
+	if len(userIDs) > 0 {
+		var records []model.TwoFactorAuth
+		database.DB.
+			Select("user_id").
+			Where("user_id IN ? AND enabled = ?", userIDs, true).
+			Find(&records)
+		for _, record := range records {
+			twoFactorEnabled[record.UserID] = true
+		}
+	}
+
 	data := make([]map[string]interface{}, len(users))
 	for i, u := range users {
-		data[i] = u.ToDict()
+		item := u.ToDict()
+		item["two_factor_enabled"] = twoFactorEnabled[u.ID]
+		data[i] = item
 	}
 
 	response.Success(c, gin.H{"data": data})

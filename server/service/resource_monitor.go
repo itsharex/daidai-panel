@@ -38,6 +38,10 @@ type ResourceInfo struct {
 	Arch        string  `json:"arch"`
 	NumCPU      int     `json:"num_cpu"`
 	DataDir     string  `json:"data_dir"`
+	NetRxBytes  uint64  `json:"net_rx_bytes"`
+	NetTxBytes  uint64  `json:"net_tx_bytes"`
+	NetRxSpeed  float64 `json:"net_rx_speed"`
+	NetTxSpeed  float64 `json:"net_tx_speed"`
 }
 
 func GetResourceInfo() ResourceInfo {
@@ -76,7 +80,7 @@ func GetResourceInfo() ResourceInfo {
 			info.DiskUsage = math.Round(float64(info.DiskUsed)/float64(info.DiskTotal)*10000) / 100
 		}
 
-		info.CPUUsage = getLinuxCPU()
+		info.CPUUsage, info.NetRxBytes, info.NetTxBytes, info.NetRxSpeed, info.NetTxSpeed = getLinuxCPUAndNet()
 	}
 
 	return info
@@ -220,6 +224,82 @@ func getLinuxCPU() float64 {
 	}
 	usage := float64(totalDelta-idleDelta) / float64(totalDelta) * 100
 	return math.Round(usage*100) / 100
+}
+
+func getLinuxCPUAndNet() (cpuUsage float64, netRx, netTx uint64, rxSpeed, txSpeed float64) {
+	readCPUStat := func() (idle, total uint64) {
+		out, err := os.ReadFile("/proc/stat")
+		if err != nil {
+			return
+		}
+		for _, line := range strings.Split(string(out), "\n") {
+			if strings.HasPrefix(line, "cpu ") {
+				fields := strings.Fields(line)
+				if len(fields) < 5 {
+					return
+				}
+				var sum uint64
+				for _, f := range fields[1:] {
+					v, _ := strconv.ParseUint(f, 10, 64)
+					sum += v
+				}
+				idleVal, _ := strconv.ParseUint(fields[4], 10, 64)
+				return idleVal, sum
+			}
+		}
+		return
+	}
+
+	idle1, total1 := readCPUStat()
+	rx1, tx1 := getLinuxNetBytes()
+
+	time.Sleep(500 * time.Millisecond)
+
+	idle2, total2 := readCPUStat()
+	rx2, tx2 := getLinuxNetBytes()
+
+	totalDelta := total2 - total1
+	idleDelta := idle2 - idle1
+	if totalDelta > 0 {
+		cpuUsage = math.Round(float64(totalDelta-idleDelta)/float64(totalDelta)*10000) / 100
+	}
+
+	netRx = rx2
+	netTx = tx2
+	if rx2 >= rx1 {
+		rxSpeed = float64(rx2-rx1) * 2
+	}
+	if tx2 >= tx1 {
+		txSpeed = float64(tx2-tx1) * 2
+	}
+	return
+}
+
+func getLinuxNetBytes() (rx, tx uint64) {
+	content, err := os.ReadFile("/proc/net/dev")
+	if err != nil {
+		return
+	}
+	lines := strings.Split(string(content), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if !strings.Contains(line, ":") || strings.HasPrefix(line, "lo:") {
+			continue
+		}
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		fields := strings.Fields(parts[1])
+		if len(fields) < 9 {
+			continue
+		}
+		r, _ := strconv.ParseUint(fields[0], 10, 64)
+		t, _ := strconv.ParseUint(fields[8], 10, 64)
+		rx += r
+		tx += t
+	}
+	return
 }
 
 var (

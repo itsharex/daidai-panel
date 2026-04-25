@@ -1,6 +1,17 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import {
+  Check,
+  Close,
+  DocumentCopy,
+  Download,
+  InfoFilled,
+  Loading,
+  Operation,
+  Switch,
+  Warning,
+} from '@element-plus/icons-vue'
 import { taskApi } from '@/api/task'
 import { openAuthorizedEventStream, type EventStreamConnection } from '@/utils/sse'
 import { useResponsive } from '@/composables/useResponsive'

@@ -106,8 +106,34 @@ func (e *TaskExecutor) OnTaskFailed(req *ExecutionRequest, err error) {
 	log.Printf("task %d failed: %v", req.TaskID, err)
 
 	task := req.Task
+	if task == nil {
+		return
+	}
+
+	now := time.Now()
+	if req.TaskLogID == 0 {
+		status := model.LogStatusFailed
+		duration := 0.0
+		content := fmt.Sprintf("=== 执行失败 [%s] ===\n%s\n", now.Format("2006-01-02 15:04:05"), err.Error())
+		taskLog := &model.TaskLog{
+			TaskID:    task.ID,
+			Content:   content,
+			Status:    &status,
+			Duration:  &duration,
+			StartedAt: now,
+			EndedAt:   &now,
+		}
+		database.DB.Create(taskLog)
+		req.TaskLogID = taskLog.ID
+	}
+
+	runStatus := model.RunFailed
 	database.DB.Model(task).Updates(map[string]interface{}{
-		"status": ResolveTaskInactiveStatus(task),
+		"status":            ResolveTaskInactiveStatus(task),
+		"last_run_at":       now,
+		"last_run_status":   runStatus,
+		"last_running_time": 0.0,
+		"pid":               nil,
 	})
 }
 

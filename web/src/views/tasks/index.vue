@@ -2,6 +2,7 @@
 import { ref, onMounted, onBeforeUnmount, onActivated, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { taskApi } from '@/api/task'
+import { useAuthStore } from '@/stores/auth'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import TaskForm from './components/TaskForm.vue'
 import LogViewer from './components/LogViewer.vue'
@@ -12,10 +13,12 @@ import { getDisplayTaskLabels } from './taskLabels'
 import { splitTaskCommandDisplay } from './taskCommand'
 import { usePageActivity } from '@/composables/usePageActivity'
 import { useResponsive } from '@/composables/useResponsive'
+import { canOperate } from '@/utils/roles'
 import type { TaskViewFilter, TaskViewSortRule } from '@/api/taskView'
 
 const route = useRoute()
 const router = useRouter()
+const authStore = useAuthStore()
 const { isMobile } = useResponsive()
 const { isPageActive } = usePageActivity()
 let statusTimer: ReturnType<typeof setInterval> | null = null
@@ -63,6 +66,7 @@ const logFilesTaskId = ref<number | null>(null)
 const logFilesTaskName = ref('')
 const viewFilters = ref<TaskViewFilter[]>([])
 const viewSortRules = ref<TaskViewSortRule[]>([])
+const canOperateTasks = computed(() => canOperate(authStore.user?.role))
 const canPollTaskStatus = computed(() => hasRunningTasks.value && isPageActive.value && selectedIds.value.length === 0)
 
 function handleViewChange(filters: TaskViewFilter[], sortRules: TaskViewSortRule[]) {
@@ -89,6 +93,21 @@ function getCronExpressions(task: any) {
 }
 
 const hasRunningTasks = computed(() => tasks.value.some(t => t.status === 2))
+
+const taskStats = computed(() => {
+  const list = tasks.value
+  const totalCount = list.length
+  const runningCount = list.filter(t => t.status === 2).length
+  const todayCount = list.filter(t => {
+    if (!t.last_run_at) return false
+    const d = new Date(t.last_run_at)
+    const now = new Date()
+    return d.toDateString() === now.toDateString()
+  }).length
+  const durations = list.filter(t => t.last_running_time != null).map(t => t.last_running_time)
+  const avgDuration = durations.length > 0 ? (durations.reduce((a: number, b: number) => a + b, 0) / durations.length).toFixed(2) : '0'
+  return { totalCount, runningCount, todayCount, avgDuration }
+})
 
 watch(pageSize, (value) => {
   persistTaskPageSize(value)
@@ -170,35 +189,65 @@ async function loadNotificationChannels() {
   }
 }
 
-function checkAutoCreate() {
+function clearTaskRouteQuery() {
+  return router.replace({ path: '/tasks' })
+}
+
+async function handleRouteQueryAction() {
+  if (route.query.create === '1') {
+    if (!canOperateTasks.value) {
+      ElMessage.warning('当前账号没有新建任务权限')
+      await clearTaskRouteQuery()
+      return
+    }
+    openCreate()
+    await clearTaskRouteQuery()
+    return
+  }
+
   if (route.query.autoCreate === '1') {
     const name = route.query.name as string || ''
     const command = route.query.command as string || ''
     if (name && command) {
+      if (!canOperateTasks.value) {
+        ElMessage.warning('当前账号没有新建任务权限')
+        await clearTaskRouteQuery()
+        return
+      }
       editingTask.value = null
       prefillData.value = { name, command, cron_expression: '0 0 * * *', task_type: 'cron' }
       formVisible.value = true
-      router.replace({ path: '/tasks' })
+      await clearTaskRouteQuery()
     }
+    return
+  }
+
+  const taskId = Number(route.query.task_id)
+  if (taskId > 0 && route.query.action === 'run') {
+    await clearTaskRouteQuery()
+    if (!canOperateTasks.value) {
+      ElMessage.warning('当前账号没有运行任务权限')
+      return
+    }
+    const task = tasks.value.find(item => item.id === taskId) || { id: taskId, name: `任务#${taskId}`, status: 1 }
+    await handleRun(task)
   }
 }
 
-let mounted = false
+let skipInitialActivated = true
 
-onMounted(() => {
-  mounted = true
-  loadTasks()
-  loadNotificationChannels()
-  checkAutoCreate()
+onMounted(async () => {
+  await Promise.all([loadTasks(), loadNotificationChannels()])
+  await handleRouteQueryAction()
 })
 
-onActivated(() => {
-  if (!mounted) {
-    loadTasks()
-    loadNotificationChannels()
+onActivated(async () => {
+  if (skipInitialActivated) {
+    skipInitialActivated = false
+    return
   }
-  mounted = false
-  checkAutoCreate()
+  await Promise.all([loadTasks(), loadNotificationChannels()])
+  await handleRouteQueryAction()
 })
 
 onBeforeUnmount(() => {
@@ -257,13 +306,21 @@ function displayTaskLabels(task: any) {
   return getDisplayTaskLabels(task?.labels || [])
 }
 
+function ensureCanOperate(message = '当前账号没有操作任务权限') {
+  if (canOperateTasks.value) return true
+  ElMessage.warning(message)
+  return false
+}
+
 function openCreate() {
+  if (!ensureCanOperate('当前账号没有新建任务权限')) return
   editingTask.value = null
   prefillData.value = null
   formVisible.value = true
 }
 
 function openEdit(task: any) {
+  if (!ensureCanOperate('当前账号没有编辑任务权限')) return
   editingTask.value = task
   formVisible.value = true
 }
@@ -286,6 +343,7 @@ function openLogFiles(task: any) {
 }
 
 async function handleFormSubmit(data: any) {
+  if (!ensureCanOperate()) return
   try {
     if (editingTask.value) {
       await taskApi.update(editingTask.value.id, data)
@@ -302,6 +360,7 @@ async function handleFormSubmit(data: any) {
 }
 
 async function handleRun(task: any) {
+  if (!ensureCanOperate('当前账号没有运行任务权限')) return
   try {
     await ElMessageBox.confirm(`确认运行定时任务「${task.name}」吗？`, '运行确认', { type: 'info' })
     await taskApi.run(task.id)
@@ -317,6 +376,7 @@ async function handleRun(task: any) {
 }
 
 async function handleStop(task: any) {
+  if (!ensureCanOperate('当前账号没有停止任务权限')) return
   try {
     await ElMessageBox.confirm(`确认停止定时任务「${task.name}」吗？`, '停止确认', { type: 'warning' })
     await taskApi.stop(task.id)
@@ -330,6 +390,7 @@ async function handleStop(task: any) {
 }
 
 async function handleToggle(task: any) {
+  if (!ensureCanOperate()) return
   try {
     if (task.status === 0) {
       await ElMessageBox.confirm(`确认启用定时任务「${task.name}」吗？`, '启用确认', { type: 'info' })
@@ -351,6 +412,7 @@ async function handleToggle(task: any) {
 }
 
 async function handleDelete(task: any) {
+  if (!ensureCanOperate('当前账号没有删除任务权限')) return
   try {
     await ElMessageBox.confirm(`确定删除任务 "${task.name}"？`, '确认删除', { type: 'warning' })
     await taskApi.delete(task.id)
@@ -363,6 +425,7 @@ async function handleDelete(task: any) {
 }
 
 async function handleCopy(task: any) {
+  if (!ensureCanOperate('当前账号没有复制任务权限')) return
   try {
     await taskApi.copy(task.id)
     ElMessage.success('任务已复制')
@@ -373,6 +436,7 @@ async function handleCopy(task: any) {
 }
 
 async function handlePin(task: any) {
+  if (!ensureCanOperate('当前账号没有置顶任务权限')) return
   try {
     if (task.is_pinned) {
       await taskApi.unpin(task.id)
@@ -402,6 +466,7 @@ function toggleSelected(id: number, checked: boolean | string | number) {
 }
 
 async function handleBatchAction(action: string) {
+  if (!ensureCanOperate()) return
   if (selectedIds.value.length === 0) {
     ElMessage.warning('请先选择任务')
     return
@@ -427,6 +492,7 @@ async function handleBatchAction(action: string) {
 }
 
 async function handleBatchPin() {
+  if (!ensureCanOperate('当前账号没有置顶任务权限')) return
   if (selectedIds.value.length === 0) {
     ElMessage.warning('请先选择任务')
     return
@@ -446,6 +512,7 @@ async function handleBatchPin() {
 }
 
 async function handleCleanLogs() {
+  if (!ensureCanOperate('当前账号没有清理日志权限')) return
   let daysStr: string
   try {
     const { value } = await ElMessageBox.prompt('清理多少天前的日志？', '日志清理', {
@@ -485,10 +552,12 @@ async function handleExport() {
 const importFileRef = ref<HTMLInputElement>()
 
 function triggerImport() {
+  if (!ensureCanOperate('当前账号没有导入任务权限')) return
   importFileRef.value?.click()
 }
 
 async function handleImport(event: Event) {
+  if (!ensureCanOperate('当前账号没有导入任务权限')) return
   const file = (event.target as HTMLInputElement).files?.[0]
   if (!file) return
   try {
@@ -527,20 +596,17 @@ async function handleImport(event: Event) {
   <div class="tasks-page">
     <div class="page-header">
       <div>
-        <h2>定时任务</h2>
-        <span class="page-subtitle">管理和调度所有定时执行任务</span>
+        <h2>⏰ 定时任务</h2>
+        <p class="page-subtitle">管理和调度所有定时执行任务，确保自动化任务按计划执行</p>
       </div>
       <div class="header-actions">
-        <el-button type="primary" @click="openCreate">
-          <el-icon><Plus /></el-icon> 新建任务
-        </el-button>
         <el-dropdown trigger="click">
           <el-button><el-icon><More /></el-icon></el-button>
           <template #dropdown>
             <el-dropdown-menu>
               <el-dropdown-item @click="handleExport">导出任务</el-dropdown-item>
-              <el-dropdown-item @click="triggerImport">导入任务</el-dropdown-item>
-              <el-dropdown-item divided @click="handleCleanLogs">清理日志</el-dropdown-item>
+              <el-dropdown-item v-if="canOperateTasks" @click="triggerImport">导入任务</el-dropdown-item>
+              <el-dropdown-item v-if="canOperateTasks" divided @click="handleCleanLogs">清理日志</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
@@ -548,24 +614,74 @@ async function handleImport(event: Event) {
       </div>
     </div>
 
+    <div class="stat-cards">
+      <div class="stat-card">
+        <div class="stat-card__content">
+          <span class="stat-card__label">当前页任务</span>
+          <span class="stat-card__value">{{ taskStats.totalCount }}</span>
+          <span class="stat-card__sub">本页展示任务</span>
+        </div>
+        <div class="stat-card__icon stat-card__icon--blue">
+          <el-icon :size="22"><Clock /></el-icon>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card__content">
+          <span class="stat-card__label">运行中</span>
+          <span class="stat-card__value stat-card__value--orange">{{ taskStats.runningCount }}</span>
+          <span class="stat-card__sub">本页运行中</span>
+        </div>
+        <div class="stat-card__icon stat-card__icon--orange">
+          <el-icon :size="22"><Odometer /></el-icon>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card__content">
+          <span class="stat-card__label">今日执行</span>
+          <span class="stat-card__value stat-card__value--green">{{ taskStats.todayCount }}</span>
+          <span class="stat-card__sub">本页今日执行</span>
+        </div>
+        <div class="stat-card__icon stat-card__icon--green">
+          <el-icon :size="22"><Check /></el-icon>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card__content">
+          <span class="stat-card__label">平均耗时</span>
+          <span class="stat-card__value stat-card__value--red">{{ taskStats.avgDuration }}s</span>
+          <span class="stat-card__sub">本页平均耗时</span>
+        </div>
+        <div class="stat-card__icon stat-card__icon--red">
+          <el-icon :size="22"><Timer /></el-icon>
+        </div>
+      </div>
+    </div>
+
     <ViewManager @view-change="handleViewChange" />
 
-    <div class="filter-bar">
-      <el-input v-model="keyword" placeholder="搜索任务名称/命令" clearable style="width: 260px" @keyup.enter="handleSearch" @clear="handleSearch">
-        <template #prefix><el-icon><Search /></el-icon></template>
-      </el-input>
-      <el-select v-model="statusFilter" placeholder="状态筛选" clearable style="width: 130px" @change="handleSearch">
-        <el-option label="已启用" value="1" />
-        <el-option label="已禁用" value="0" />
-        <el-option label="运行中" value="2" />
-      </el-select>
-
-      <div v-if="selectedIds.length > 0" class="batch-actions">
-        <el-button size="small" @click="handleBatchAction('enable')">批量启用</el-button>
-        <el-button size="small" @click="handleBatchAction('disable')">批量禁用</el-button>
-        <el-button size="small" @click="handleBatchAction('run')">批量运行</el-button>
-        <el-button size="small" @click="handleBatchPin">批量置顶</el-button>
-        <el-button size="small" type="danger" @click="handleBatchAction('delete')">批量删除</el-button>
+    <div class="toolbar">
+      <div class="toolbar__left">
+        <div class="status-tabs">
+          <button :class="['status-tab', { active: statusFilter === '' }]" @click="statusFilter = ''; handleSearch()">全部任务</button>
+          <button :class="['status-tab', { active: statusFilter === '2' }]" @click="statusFilter = '2'; handleSearch()">运行中</button>
+          <button :class="['status-tab', { active: statusFilter === '0' }]" @click="statusFilter = '0'; handleSearch()">已禁用</button>
+          <button :class="['status-tab', { active: statusFilter === '1' }]" @click="statusFilter = '1'; handleSearch()">已启用</button>
+        </div>
+        <el-input v-model="keyword" placeholder="搜索任务名称/命令" clearable class="toolbar__search" @keyup.enter="handleSearch" @clear="handleSearch">
+          <template #prefix><el-icon><Search /></el-icon></template>
+        </el-input>
+      </div>
+      <div class="toolbar__right">
+        <div v-if="canOperateTasks && selectedIds.length > 0" class="batch-actions">
+          <el-button size="small" @click="handleBatchAction('enable')">批量启用</el-button>
+          <el-button size="small" @click="handleBatchAction('disable')">批量禁用</el-button>
+          <el-button size="small" @click="handleBatchAction('run')">批量运行</el-button>
+          <el-button size="small" @click="handleBatchPin">批量置顶</el-button>
+          <el-button size="small" type="danger" @click="handleBatchAction('delete')">批量删除</el-button>
+        </div>
+        <el-button v-if="canOperateTasks" type="primary" @click="openCreate">
+          <el-icon><Plus /></el-icon> 新建任务
+        </el-button>
       </div>
     </div>
 
@@ -579,10 +695,10 @@ async function handleImport(event: Event) {
           <div class="dd-mobile-card__title-wrap task-card__title-wrap">
             <div class="task-card__title-row">
               <div class="dd-mobile-card__selection">
-                <el-checkbox :model-value="isSelected(row.id)" @change="toggleSelected(row.id, $event)" />
+                <el-checkbox v-if="canOperateTasks" :model-value="isSelected(row.id)" @change="toggleSelected(row.id, $event)" />
                 <div class="task-card__name-block">
                   <div class="task-card__name-line">
-                    <el-icon v-if="row.is_pinned" class="pin-icon" @click="handlePin(row)"><Star /></el-icon>
+                    <el-icon v-if="row.is_pinned" class="pin-icon" :class="{ 'is-readonly': !canOperateTasks }" @click="canOperateTasks && handlePin(row)"><Star /></el-icon>
                     <span class="dd-mobile-card__title">{{ row.name }}</span>
                   </div>
                 </div>
@@ -593,7 +709,7 @@ async function handleImport(event: Event) {
               </el-tag>
             </div>
 
-            <div class="dd-mobile-card__badges">
+            <div class="dd-mobile-card__badges task-name-inline">
               <el-tag size="small" effect="plain" class="task-label task-label--type">
                 {{ getTaskTypeLabel(row.task_type) }}
               </el-tag>
@@ -663,13 +779,13 @@ async function handleImport(event: Event) {
           </div>
 
           <div class="dd-mobile-card__actions task-card__actions">
-            <el-button v-if="row.status !== 2" type="primary" size="small" @click="handleRun(row)">运行</el-button>
-            <el-button v-else type="warning" size="small" @click="handleStop(row)">停止</el-button>
-            <el-button :type="row.status === 0 ? 'success' : 'danger'" size="small" plain @click="handleToggle(row)">
+            <el-button v-if="canOperateTasks && row.status !== 2" type="primary" size="small" @click="handleRun(row)">运行</el-button>
+            <el-button v-else-if="canOperateTasks" type="warning" size="small" @click="handleStop(row)">停止</el-button>
+            <el-button v-if="canOperateTasks" :type="row.status === 0 ? 'success' : 'danger'" size="small" plain @click="handleToggle(row)">
               {{ row.status === 0 ? '启用' : '禁用' }}
             </el-button>
             <el-button size="small" @click="openLogViewer(row)">日志</el-button>
-            <el-button size="small" @click="openEdit(row)">编辑</el-button>
+            <el-button v-if="canOperateTasks" size="small" @click="openEdit(row)">编辑</el-button>
             <el-dropdown trigger="click">
               <el-button size="small">
                 更多
@@ -679,9 +795,9 @@ async function handleImport(event: Event) {
                 <el-dropdown-menu>
                   <el-dropdown-item @click="openDetail(row)">详情</el-dropdown-item>
                   <el-dropdown-item @click="openLogFiles(row)">日志文件</el-dropdown-item>
-                  <el-dropdown-item @click="handleCopy(row)">复制</el-dropdown-item>
-                  <el-dropdown-item @click="handlePin(row)">{{ row.is_pinned ? '取消置顶' : '置顶' }}</el-dropdown-item>
-                  <el-dropdown-item divided @click="handleDelete(row)">
+                  <el-dropdown-item v-if="canOperateTasks" @click="handleCopy(row)">复制</el-dropdown-item>
+                  <el-dropdown-item v-if="canOperateTasks" @click="handlePin(row)">{{ row.is_pinned ? '取消置顶' : '置顶' }}</el-dropdown-item>
+                  <el-dropdown-item v-if="canOperateTasks" divided @click="handleDelete(row)">
                     <span style="color: var(--el-color-danger)">删除</span>
                   </el-dropdown-item>
                 </el-dropdown-menu>
@@ -694,132 +810,139 @@ async function handleImport(event: Event) {
       <el-empty v-if="!loading && tasks.length === 0" description="暂无任务" />
     </div>
 
-    <el-table
-      v-else
-      v-loading="loading"
-      :data="tasks"
-      @selection-change="handleSelectionChange"
-      stripe
-      style="width: 100%"
-    >
-      <el-table-column type="selection" width="40" />
-      <el-table-column label="名称" min-width="180">
-        <template #default="{ row }">
-          <div class="task-name">
-            <el-icon v-if="row.is_pinned" class="pin-icon" @click="handlePin(row)"><Star /></el-icon>
-            <span>{{ row.name }}</span>
-            <el-tag size="small" effect="plain" class="task-label task-label--type">
-              {{ getTaskTypeLabel(row.task_type) }}
-            </el-tag>
-            <el-tag
-              v-for="label in displayTaskLabels(row)"
-              :key="label"
-              size="small"
-              effect="plain"
-              class="task-label"
-            >
-              {{ label }}
-            </el-tag>
-          </div>
-        </template>
-      </el-table-column>
-      <el-table-column label="命令" min-width="160">
-        <template #default="{ row }">
-          <code class="command-text">
-            <template v-if="splitTaskCommandDisplay(row.command).script">
-              <span>{{ splitTaskCommandDisplay(row.command).before }}</span>
-              <span class="script-link" @click.stop="navigateToScript(splitTaskCommandDisplay(row.command).script!)">{{ splitTaskCommandDisplay(row.command).script }}</span>
-              <span>{{ splitTaskCommandDisplay(row.command).after }}</span>
-            </template>
-            <template v-else>{{ row.command }}</template>
-          </code>
-        </template>
-      </el-table-column>
-      <el-table-column label="定时规则" min-width="130" show-overflow-tooltip>
-        <template #default="{ row }">
-          <template v-if="row.task_type === 'cron'">
-            <div class="cron-text-list">
-              <code
-                v-for="expression in getCronExpressions(row)"
-                :key="expression"
-                class="cron-text cron-text--stacked"
-              >
-                {{ expression }}
-              </code>
+    <div v-else class="table-card">
+      <el-table
+        v-loading="loading"
+        :data="tasks"
+        @selection-change="handleSelectionChange"
+        style="width: 100%"
+        :header-cell-style="{ background: '#f8fafc', color: '#64748b', fontWeight: 600, fontSize: '13px' }"
+        :row-style="{ cursor: 'pointer' }"
+      >
+        <el-table-column v-if="canOperateTasks" type="selection" width="40" />
+        <el-table-column label="任务名称" min-width="150">
+          <template #default="{ row }">
+            <div class="task-name-cell">
+              <el-icon v-if="row.is_pinned" class="pin-icon" :class="{ 'is-readonly': !canOperateTasks }" @click.stop="canOperateTasks && handlePin(row)"><Star /></el-icon>
+              <div class="task-name-info">
+                <div class="task-name-inline">
+                  <span class="task-name-text">{{ row.name }}</span>
+                  <el-tag size="small" effect="plain" class="task-label task-label--type">
+                    {{ getTaskTypeLabel(row.task_type) }}
+                  </el-tag>
+                  <el-tag
+                    v-for="label in displayTaskLabels(row)"
+                    :key="label"
+                    size="small"
+                    effect="plain"
+                    class="task-label"
+                  >
+                    {{ label }}
+                  </el-tag>
+                </div>
+              </div>
             </div>
           </template>
-          <span v-else class="text-muted">{{ getTaskTypeLabel(row.task_type) }}</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="状态" width="100" align="center">
-        <template #default="{ row }">
-          <el-tag :type="getStatusType(row.status)" size="small" :class="row.status === 2 ? 'tag-with-dot' : ''">
-            <span v-if="row.status === 2" class="pulse-dot"></span>
-            {{ getStatusText(row.status) }}
-          </el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column label="最后运行" width="130" align="center">
-        <template #default="{ row }">
-          <span v-if="row.last_run_at" class="time-text">{{ formatTime(row.last_run_at) }}</span>
-          <span v-else class="text-muted">-</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="下次运行" width="130" align="center">
-        <template #default="{ row }">
-          <span v-if="row.next_run_at" class="time-text">{{ formatTime(row.next_run_at) }}</span>
-          <span v-else class="text-muted">-</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="上次结果" width="90" align="center">
-        <template #default="{ row }">
-          <el-tag :type="getRunStatusType(row.last_run_status)" size="small">
-            {{ getRunStatusText(row.last_run_status) }}
-          </el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column label="耗时" width="80" align="center">
-        <template #default="{ row }">
-          <span v-if="row.last_running_time != null">{{ row.last_running_time.toFixed(1) }}s</span>
-          <span v-else class="text-muted">-</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="操作" width="320" fixed="right">
-        <template #default="{ row }">
-          <el-button-group size="small">
-            <el-button v-if="row.status !== 2" type="primary" text @click="handleRun(row)">运行</el-button>
-            <el-button v-else type="warning" text @click="handleStop(row)">停止</el-button>
-            <el-button :type="row.status === 0 ? 'success' : 'danger'" text @click="handleToggle(row)">
-              {{ row.status === 0 ? '启用' : '禁用' }}
-            </el-button>
-            <el-button text @click="openLogViewer(row)">日志</el-button>
-            <el-button text @click="openEdit(row)">编辑</el-button>
-            <el-dropdown trigger="click">
-              <el-button text><el-icon><More /></el-icon></el-button>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item @click="openDetail(row)">详情</el-dropdown-item>
-                  <el-dropdown-item @click="openLogFiles(row)">日志文件</el-dropdown-item>
-                  <el-dropdown-item @click="handleCopy(row)">复制</el-dropdown-item>
-                  <el-dropdown-item @click="handlePin(row)">{{ row.is_pinned ? '取消置顶' : '置顶' }}</el-dropdown-item>
-                  <el-dropdown-item divided @click="handleDelete(row)">
-                    <span style="color: var(--el-color-danger)">删除</span>
-                  </el-dropdown-item>
-                </el-dropdown-menu>
+        </el-table-column>
+        <el-table-column label="命令 / 脚本" min-width="140">
+          <template #default="{ row }">
+            <code class="command-text">
+              <template v-if="splitTaskCommandDisplay(row.command).script">
+                <span>{{ splitTaskCommandDisplay(row.command).before }}</span>
+                <span class="script-link" @click.stop="navigateToScript(splitTaskCommandDisplay(row.command).script!)">{{ splitTaskCommandDisplay(row.command).script }}</span>
+                <span>{{ splitTaskCommandDisplay(row.command).after }}</span>
               </template>
-            </el-dropdown>
-          </el-button-group>
-        </template>
-      </el-table-column>
-    </el-table>
+              <template v-else>{{ row.command }}</template>
+            </code>
+          </template>
+        </el-table-column>
+        <el-table-column label="定时规则" min-width="100">
+          <template #default="{ row }">
+            <template v-if="row.task_type === 'cron'">
+              <div class="cron-text-list">
+                <code
+                  v-for="expression in getCronExpressions(row)"
+                  :key="expression"
+                  class="cron-text"
+                >
+                  {{ expression }}
+                </code>
+              </div>
+            </template>
+            <span v-else class="text-muted">{{ getTaskTypeLabel(row.task_type) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="100" align="center">
+          <template #default="{ row }">
+            <el-tag :type="getStatusType(row.status)" size="small" round :class="row.status === 2 ? 'tag-with-dot' : ''">
+              <span v-if="row.status === 2" class="pulse-dot"></span>
+              {{ getStatusText(row.status) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="最后运行" width="140" align="center">
+          <template #default="{ row }">
+            <span v-if="row.last_run_at" class="time-text">{{ formatTime(row.last_run_at) }}</span>
+            <span v-else class="text-muted">-</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="下次运行" width="140" align="center">
+          <template #default="{ row }">
+            <span v-if="row.next_run_at" class="time-text">{{ formatTime(row.next_run_at) }}</span>
+            <span v-else class="text-muted">-</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="上次结果" width="90" align="center">
+          <template #default="{ row }">
+            <el-tag :type="getRunStatusType(row.last_run_status)" size="small" round>
+              {{ getRunStatusText(row.last_run_status) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="耗时" width="80" align="center">
+          <template #default="{ row }">
+            <span v-if="row.last_running_time != null" class="time-text">{{ row.last_running_time.toFixed(1) }}s</span>
+            <span v-else class="text-muted">-</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="210" fixed="right" align="center">
+          <template #default="{ row }">
+            <div class="action-btns">
+              <el-button v-if="canOperateTasks && row.status !== 2" type="primary" text size="small" @click="handleRun(row)">运行</el-button>
+              <el-button v-else-if="canOperateTasks" type="warning" text size="small" @click="handleStop(row)">停止</el-button>
+              <el-button v-if="canOperateTasks" :type="row.status === 0 ? 'success' : 'danger'" text size="small" @click="handleToggle(row)">
+                {{ row.status === 0 ? '启用' : '禁用' }}
+              </el-button>
+              <el-button text size="small" @click="openLogViewer(row)">日志</el-button>
+              <el-button v-if="canOperateTasks" text size="small" @click="openEdit(row)">编辑</el-button>
+              <el-dropdown trigger="click">
+                <el-button text size="small"><el-icon><More /></el-icon></el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item @click="openDetail(row)">详情</el-dropdown-item>
+                    <el-dropdown-item @click="openLogFiles(row)">日志文件</el-dropdown-item>
+                    <el-dropdown-item v-if="canOperateTasks" @click="handleCopy(row)">复制</el-dropdown-item>
+                    <el-dropdown-item v-if="canOperateTasks" @click="handlePin(row)">{{ row.is_pinned ? '取消置顶' : '置顶' }}</el-dropdown-item>
+                    <el-dropdown-item v-if="canOperateTasks" divided @click="handleDelete(row)">
+                      <span style="color: var(--el-color-danger)">删除</span>
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </div>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
 
     <div class="pagination-bar">
+      <span class="pagination-total">共 {{ total }} 条数据</span>
       <el-pagination
         v-model:current-page="page"
         v-model:page-size="pageSize"
         :total="total"
         :page-sizes="[10, 20, 50, 100]"
-        layout="total, sizes, prev, pager, next"
+        layout="sizes, prev, pager, next"
         @current-change="loadTasks"
         @size-change="handlePageSizeChange"
       />
@@ -861,22 +984,185 @@ async function handleImport(event: Event) {
 .page-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
+  align-items: flex-start;
+  margin-bottom: 18px;
+  gap: 16px;
 
-  h2 { margin: 0; font-size: 20px; font-weight: 700; color: var(--el-text-color-primary); }
+  h2 {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--el-text-color-primary);
+    line-height: 1.3;
+  }
 
   .page-subtitle {
     font-size: 13px;
     color: var(--el-text-color-secondary);
-    display: block;
-    margin-top: 2px;
+    margin: 4px 0 0;
   }
 
   .header-actions {
     display: flex;
     gap: 10px;
+    flex-shrink: 0;
   }
+}
+
+.stat-cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.stat-card {
+  background: var(--el-bg-color);
+  border-radius: 14px;
+  padding: 16px 18px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  border: 1px solid var(--el-border-color-lighter);
+  transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s;
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.08);
+  }
+
+  &__content {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    flex: 1;
+  }
+
+  &__label {
+    font-size: 13px;
+    color: var(--el-text-color-secondary);
+    font-weight: 500;
+  }
+
+  &__value {
+    font-size: 26px;
+    font-weight: 700;
+    color: #3b82f6;
+    line-height: 1.15;
+    font-family: 'Inter', var(--dd-font-ui), sans-serif;
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+    letter-spacing: -0.01em;
+
+    &--orange { color: #f59e0b; }
+    &--green { color: #10b981; }
+    &--red { color: #ef4444; }
+    &--purple { color: #8b5cf6; }
+  }
+
+  &__sub {
+    font-size: 12px;
+    color: var(--el-text-color-placeholder);
+  }
+
+  &__icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+
+    &--blue {
+      background: rgba(59, 130, 246, 0.12);
+      color: #3b82f6;
+    }
+    &--orange {
+      background: rgba(245, 158, 11, 0.12);
+      color: #f59e0b;
+    }
+    &--green {
+      background: rgba(16, 185, 129, 0.12);
+      color: #10b981;
+    }
+    &--red {
+      background: rgba(239, 68, 68, 0.12);
+      color: #ef4444;
+    }
+    &--purple {
+      background: rgba(139, 92, 246, 0.12);
+      color: #8b5cf6;
+    }
+  }
+}
+
+.toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+  gap: 12px;
+  flex-wrap: wrap;
+
+  &__left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    flex: 1;
+    min-width: 0;
+  }
+
+  &__right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  &__search {
+    width: 260px;
+  }
+}
+
+.status-tabs {
+  display: inline-flex;
+  background: var(--el-fill-color-light);
+  border-radius: 10px;
+  padding: 3px;
+  gap: 2px;
+}
+
+.status-tab {
+  padding: 6px 14px;
+  border-radius: 7px;
+  border: none;
+  background: transparent;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.18s;
+  white-space: nowrap;
+
+  &:hover {
+    color: var(--el-text-color-primary);
+  }
+
+  &.active {
+    background: var(--el-bg-color);
+    color: var(--el-color-primary);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+    font-weight: 600;
+  }
+}
+
+.batch-actions {
+  display: flex;
+  gap: 8px;
 }
 
 :deep(.tag-with-dot) {
@@ -885,20 +1171,15 @@ async function handleImport(event: Event) {
   gap: 5px;
 }
 
-.filter-bar {
-  display: flex;
-  gap: 14px;
-  margin-bottom: 20px;
-  align-items: center;
-
-  .batch-actions {
-    display: flex;
-    gap: 8px;
-    margin-left: auto;
-  }
+.table-card {
+  background: var(--el-bg-color);
+  border-radius: 14px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  border: 1px solid var(--el-border-color-lighter);
+  overflow: hidden;
 }
 
-.task-name {
+.task-name-cell {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -907,10 +1188,41 @@ async function handleImport(event: Event) {
     color: var(--el-color-warning);
     cursor: pointer;
     font-size: 16px;
-  }
+    flex-shrink: 0;
 
-  .task-label {
-    font-size: 12px;
+    &.is-readonly {
+      cursor: default;
+    }
+  }
+}
+
+.task-name-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.task-name-text {
+  font-weight: 500;
+  color: var(--el-text-color-primary);
+}
+
+.task-name-inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.task-label {
+  font-size: 11px !important;
+  border-radius: 4px;
+
+  &--type {
+    background: rgba(64, 158, 255, 0.08);
+    color: #409eff;
+    border-color: transparent;
   }
 }
 
@@ -918,6 +1230,7 @@ async function handleImport(event: Event) {
   font-family: var(--dd-font-mono);
   font-size: 13px;
   color: var(--el-text-color-secondary);
+  word-break: break-all;
 
   .script-link {
     color: var(--el-color-primary);
@@ -930,18 +1243,13 @@ async function handleImport(event: Event) {
   font-family: var(--dd-font-mono);
   font-size: 13px;
   color: var(--el-text-color-secondary);
-  white-space: nowrap;
+  display: block;
 }
 
 .cron-text-list {
   display: flex;
   flex-direction: column;
   gap: 4px;
-}
-
-.cron-text--stacked {
-  white-space: pre-wrap;
-  word-break: break-all;
 }
 
 .time-text {
@@ -954,10 +1262,44 @@ async function handleImport(event: Event) {
   color: var(--el-text-color-placeholder);
 }
 
+.action-btns {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+
+  :deep(.el-button) {
+    padding: 4px 6px;
+  }
+}
+
 .pagination-bar {
   margin-top: 20px;
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 4px;
+}
+
+.pagination-total {
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+}
+
+:deep(.el-table) {
+  --el-table-border-color: #f0f0f0;
+
+  .el-table__header-wrapper th {
+    border-bottom: 1px solid #e8e8e8;
+  }
+
+  .el-table__row td {
+    border-bottom: 1px solid #f5f5f5;
+  }
+
+  .el-table__cell {
+    padding: 12px 0;
+  }
 }
 
 .task-card {
@@ -991,22 +1333,10 @@ async function handleImport(event: Event) {
   }
 }
 
-:deep(.el-table) {
-  font-size: 14px;
-
-  .el-table__cell {
-    padding: 14px 0;
+@media screen and (max-width: 1200px) {
+  .stat-cards {
+    grid-template-columns: repeat(2, 1fr);
   }
-}
-
-:deep(.el-button) {
-  font-size: 14px;
-  padding: 9px 18px;
-}
-
-:deep(.el-button--small) {
-  font-size: 13px;
-  padding: 7px 14px;
 }
 
 @media screen and (max-width: 768px) {
@@ -1024,28 +1354,50 @@ async function handleImport(event: Event) {
     }
   }
 
-  .filter-bar {
-    flex-wrap: wrap;
-    gap: 8px;
+  .stat-cards {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
 
-    :deep(.el-input),
-    :deep(.el-select) {
-      width: 100% !important;
+  .stat-card {
+    padding: 14px 16px;
+
+    &__value {
+      font-size: 22px;
     }
 
-    .batch-actions {
-      width: 100%;
-      margin-left: 0;
-      flex-wrap: wrap;
+    &__icon {
+      width: 40px;
+      height: 40px;
     }
   }
 
-  :deep(.el-table) {
-    font-size: 12px;
+  .toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
 
-    .el-table__cell {
-      padding: 8px 0;
+    &__left {
+      flex-direction: column;
+      gap: 10px;
     }
+
+    &__search {
+      width: 100% !important;
+    }
+
+    &__right {
+      justify-content: flex-end;
+    }
+  }
+
+  .status-tabs {
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .batch-actions {
+    flex-wrap: wrap;
   }
 }
 </style>

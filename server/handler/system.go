@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bufio"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -43,8 +44,10 @@ func (h *SystemHandler) Dashboard(c *gin.Context) {
 	var runningTasks int64
 	database.DB.Model(&model.Task{}).Where("status = ?", 2).Count(&runningTasks)
 
+	now := time.Now()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+
 	var todayLogs int64
-	today := time.Now().Truncate(24 * time.Hour)
 	database.DB.Model(&model.TaskLog{}).Where("created_at >= ?", today).Count(&todayLogs)
 
 	var successLogs int64
@@ -59,12 +62,28 @@ func (h *SystemHandler) Dashboard(c *gin.Context) {
 	var subCount int64
 	database.DB.Model(&model.Subscription{}).Count(&subCount)
 
+	var prevTaskCount int64
+	database.DB.Model(&model.Task{}).Where("created_at < ?", today).Count(&prevTaskCount)
+
+	yesterday := today.AddDate(0, 0, -1)
+	var yesterdayLogs int64
+	database.DB.Model(&model.TaskLog{}).Where("created_at >= ? AND created_at < ?", yesterday, today).Count(&yesterdayLogs)
+	var yesterdaySuccess int64
+	database.DB.Model(&model.TaskLog{}).Where("created_at >= ? AND created_at < ? AND status = 0", yesterday, today).Count(&yesterdaySuccess)
+
 	var recentLogs []model.TaskLog
 	database.DB.Preload("Task").Order("created_at DESC").Limit(10).Find(&recentLogs)
 
 	recentData := make([]map[string]interface{}, len(recentLogs))
 	for i, l := range recentLogs {
 		recentData[i] = l.ToDict()
+	}
+
+	rangeDays := 7
+	if r := c.Query("range"); r != "" {
+		if n, err := strconv.Atoi(r); err == nil && n > 0 && n <= 90 {
+			rangeDays = n
+		}
 	}
 
 	type DailyStat struct {
@@ -74,8 +93,8 @@ func (h *SystemHandler) Dashboard(c *gin.Context) {
 	}
 
 	var dailyStats []DailyStat
-	for i := 6; i >= 0; i-- {
-		day := time.Now().AddDate(0, 0, -i).Truncate(24 * time.Hour)
+	for i := rangeDays - 1; i >= 0; i-- {
+		day := today.AddDate(0, 0, -i)
 		nextDay := day.Add(24 * time.Hour)
 		date := day.Format("01-02")
 
@@ -87,16 +106,20 @@ func (h *SystemHandler) Dashboard(c *gin.Context) {
 
 	response.Success(c, gin.H{
 		"data": gin.H{
-			"task_count":    taskCount,
-			"enabled_tasks": enabledTasks,
-			"running_tasks": runningTasks,
-			"today_logs":    todayLogs,
-			"success_logs":  successLogs,
-			"failed_logs":   failedLogs,
-			"env_count":     envCount,
-			"sub_count":     subCount,
-			"recent_logs":   recentData,
-			"daily_stats":   dailyStats,
+			"task_count":        taskCount,
+			"enabled_tasks":     enabledTasks,
+			"running_tasks":     runningTasks,
+			"today_logs":        todayLogs,
+			"success_logs":      successLogs,
+			"failed_logs":       failedLogs,
+			"env_count":         envCount,
+			"sub_count":         subCount,
+			"prev_task_count":   prevTaskCount,
+			"yesterday_logs":    yesterdayLogs,
+			"yesterday_success": yesterdaySuccess,
+			"recent_logs":       recentData,
+			"daily_stats":       dailyStats,
+			"range_days":        rangeDays,
 		},
 	})
 }
@@ -304,7 +327,7 @@ func (h *SystemHandler) CheckUpdate(c *gin.Context) {
 	if planErr != nil {
 		autoUpdateSupported = false
 		updateDisabledReason = planErr.Error()
-		} else {
+	} else {
 		updateTarget = gin.H{
 			"container_name":  plan.ContainerName,
 			"image_name":      plan.ImageName,
@@ -398,6 +421,54 @@ func (h *SystemHandler) PanelLog(c *gin.Context) {
 	})
 }
 
+func (h *SystemHandler) HealthCheck(c *gin.Context) {
+	type checkItem struct {
+		Name    string `json:"name"`
+		Status  string `json:"status"`
+		Message string `json:"message,omitempty"`
+	}
+	var items []checkItem
+
+	// Database
+	if err := database.DB.Exec("SELECT 1").Error; err != nil {
+		items = append(items, checkItem{Name: "database", Status: "error", Message: err.Error()})
+	} else {
+		items = append(items, checkItem{Name: "database", Status: "ok"})
+	}
+
+	// Memory
+	info := service.GetResourceInfo()
+	memThreshold := float64(model.GetRegisteredConfigInt("memory_warn"))
+	if memThreshold <= 0 {
+		memThreshold = 80
+	}
+	if info.MemoryUsage > memThreshold {
+		items = append(items, checkItem{Name: "memory", Status: "warning", Message: strconv.FormatFloat(info.MemoryUsage, 'f', 1, 64) + "%"})
+	} else {
+		items = append(items, checkItem{Name: "memory", Status: "ok", Message: strconv.FormatFloat(info.MemoryUsage, 'f', 1, 64) + "%"})
+	}
+
+	// Scheduler
+	if sched := service.GetScheduler(); sched != nil {
+		items = append(items, checkItem{Name: "scheduler", Status: "ok", Message: "运行中"})
+	} else if schedV2 := service.GetSchedulerV2(); schedV2 != nil {
+		items = append(items, checkItem{Name: "scheduler", Status: "ok", Message: "运行中"})
+	} else {
+		items = append(items, checkItem{Name: "scheduler", Status: "ok", Message: "空闲"})
+	}
+
+	// Network
+	client := &http.Client{Timeout: 3 * time.Second}
+	if resp, err := client.Get("https://www.baidu.com"); err != nil {
+		items = append(items, checkItem{Name: "network", Status: "error", Message: "无法连接外部网络"})
+	} else {
+		resp.Body.Close()
+		items = append(items, checkItem{Name: "network", Status: "ok"})
+	}
+
+	response.Success(c, gin.H{"items": items})
+}
+
 func (h *SystemHandler) RegisterRoutes(r *gin.RouterGroup) {
 	r.GET("/system/public-version", h.PublicVersion)
 	r.GET("/system/panel-settings", h.PanelSettings)
@@ -409,6 +480,7 @@ func (h *SystemHandler) RegisterRoutes(r *gin.RouterGroup) {
 		sys.GET("/stats", middleware.OpenAPIAccess("system"), middleware.RequireRole("viewer"), h.Stats)
 		sys.GET("/version", middleware.OpenAPIAccess("system"), middleware.RequireRole("viewer"), h.Version)
 		sys.GET("/check-update", middleware.OpenAPIAccess("system"), middleware.RequireRole("viewer"), h.CheckUpdate)
+		sys.GET("/health-check", middleware.RequireRole("viewer"), h.HealthCheck)
 		sys.GET("/update-status", middleware.RequireAdmin(), h.UpdateStatus)
 		sys.POST("/update", middleware.RequireAdmin(), h.UpdatePanel)
 		sys.POST("/restart", middleware.RequireAdmin(), h.Restart)

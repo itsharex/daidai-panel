@@ -1,4 +1,4 @@
-import { onBeforeUnmount, onMounted, watch } from 'vue'
+import { onActivated, onBeforeUnmount, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useScriptWorkspaceActions } from './useScriptWorkspaceActions'
 import { useScriptWorkspaceBrowser } from './useScriptWorkspaceBrowser'
@@ -18,23 +18,25 @@ export function useScriptWorkspace() {
     loadTree: browser.loadTree,
     loadFileContent: browser.loadFileContent
   })
+  let skipInitialActivated = true
 
   onMounted(() => {
     window.addEventListener('keydown', actions.handleKeyDown)
-    window.addEventListener('resize', browser.handleResize)
+    void browser.loadTree()
+  })
+
+  onActivated(() => {
+    if (skipInitialActivated) {
+      skipInitialActivated = false
+      return
+    }
+    void browser.loadTree()
   })
 
   async function openFileFromRoute(fileParam?: string) {
     if (!fileParam) return
 
-    const previousSelectedFile = browser.selectedFile.value
-    browser.selectedFile.value = fileParam
-    const loaded = await browser.loadFileContent(fileParam)
-    if (!loaded) {
-      browser.selectedFile.value = previousSelectedFile
-    } else {
-      browser.mobileShowEditor.value = true
-    }
+    await browser.openFile(fileParam)
     await router.replace({ path: '/scripts' })
   }
 
@@ -49,12 +51,21 @@ export function useScriptWorkspace() {
     { immediate: true }
   )
 
+  watch(
+    () => route.query.upload,
+    (uploadParam) => {
+      if (uploadParam !== '1') {
+        return
+      }
+      actions.openUploadDialog()
+      void router.replace({ path: '/scripts' })
+    },
+    { immediate: true }
+  )
+
   onBeforeUnmount(() => {
     window.removeEventListener('keydown', actions.handleKeyDown)
-    window.removeEventListener('resize', browser.handleResize)
   })
-
-  void browser.loadTree()
 
   return {
     ...browser,

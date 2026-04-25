@@ -1,10 +1,20 @@
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { scriptApi } from '@/api/script'
+import { useResponsive } from '@/composables/useResponsive'
 import type { TreeNode } from './types'
 
+type ScriptBrowserState = {
+  selectedFile: string
+  fileContent: string
+  originalContent: string
+  isBinary: boolean
+  isEditing: boolean
+  mobileShowEditor: boolean
+}
+
 export function useScriptWorkspaceBrowser() {
-  const isMobile = ref(window.innerWidth <= 768)
+  const { isMobile } = useResponsive()
   const mobileShowEditor = ref(false)
 
   const fileTree = ref<TreeNode[]>([])
@@ -55,11 +65,30 @@ export function useScriptWorkspaceBrowser() {
     return folders
   })
 
-  function handleResize() {
-    isMobile.value = window.innerWidth <= 768
-    if (!isMobile.value) {
+  watch(isMobile, (mobile) => {
+    if (!mobile) {
       mobileShowEditor.value = false
     }
+  })
+
+  function snapshotState(): ScriptBrowserState {
+    return {
+      selectedFile: selectedFile.value,
+      fileContent: fileContent.value,
+      originalContent: originalContent.value,
+      isBinary: isBinary.value,
+      isEditing: isEditing.value,
+      mobileShowEditor: mobileShowEditor.value
+    }
+  }
+
+  function restoreState(state: ScriptBrowserState) {
+    selectedFile.value = state.selectedFile
+    fileContent.value = state.fileContent
+    originalContent.value = state.originalContent
+    isBinary.value = state.isBinary
+    isEditing.value = state.isEditing
+    mobileShowEditor.value = state.mobileShowEditor
   }
 
   async function loadTree() {
@@ -90,43 +119,55 @@ export function useScriptWorkspaceBrowser() {
     }
   }
 
-  async function handleNodeClick(data: TreeNode) {
-    if (!data.isLeaf) return
-    if (hasChanges.value) {
-      try {
-        await ElMessageBox.confirm('当前文件有未保存的修改，是否放弃？', '提示', {
-          confirmButtonText: '放弃',
-          cancelButtonText: '取消',
-          type: 'warning'
-        })
-      } catch {
-        return
-      }
+  async function confirmOpenFile(path: string, skipUnsavedCheck = false) {
+    if (skipUnsavedCheck || !hasChanges.value || path === selectedFile.value) {
+      return true
     }
 
-    const previousState = {
-      selectedFile: selectedFile.value,
-      fileContent: fileContent.value,
-      originalContent: originalContent.value,
-      isBinary: isBinary.value,
-      isEditing: isEditing.value,
-      mobileShowEditor: mobileShowEditor.value,
+    try {
+      await ElMessageBox.confirm('当前文件有未保存的修改，是否放弃？', '提示', {
+        confirmButtonText: '放弃',
+        cancelButtonText: '取消',
+        type: 'warning'
+      })
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  async function openFile(path: string, options: { skipUnsavedCheck?: boolean } = {}) {
+    const normalizedPath = path.trim()
+    if (!normalizedPath) {
+      return false
     }
 
-    selectedFile.value = data.key
+    if (normalizedPath === selectedFile.value) {
+      mobileShowEditor.value = true
+      return true
+    }
+
+    const canProceed = await confirmOpenFile(normalizedPath, options.skipUnsavedCheck ?? false)
+    if (!canProceed) {
+      return false
+    }
+
+    const previousState = snapshotState()
+    selectedFile.value = normalizedPath
     isEditing.value = false
-    const loaded = await loadFileContent(data.key)
+    const loaded = await loadFileContent(normalizedPath)
     if (!loaded) {
-      selectedFile.value = previousState.selectedFile
-      fileContent.value = previousState.fileContent
-      originalContent.value = previousState.originalContent
-      isBinary.value = previousState.isBinary
-      isEditing.value = previousState.isEditing
-      mobileShowEditor.value = previousState.mobileShowEditor
-      return
+      restoreState(previousState)
+      return false
     }
 
     mobileShowEditor.value = true
+    return true
+  }
+
+  async function handleNodeClick(data: TreeNode) {
+    if (!data.isLeaf) return
+    await openFile(data.key)
   }
 
   function allowDrag(draggingNode: any) {
@@ -178,9 +219,9 @@ export function useScriptWorkspaceBrowser() {
     editorLanguage,
     hasChanges,
     allFolders,
-    handleResize,
     loadTree,
     loadFileContent,
+    openFile,
     handleNodeClick,
     allowDrag,
     allowDrop,

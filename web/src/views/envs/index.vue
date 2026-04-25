@@ -45,6 +45,7 @@ const pinnedCountInCurrentPage = computed(() =>
   envList.value.filter((item) => isTopPinned(item)).length
 )
 const currentPageOffset = computed(() => (showAllEnvs.value ? 0 : (page.value - 1) * pageSize.value))
+const statusFilter = ref<'' | 'enabled' | 'disabled'>('')
 const showFooterBar = computed(() => total.value > 0 || selectedCountInCurrentPage.value > 0)
 const showPager = computed(() => !showAllEnvs.value && total.value > pageSize.value)
 const sortableEnabled = computed(() => !showAllEnvs.value && envList.value.length >= 2)
@@ -57,6 +58,27 @@ const pageSizeOptions: Array<{ label: string; value: EnvPageSizeSelection }> = [
 const selectionScopeText = computed(() =>
   showAllEnvs.value ? '批量操作作用于当前已勾选的数据。' : '批量操作仅作用于当前页勾选的数据。'
 )
+const envStats = computed(() => {
+  const list = filteredEnvList.value
+  const totalCount = list.length
+  const enabledCount = list.filter(item => item.enabled).length
+  const remarkCount = list.filter(item => item.remarks && item.remarks.length > 0).length
+  const lastUpdated = list.reduce((latest: string, item: any) => {
+    if (!item.updated_at) return latest
+    return !latest || new Date(item.updated_at) > new Date(latest) ? item.updated_at : latest
+  }, '')
+  return { totalCount, enabledCount, remarkCount, lastUpdated }
+})
+const filteredEnvList = computed(() => {
+  if (statusFilter.value === 'enabled') return envList.value.filter(item => item.enabled)
+  if (statusFilter.value === 'disabled') return envList.value.filter(item => !item.enabled)
+  return envList.value
+})
+const mobileEmptyDescription = computed(() =>
+  statusFilter.value ? '当前筛选条件下暂无环境变量' : '暂无环境变量'
+)
+const envTableClass = computed(() => ['env-table', 'env-table--' + tableDensity.value])
+const envTableHeaderStyle = { background: '#f8fafc', color: '#64748b', fontWeight: 600, fontSize: '13px' }
 const tableDensity = ref<'comfortable' | 'compact'>(
   typeof window !== 'undefined' && window.localStorage.getItem(envTableDensityStorageKey) === 'compact'
     ? 'compact'
@@ -290,7 +312,8 @@ async function loadData() {
     const group = groupFilter.value || currentGroup.value || undefined
     const params = {
       keyword: keyword.value || undefined,
-      group
+      group,
+      enabled: statusFilter.value === 'enabled' ? true : statusFilter.value === 'disabled' ? false : undefined
     }
 
     if (showAllEnvs.value) {
@@ -396,7 +419,6 @@ async function initSortable() {
     const Sortable = await loadSortable()
     sortableInstance = Sortable.create(el as HTMLElement, {
       animation: 150,
-      handle: '.drag-handle',
       ghostClass: 'sortable-ghost',
       chosenClass: 'sortable-chosen',
       dragClass: 'sortable-drag',
@@ -742,21 +764,102 @@ function formatDateTime(t: string | null) {
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}  ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
+
+function formatShortDateTime(t: string | null) {
+  if (!t) return '-'
+  const d = new Date(t)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+function handleStatusFilter(value: '' | 'enabled' | 'disabled') {
+  if (statusFilter.value === value) {
+    return
+  }
+  statusFilter.value = value
+  page.value = 1
+  void loadData()
+}
 </script>
 
 <template>
   <div class="envs-page">
-    <div class="page-title-bar">
-      <h2>环境变量</h2>
-      <span class="page-subtitle">管理运行时使用的全局环境变量配置</span>
-    </div>
     <div class="page-header">
-      <div class="header-left">
+      <div>
+        <h2>🔧 环境变量</h2>
+        <p class="page-subtitle">管理运行时环境变量和全局配置参数，支持任务级和全局变量管理</p>
+      </div>
+      <div class="header-actions">
+        <el-dropdown trigger="click">
+          <el-button><el-icon><More /></el-icon></el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item @click="handleExportAll">导出 JSON</el-dropdown-item>
+              <el-dropdown-item @click="exportFormat = 'shell'; handleExportFiles()">导出 Shell</el-dropdown-item>
+              <el-dropdown-item @click="exportFormat = 'js'; handleExportFiles()">导出 JS</el-dropdown-item>
+              <el-dropdown-item @click="exportFormat = 'python'; handleExportFiles()">导出 Python</el-dropdown-item>
+              <el-dropdown-item divided @click="showImportDialog = true">导入</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+      </div>
+    </div>
+
+    <div class="stat-cards">
+      <div class="stat-card">
+        <div class="stat-card__content">
+          <span class="stat-card__label">当前页变量</span>
+          <span class="stat-card__value">{{ envStats.totalCount }}</span>
+          <span class="stat-card__sub">本页展示变量</span>
+        </div>
+        <div class="stat-card__icon stat-card__icon--blue">
+          <el-icon :size="22"><Clock /></el-icon>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card__content">
+          <span class="stat-card__label">本页启用</span>
+          <span class="stat-card__value stat-card__value--green">{{ envStats.enabledCount }}</span>
+          <span class="stat-card__sub">当前页生效变量</span>
+        </div>
+        <div class="stat-card__icon stat-card__icon--green">
+          <el-icon :size="22"><Check /></el-icon>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card__content">
+          <span class="stat-card__label">备注变量</span>
+          <span class="stat-card__value stat-card__value--orange">{{ envStats.remarkCount }}</span>
+          <span class="stat-card__sub">当前页有备注</span>
+        </div>
+        <div class="stat-card__icon stat-card__icon--orange">
+          <el-icon :size="22"><Connection /></el-icon>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card__content">
+          <span class="stat-card__label">本页最近更新</span>
+          <span class="stat-card__value stat-card__value--green" style="font-size: 18px;">{{ formatShortDateTime(envStats.lastUpdated) }}</span>
+          <span class="stat-card__sub">当前页最后更新时间</span>
+        </div>
+        <div class="stat-card__icon stat-card__icon--green">
+          <el-icon :size="22"><Timer /></el-icon>
+        </div>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <div class="toolbar__left">
+        <div class="status-tabs">
+          <button :class="['status-tab', { active: statusFilter === '' }]" @click="handleStatusFilter('')">全部变量</button>
+          <button :class="['status-tab', { active: statusFilter === 'enabled' }]" @click="handleStatusFilter('enabled')">已启用</button>
+          <button :class="['status-tab', { active: statusFilter === 'disabled' }]" @click="handleStatusFilter('disabled')">已禁用</button>
+        </div>
         <el-input
           v-model="keyword"
           placeholder="搜索变量名、值、备注或分组"
           clearable
-          style="width: 240px"
+          class="toolbar__search"
           @keyup.enter="handleSearch"
           @clear="handleSearch"
         >
@@ -766,72 +869,24 @@ function formatDateTime(t: string | null) {
           <el-option v-for="g in groups" :key="g" :label="g" :value="g" />
         </el-select>
       </div>
-      <div class="header-right">
-        <div class="table-density-switch">
-          <span class="density-label">排版</span>
-          <el-radio-group v-model="tableDensity" size="small" @change="handleDensityChange">
-            <el-radio-button value="comfortable">舒展</el-radio-button>
-            <el-radio-button value="compact">紧凑</el-radio-button>
-          </el-radio-group>
+      <div class="toolbar__right">
+        <div v-if="selectedIds.length > 0" class="batch-actions">
+          <el-button @click="handleBatchRename">批量改名</el-button>
+          <el-button @click="handleBatchEnable">批量启用</el-button>
+          <el-button @click="handleBatchDisable">批量禁用</el-button>
+          <el-button @click="handleBatchGroup">批量分组</el-button>
+          <el-button type="danger" @click="handleBatchDelete">批量删除</el-button>
         </div>
-        <div class="env-toolbar-actions env-toolbar-actions--entry">
-          <el-button type="primary" @click="openCreate">
-            <el-icon><Plus /></el-icon>新建
-          </el-button>
-        </div>
-        <div class="env-toolbar-actions env-toolbar-actions--batch">
-          <el-button @click="handleBatchRename" :disabled="selectedIds.length === 0">
-            <el-icon><Edit /></el-icon>批量改名
-          </el-button>
-          <el-button @click="handleBatchEnable" :disabled="selectedIds.length === 0">
-            <el-icon><Check /></el-icon>批量启用
-          </el-button>
-          <el-button @click="handleBatchDisable" :disabled="selectedIds.length === 0">
-            <el-icon><Close /></el-icon>批量禁用
-          </el-button>
-          <el-button @click="handleBatchDelete" :disabled="selectedIds.length === 0">
-            <el-icon><Delete /></el-icon>批量删除
-          </el-button>
-          <el-button @click="handleBatchGroup" :disabled="selectedIds.length === 0">
-            <el-icon><FolderAdd /></el-icon>批量分组
-          </el-button>
-        </div>
-        <div class="env-toolbar-actions env-toolbar-actions--io">
-          <el-dropdown class="env-toolbar-actions__dropdown" trigger="click">
-            <el-button>
-              <el-icon><Download /></el-icon>导出
-            </el-button>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item @click="handleExportAll">导出 JSON</el-dropdown-item>
-                <el-dropdown-item @click="exportFormat = 'shell'; handleExportFiles()">导出 Shell</el-dropdown-item>
-                <el-dropdown-item @click="exportFormat = 'js'; handleExportFiles()">导出 JS</el-dropdown-item>
-                <el-dropdown-item @click="exportFormat = 'python'; handleExportFiles()">导出 Python</el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
-          <el-button @click="showImportDialog = true">
-            <el-icon><Upload /></el-icon>导入
-          </el-button>
-        </div>
-      </div>
-    </div>
-
-    <div class="env-hint-bar">
-      <div class="env-hint-chip">
-        <el-icon><Rank /></el-icon>
-        拖拽只调整同一区域顺序，置顶请使用图钉按钮
-      </div>
-      <div class="env-hint-chip" v-if="pinnedCountInCurrentPage > 0">
-        <el-icon><Top /></el-icon>
-        当前页有 {{ pinnedCountInCurrentPage }} 项置顶
+        <el-button type="primary" @click="openCreate">
+          <el-icon><Plus /></el-icon> 新建变量
+        </el-button>
       </div>
     </div>
 
     <div v-if="isMobile" class="env-mobile-scroll">
       <div class="dd-mobile-list env-mobile-list">
         <div
-          v-for="row in envList"
+          v-for="row in filteredEnvList"
           :key="row.id"
           class="dd-mobile-card env-card"
           :class="{ 'env-card--pinned': isTopPinned(row) }"
@@ -850,7 +905,6 @@ function formatDateTime(t: string | null) {
                   </div>
                 </div>
                 <div class="env-card__tools">
-                  <el-icon class="drag-handle" :class="{ 'drag-handle--disabled': !sortableEnabled }"><Rank /></el-icon>
                   <span v-if="row.group" class="group-pill" :style="getGroupBadgeStyle(row.group)">
                     <span class="group-dot" />
                     {{ row.group }}
@@ -906,7 +960,7 @@ function formatDateTime(t: string | null) {
           </div>
         </div>
 
-        <el-empty v-if="!loading && envList.length === 0" description="暂无环境变量" />
+        <el-empty v-if="!loading && filteredEnvList.length === 0" :description="mobileEmptyDescription" />
       </div>
     </div>
 
@@ -931,207 +985,121 @@ function formatDateTime(t: string | null) {
       </el-empty>
     </div>
 
-    <el-table
-      v-else
-      ref="tableRef"
-      :data="envList"
-      v-loading="loading"
-      @selection-change="handleSelectionChange"
-      :row-class-name="getRowClassName"
-      stripe
-      :class="['env-table', `env-table--${tableDensity}`]"
-      row-key="id"
-    >
-      <el-table-column type="selection" width="44" />
-      <el-table-column label="#" width="58" align="center">
-        <template #default="{ $index }">
-          <span class="row-index">{{ currentPageOffset + $index + 1 }}</span>
-        </template>
-      </el-table-column>
-      <el-table-column width="44" align="center">
-        <template #default>
-          <el-icon class="drag-handle" :class="{ 'drag-handle--disabled': !sortableEnabled }"><Rank /></el-icon>
-        </template>
-      </el-table-column>
-      <el-table-column prop="name" label="变量名" min-width="188">
-        <template #header>
-          <div class="table-header-label is-primary">
-            <span>变量名</span>
-            <small>唯一键名</small>
-          </div>
-        </template>
-        <template #default="{ row }">
-          <div class="env-name-wrap">
-            <span class="env-name">{{ row.name }}</span>
-            <span v-if="isTopPinned(row)" class="pinned-chip">
-              <el-icon><Top /></el-icon>
-              置顶
-            </span>
-          </div>
-        </template>
-      </el-table-column>
-      <el-table-column prop="value" label="值" min-width="280">
-        <template #header>
-          <div class="table-header-label is-primary">
-            <span>值</span>
-            <small>主信息区域</small>
-          </div>
-        </template>
-        <template #default="{ row }">
-          <div class="env-value-cell">
-            <span class="env-value-text" :title="row.value || ''">{{ row.value || '-' }}</span>
-            <el-tooltip v-if="row.value" content="复制" placement="top">
-              <el-button class="env-copy-btn" size="small" link @click.stop="copyEnvValue(row.value)">
-                <el-icon :size="14"><CopyDocument /></el-icon>
-              </el-button>
-            </el-tooltip>
-          </div>
-        </template>
-      </el-table-column>
-      <el-table-column prop="remarks" label="备注" min-width="180">
-        <template #header>
-          <div class="table-header-label">
-            <span>备注</span>
-            <small>用途说明</small>
-          </div>
-        </template>
-        <template #default="{ row }">
-          <span class="env-remarks-text" :title="row.remarks || ''">{{ row.remarks || '-' }}</span>
-        </template>
-      </el-table-column>
-      <el-table-column prop="group" label="分组" width="120" align="center">
-        <template #header>
-          <div class="table-header-label is-aux">
-            <span>分组</span>
-            <small>归类标签</small>
-          </div>
-        </template>
-        <template #default="{ row }">
-          <span v-if="row.group" class="group-pill" :style="getGroupBadgeStyle(row.group)">
-            <span class="group-dot" />
-            {{ row.group }}
-          </span>
-          <span v-else class="env-empty-text">未分组</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="状态" width="92" align="center">
-        <template #header>
-          <div class="table-header-label is-aux">
-            <span>状态</span>
-            <small>启用开关</small>
-          </div>
-        </template>
-        <template #default="{ row }">
-          <div class="env-status-cell">
-            <el-switch
-              :model-value="row.enabled"
-              size="small"
-              @change="handleToggle(row)"
-            />
-            <span class="env-status-text" :class="{ enabled: row.enabled }">
-              {{ row.enabled ? '启用' : '禁用' }}
-            </span>
-          </div>
-        </template>
-      </el-table-column>
-      <el-table-column label="更新时间" width="168" align="center">
-        <template #header>
-          <div class="table-header-label is-aux">
-            <span>更新时间</span>
-            <small>最近修改</small>
-          </div>
-        </template>
-        <template #default="{ row }">
-          <span class="time-text">{{ formatDateTime(row.updated_at) }}</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="操作" width="176" align="center">
-        <template #default="{ row }">
-          <div class="action-group">
-            <el-tooltip content="编辑" placement="top">
-              <el-button size="small" type="primary" plain circle @click="openEdit(row)">
-                <el-icon><Edit /></el-icon>
-              </el-button>
-            </el-tooltip>
-            <el-tooltip content="复制同名变量" placement="top">
-              <el-button size="small" plain circle @click="openDuplicate(row)">
-                <el-icon><CopyDocument /></el-icon>
-              </el-button>
-            </el-tooltip>
-            <el-tooltip :content="isTopPinned(row) ? '取消置顶' : '置顶'" placement="top">
-              <el-button
-                size="small"
-                :type="isTopPinned(row) ? 'info' : 'warning'"
-                :class="{ 'top-action-active': isTopPinned(row) }"
-                plain
-                circle
-                @click="handleToggleTop(row)"
-              >
+    <div v-else class="table-card">
+      <el-table
+        ref="tableRef"
+        :data="filteredEnvList"
+        v-loading="loading"
+        @selection-change="handleSelectionChange"
+        :row-class-name="getRowClassName"
+        :class="envTableClass"
+        :header-cell-style="envTableHeaderStyle"
+        row-key="id"
+        style="width: 100%"
+      >
+        <el-table-column type="selection" width="44" />
+        <el-table-column prop="name" label="名称" min-width="188">
+          <template #default="{ row }">
+            <div class="env-name-wrap">
+              <span class="env-name">{{ row.name }}</span>
+              <span v-if="isTopPinned(row)" class="pinned-chip">
                 <el-icon><Top /></el-icon>
-              </el-button>
-            </el-tooltip>
-            <el-tooltip content="删除" placement="top">
-              <el-button size="small" type="danger" plain circle @click="handleDelete(row.id)">
-                <el-icon><Delete /></el-icon>
-              </el-button>
-            </el-tooltip>
-          </div>
-        </template>
-      </el-table-column>
-    </el-table>
+                置顶
+              </span>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column prop="value" label="值" min-width="280">
+          <template #default="{ row }">
+            <div class="env-value-cell">
+              <span class="env-value-text" :title="row.value || ''">{{ row.value || '-' }}</span>
+              <el-tooltip v-if="row.value" content="复制" placement="top">
+                <el-button class="env-copy-btn" size="small" link @click.stop="copyEnvValue(row.value)">
+                  <el-icon :size="14"><CopyDocument /></el-icon>
+                </el-button>
+              </el-tooltip>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column prop="remarks" label="备注" min-width="180">
+          <template #default="{ row }">
+            <span class="env-remarks-text" :title="row.remarks || ''">{{ row.remarks || '-' }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="group" label="关联任务" width="120" align="center">
+          <template #default="{ row }">
+            <span v-if="row.group" class="group-pill" :style="getGroupBadgeStyle(row.group)">
+              <span class="group-dot" />
+              {{ row.group }}
+            </span>
+            <span v-else class="env-empty-text">未分组</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="92" align="center">
+          <template #default="{ row }">
+            <div class="env-status-cell">
+              <el-switch
+                :model-value="row.enabled"
+                size="small"
+                @change="handleToggle(row)"
+              />
+              <span class="env-status-text" :class="{ enabled: row.enabled }">
+                {{ row.enabled ? '启用' : '禁用' }}
+              </span>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="更新时间" width="168" align="center">
+          <template #default="{ row }">
+            <span class="time-text">{{ formatDateTime(row.updated_at) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="176" align="center">
+          <template #default="{ row }">
+            <div class="action-group">
+              <el-tooltip content="编辑" placement="top">
+                <el-button size="small" type="primary" plain circle @click="openEdit(row)">
+                  <el-icon><Edit /></el-icon>
+                </el-button>
+              </el-tooltip>
+              <el-tooltip content="复制同名变量" placement="top">
+                <el-button size="small" plain circle @click="openDuplicate(row)">
+                  <el-icon><CopyDocument /></el-icon>
+                </el-button>
+              </el-tooltip>
+              <el-tooltip :content="isTopPinned(row) ? '取消置顶' : '置顶'" placement="top">
+                <el-button
+                  size="small"
+                  :type="isTopPinned(row) ? 'info' : 'warning'"
+                  :class="{ 'top-action-active': isTopPinned(row) }"
+                  plain
+                  circle
+                  @click="handleToggleTop(row)"
+                >
+                  <el-icon><Top /></el-icon>
+                </el-button>
+              </el-tooltip>
+              <el-tooltip content="删除" placement="top">
+                <el-button size="small" type="danger" plain circle @click="handleDelete(row.id)">
+                  <el-icon><Delete /></el-icon>
+                </el-button>
+              </el-tooltip>
+            </div>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
 
-    <div v-if="showFooterBar" class="table-footer-bar">
-      <div class="selection-summary" :class="{ active: selectedCountInCurrentPage > 0 }">
-        <span v-if="selectedCountInCurrentPage > 0">
-          {{ showAllEnvs ? `已选择 ${selectedCountInCurrentPage} 项，${selectionScopeText}` : `已选择当前页 ${selectedCountInCurrentPage} 项，${selectionScopeText}` }}
-        </span>
-        <span v-else>
-          {{ selectionScopeText }}
-        </span>
-        <el-button v-if="selectedCountInCurrentPage > 0" text type="primary" @click="clearTableSelection">
-          清空选择
-        </el-button>
-      </div>
-
-      <span v-if="showAllEnvs" class="sort-suspend-hint">
-        “全部”模式已暂停拖拽排序，可明显降低大列表场景下的页面占用。
-      </span>
-
-      <div class="pagination-container">
-        <div class="page-size-control">
-          <span class="page-size-label">每页显示</span>
-          <el-select
-            :model-value="pageSizeSelection"
-            size="small"
-            style="width: 110px"
-            @change="handlePageSizeChange"
-          >
-            <el-option
-              v-for="option in pageSizeOptions"
-              :key="option.value"
-              :label="option.label"
-              :value="option.value"
-            />
-          </el-select>
-        </div>
-
-        <span v-if="showAllEnvs" class="page-size-status">
-          已显示全部 {{ total }} 项
-        </span>
-
-        <el-pagination
-          v-else-if="showPager"
-          v-model:current-page="page"
-          :page-size="pageSize"
-          :total="total"
-          layout="total, prev, pager, next"
-          @current-change="handlePageChange"
-        />
-
-        <span v-else class="page-size-status">
-          共 {{ total }} 项
-        </span>
-      </div>
+    <div class="pagination-bar">
+      <span class="pagination-total">共 {{ total }} 条数据</span>
+      <el-pagination
+        v-if="showPager"
+        v-model:current-page="page"
+        :page-size="pageSize"
+        :total="total"
+        layout="prev, pager, next"
+        @current-change="handlePageChange"
+      />
     </div>
 
     <el-dialog v-model="showExportDialog" title="导出环境变量" width="600px" :fullscreen="isMobile">
@@ -1186,103 +1154,263 @@ function formatDateTime(t: string | null) {
   padding: 0;
 }
 
-.page-title-bar {
-  margin-bottom: 16px;
+/* ---- Page Header ---- */
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 18px;
+  gap: 16px;
 
-  h2 { margin: 0; font-size: 20px; font-weight: 700; color: var(--el-text-color-primary); }
+  h2 {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--el-text-color-primary);
+    line-height: 1.3;
+  }
 
   .page-subtitle {
     font-size: 13px;
     color: var(--el-text-color-secondary);
-    display: block;
-    margin-top: 2px;
+    margin: 4px 0 0;
+  }
+
+  .header-actions {
+    display: flex;
+    gap: 10px;
+    flex-shrink: 0;
   }
 }
 
-.page-header {
-  display: flex;
-  justify-content: flex-start;
-  align-items: stretch;
-  flex-direction: column;
-  margin-bottom: 16px;
-  gap: 12px;
+/* ---- Stat Cards ---- */
+.stat-cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-bottom: 18px;
+}
 
-  .header-left {
+.stat-card {
+  background: var(--el-bg-color);
+  border-radius: 14px;
+  padding: 16px 18px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  border: 1px solid var(--el-border-color-lighter);
+  transition: transform 0.22s ease, box-shadow 0.22s ease;
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.08);
+  }
+
+  &__content {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    flex: 1;
+  }
+
+  &__label {
+    font-size: 13px;
+    color: var(--el-text-color-secondary);
+    font-weight: 500;
+  }
+
+  &__value {
+    font-size: 26px;
+    font-weight: 700;
+    color: #3b82f6;
+    line-height: 1.15;
+    font-family: 'Inter', var(--dd-font-ui), sans-serif;
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+    letter-spacing: -0.01em;
+
+    &--orange { color: #f59e0b; }
+    &--green { color: #10b981; }
+    &--red { color: #ef4444; }
+    &--purple { color: #8b5cf6; }
+  }
+
+  &__sub {
+    font-size: 12px;
+    color: var(--el-text-color-placeholder);
+  }
+
+  &__icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+
+    &--blue {
+      background: rgba(59, 130, 246, 0.12);
+      color: #3b82f6;
+    }
+    &--orange {
+      background: rgba(245, 158, 11, 0.12);
+      color: #f59e0b;
+    }
+    &--green {
+      background: rgba(16, 185, 129, 0.12);
+      color: #10b981;
+    }
+    &--red {
+      background: rgba(239, 68, 68, 0.12);
+      color: #ef4444;
+    }
+    &--purple {
+      background: rgba(139, 92, 246, 0.12);
+      color: #8b5cf6;
+    }
+  }
+}
+
+/* ---- Toolbar ---- */
+.toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+  gap: 12px;
+  flex-wrap: wrap;
+
+  &__left {
     display: flex;
     align-items: center;
     gap: 12px;
     flex-wrap: wrap;
+    flex: 1;
     min-width: 0;
   }
 
-  .header-right {
+  &__right {
     display: flex;
-    align-items: flex-start;
-    align-content: flex-start;
-    gap: 10px 12px;
-    flex-wrap: wrap;
-    justify-content: flex-start;
-    min-width: 0;
+    align-items: center;
+    gap: 8px;
+  }
+
+  &__search {
+    width: 260px;
   }
 }
 
-.env-toolbar-actions {
+.status-tabs {
   display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  min-width: 0;
-
-  > * {
-    min-width: 0;
-  }
+  background: var(--el-fill-color-light);
+  border-radius: 10px;
+  padding: 3px;
+  gap: 2px;
 }
 
-.env-toolbar-actions__dropdown {
-  min-width: 0;
-}
-
-.table-density-switch {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 10px;
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--el-fill-color-light) 88%, white);
-  align-self: flex-start;
-}
-
-.density-label {
-  font-size: 12px;
-  font-weight: 700;
+.status-tab {
+  padding: 6px 14px;
+  border-radius: 7px;
+  border: none;
+  background: transparent;
   color: var(--el-text-color-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.18s;
+  white-space: nowrap;
+
+  &:hover {
+    color: var(--el-text-color-primary);
+  }
+
+  &.active {
+    background: var(--el-bg-color);
+    color: var(--el-color-primary);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+    font-weight: 600;
+  }
 }
 
-.env-hint-bar {
+.batch-actions {
   display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-bottom: 14px;
+  gap: 8px;
 }
 
-.env-hint-chip {
-  display: inline-flex;
+/* ---- Table Card ---- */
+.table-card {
+  background: var(--el-bg-color);
+  border-radius: 14px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  border: 1px solid var(--el-border-color-lighter);
+  overflow: hidden;
+}
+
+/* ---- Pagination Bar ---- */
+.pagination-bar {
+  margin-top: 20px;
+  display: flex;
+  justify-content: space-between;
   align-items: center;
-  gap: 6px;
-  padding: 8px 12px;
-  border-radius: 999px;
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-  background: color-mix(in srgb, var(--el-color-primary) 7%, var(--el-bg-color));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--el-color-primary) 14%, transparent);
+  padding: 0 4px;
 }
 
+.pagination-total {
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+}
+
+/* ---- Table internals ---- */
+:deep(.el-table) {
+  --el-table-border-color: #f0f0f0;
+
+  .el-table__header-wrapper th {
+    border-bottom: 1px solid #e8e8e8;
+  }
+
+  .el-table__row td {
+    border-bottom: 1px solid #f5f5f5;
+  }
+
+  .el-table__cell {
+    padding: 12px 0;
+  }
+}
+
+:deep(.env-table--compact .el-table__cell) {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+:deep(.env-table--compact .env-value-text),
+:deep(.env-table--compact .env-remarks-text),
+:deep(.env-table--compact .env-name) {
+  font-size: 12px;
+}
+
+:deep(.env-table--compact .time-text) {
+  font-size: 11px;
+}
+
+:deep(.env-table--compact .pinned-chip),
+:deep(.env-table--compact .group-pill) {
+  padding-top: 2px;
+  padding-bottom: 2px;
+  font-size: 11px;
+}
+
+/* ---- Mobile ---- */
 .env-mobile-scroll {
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
+/* ---- Desktop States ---- */
 .env-desktop-state {
   display: flex;
   align-items: center;
@@ -1363,6 +1491,7 @@ function formatDateTime(t: string | null) {
   flex-wrap: wrap;
 }
 
+/* ---- Mobile Card ---- */
 .env-card__title-row {
   display: flex;
   align-items: flex-start;
@@ -1388,37 +1517,11 @@ function formatDateTime(t: string | null) {
     0 10px 28px rgba(15, 23, 42, 0.07);
 }
 
+/* ---- Cell Styles ---- */
 .action-group {
   display: flex;
   align-items: center;
   gap: 6px;
-}
-
-.table-header-label {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  line-height: 1.1;
-}
-
-.table-header-label span {
-  font-weight: 700;
-  color: var(--el-text-color-primary);
-}
-
-.table-header-label small {
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--el-text-color-placeholder);
-}
-
-.table-header-label.is-primary span {
-  color: var(--el-color-primary);
-}
-
-.table-header-label.is-aux span {
-  color: var(--el-text-color-regular);
 }
 
 .env-name-wrap {
@@ -1517,12 +1620,6 @@ function formatDateTime(t: string | null) {
   flex-shrink: 0;
 }
 
-.row-index {
-  font-family: var(--dd-font-mono);
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-}
-
 .env-status-cell {
   display: inline-flex;
   flex-direction: column;
@@ -1553,34 +1650,16 @@ function formatDateTime(t: string | null) {
   color: var(--el-text-color-regular);
 }
 
-.drag-handle {
+:deep(.el-table__body tr) {
   cursor: grab;
-  color: var(--el-text-color-placeholder);
-  font-size: 16px;
-  &:hover { color: var(--el-color-primary); }
-  &:active { cursor: grabbing; }
-}
-
-.drag-handle--disabled {
-  cursor: default;
-  opacity: 0.35;
-
-  &:hover {
-    color: var(--el-text-color-placeholder);
-  }
 
   &:active {
-    cursor: default;
+    cursor: grabbing;
   }
 }
 
 .top-action-active {
   box-shadow: 0 0 0 1px rgba(245, 166, 35, 0.2);
-}
-
-.sort-suspend-hint {
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
 }
 
 .sortable-ghost {
@@ -1597,96 +1676,18 @@ function formatDateTime(t: string | null) {
   box-shadow: 0 18px 36px rgba(15, 23, 42, 0.16);
 }
 
-.env-table {
-  width: 100%;
+/* ---- Pinned Row ---- */
+:deep(.env-row-pinned > td) {
+  background:
+    linear-gradient(90deg, rgba(255, 214, 107, 0.22) 0, rgba(255, 214, 107, 0.08) 32px, transparent 220px),
+    var(--el-table-tr-bg-color);
 }
 
-:deep(.env-table .el-table__cell) {
-  padding-top: 12px;
-  padding-bottom: 12px;
+:deep(.env-row-pinned > td:first-child) {
+  box-shadow: inset 4px 0 0 #f5a623;
 }
 
-:deep(.env-table th.el-table__cell) {
-  white-space: nowrap;
-  background: color-mix(in srgb, var(--el-fill-color-lighter) 70%, white);
-}
-
-:deep(.env-table--compact .el-table__cell) {
-  padding-top: 8px;
-  padding-bottom: 8px;
-}
-
-:deep(.env-table--compact .env-value-text),
-:deep(.env-table--compact .env-remarks-text),
-:deep(.env-table--compact .env-name) {
-  font-size: 12px;
-}
-
-:deep(.env-table--compact .time-text) {
-  font-size: 11px;
-}
-
-:deep(.env-table--compact .pinned-chip),
-:deep(.env-table--compact .group-pill) {
-  padding-top: 2px;
-  padding-bottom: 2px;
-  font-size: 11px;
-}
-
-.table-footer-bar {
-  margin-top: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-  position: sticky;
-  bottom: 0;
-  z-index: 12;
-  padding: 14px 16px 8px;
-  border-radius: 14px 14px 0 0;
-  background: color-mix(in srgb, var(--el-bg-color) 96%, white);
-  box-shadow: 0 -8px 24px rgba(15, 23, 42, 0.08);
-  border-top: 1px solid color-mix(in srgb, var(--el-border-color) 70%, transparent);
-}
-
-.selection-summary {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  padding: 10px 14px;
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--el-fill-color-light) 85%, white);
-  color: var(--el-text-color-secondary);
-  font-size: 13px;
-}
-
-.selection-summary.active {
-  background: color-mix(in srgb, var(--el-color-primary) 10%, var(--el-bg-color));
-}
-
-.pagination-container {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  justify-content: flex-end;
-  margin-left: auto;
-  flex-wrap: wrap;
-}
-
-.page-size-control {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.page-size-label,
-.page-size-status {
-  font-size: 13px;
-  color: var(--el-text-color-secondary);
-}
-
+/* ---- Export Dialog ---- */
 .export-format-switch {
   display: flex;
   justify-content: space-between;
@@ -1708,71 +1709,79 @@ function formatDateTime(t: string | null) {
   word-break: break-all;
 }
 
-:deep(.env-row-pinned > td) {
-  background:
-    linear-gradient(90deg, rgba(255, 214, 107, 0.22) 0, rgba(255, 214, 107, 0.08) 32px, transparent 220px),
-    var(--el-table-tr-bg-color);
-}
-
-:deep(.env-row-pinned > td:first-child) {
-  box-shadow: inset 4px 0 0 #f5a623;
-}
-
 @keyframes env-skeleton-shimmer {
   100% {
     transform: translateX(100%);
   }
 }
 
-@media (max-width: 768px) {
-  .page-header {
-    .header-left {
-      width: 100%;
-    }
+/* ---- Responsive: 1200px ---- */
+@media screen and (max-width: 1200px) {
+  .stat-cards {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
 
-    .header-right {
+/* ---- Responsive: 768px (Mobile) ---- */
+@media screen and (max-width: 768px) {
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 14px;
+
+    h2 { font-size: 18px; }
+
+    .header-actions {
       width: 100%;
-      flex-direction: column;
-      align-items: stretch;
-      justify-content: flex-start;
-      flex-wrap: nowrap;
+      flex-wrap: wrap;
     }
   }
 
-  .header-left {
-    :deep(.el-input),
-    :deep(.el-select) {
+  .stat-cards {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+
+  .stat-card {
+    padding: 14px 16px;
+
+    &__value {
+      font-size: 22px;
+    }
+
+    &__icon {
+      width: 40px;
+      height: 40px;
+    }
+  }
+
+  .toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+
+    &__left {
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    &__search {
       width: 100% !important;
     }
-  }
 
-  .table-density-switch {
-    width: 100%;
-    justify-content: space-between;
-  }
-
-  .env-toolbar-actions {
-    width: 100%;
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
-
-    > * {
-      width: 100%;
-    }
-
-    :deep(.el-button) {
-      width: 100%;
-      margin-left: 0;
+    &__right {
+      justify-content: flex-end;
     }
   }
 
-  .env-toolbar-actions__dropdown {
+  .status-tabs {
     width: 100%;
+    overflow-x: auto;
+  }
 
-    :deep(.el-button) {
-      width: 100%;
-    }
+  .batch-actions {
+    flex-wrap: wrap;
   }
 
   .env-card__title-row {
@@ -1786,15 +1795,6 @@ function formatDateTime(t: string | null) {
 
   .env-card__actions > * {
     flex: 1 1 calc(50% - 4px);
-  }
-
-  .table-footer-bar {
-    align-items: stretch;
-  }
-
-  .pagination-container {
-    width: 100%;
-    justify-content: space-between;
   }
 }
 </style>

@@ -2,8 +2,10 @@ package handler
 
 import (
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
+	"time"
 
 	"daidai-panel/database"
 	"daidai-panel/middleware"
@@ -18,6 +20,21 @@ type NotificationHandler struct{}
 
 func NewNotificationHandler() *NotificationHandler {
 	return &NotificationHandler{}
+}
+
+func updateNotificationTestState(channelID uint, status string) {
+	if channelID == 0 {
+		return
+	}
+
+	if err := database.DB.Model(&model.NotifyChannel{}).
+		Where("id = ?", channelID).
+		Updates(map[string]interface{}{
+			"last_test_at":     time.Now(),
+			"last_test_status": status,
+		}).Error; err != nil {
+		log.Printf("update notification test state failed: %v", err)
+	}
 }
 
 func (h *NotificationHandler) List(c *gin.Context) {
@@ -134,10 +151,12 @@ func (h *NotificationHandler) Test(c *gin.Context) {
 
 	err := service.SendNotificationToChannel(&ch, "呆呆面板测试通知", "这是一条测试通知消息，如果您收到此消息，说明通知渠道配置正确。")
 	if err != nil {
+		updateNotificationTestState(ch.ID, "failed")
 		response.BadRequest(c, "发送失败: "+err.Error())
 		return
 	}
 
+	updateNotificationTestState(ch.ID, "success")
 	response.Success(c, gin.H{"message": "测试通知发送成功"})
 }
 

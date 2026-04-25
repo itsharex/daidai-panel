@@ -130,15 +130,15 @@ watch(searchKeyword, (val) => {
 
 <style scoped lang="scss">
 .scripts-sidebar {
-  width: 336px;
-  min-width: 336px;
+  width: 300px;
+  min-width: 300px;
   height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 14px 12px 12px;
-  background: var(--scripts-surface, var(--el-bg-color));
-  border-right: 1px solid var(--scripts-border-soft, var(--el-border-color-light));
+  gap: 0;
+  padding: 0;
+  background: #fff;
+  border-right: 1px solid #f0f0f0;
   box-sizing: border-box;
   font-family: var(--dd-font-ui);
 }
@@ -148,24 +148,25 @@ watch(searchKeyword, (val) => {
   flex-direction: column;
   gap: 10px;
   flex-shrink: 0;
+  padding: 16px 14px 0;
 }
 
 .sidebar-search-input {
   :deep(.el-input__wrapper) {
-    border-radius: 10px;
+    border-radius: 8px;
     padding: 4px 12px;
-    box-shadow: 0 0 0 1px var(--scripts-border-soft, var(--el-border-color-light)) inset;
+    box-shadow: 0 0 0 1px #e8e8e8 inset;
     transition: box-shadow 0.2s, background 0.2s;
-    background: var(--scripts-surface-muted, var(--el-fill-color-lighter));
+    background: #f5f7fa;
   }
 
   :deep(.el-input__wrapper.is-focus) {
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--scripts-accent, #22c55e) 55%, transparent) inset;
-    background: var(--el-bg-color);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--el-color-primary) 45%, transparent) inset;
+    background: #fff;
   }
 
   :deep(.el-input__inner) {
-    font-size: 13.5px;
+    font-size: 13px;
     font-family: var(--dd-font-ui);
   }
 }
@@ -175,7 +176,7 @@ watch(searchKeyword, (val) => {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 0 2px;
+  padding: 4px 0 0;
 }
 
 .sidebar-toolbar-label {
@@ -186,7 +187,7 @@ watch(searchKeyword, (val) => {
   .label-main {
     font-size: 12px;
     font-weight: 600;
-    letter-spacing: 0.8px;
+    letter-spacing: 0.5px;
     text-transform: uppercase;
     color: var(--el-text-color-secondary);
   }
@@ -219,7 +220,7 @@ watch(searchKeyword, (val) => {
   width: 30px;
   height: 30px;
   padding: 0;
-  border: 1px solid var(--scripts-border-soft, var(--el-border-color-light));
+  border: 1px solid #e8e8e8;
   background: transparent;
   border-radius: 8px;
   color: var(--el-text-color-secondary);
@@ -227,21 +228,16 @@ watch(searchKeyword, (val) => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: color 0.15s, background 0.15s, border-color 0.15s, transform 0.15s;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
 
   &:hover {
     color: var(--el-color-primary);
-    border-color: color-mix(in srgb, var(--el-color-primary) 40%, var(--el-border-color-light));
+    border-color: color-mix(in srgb, var(--el-color-primary) 40%, #e8e8e8);
     background: color-mix(in srgb, var(--el-color-primary) 6%, transparent);
-    transform: translateY(-1px);
-  }
-
-  &:active {
-    transform: translateY(0);
   }
 
   &:focus-visible {
-    outline: 2px solid color-mix(in srgb, var(--scripts-accent, #22c55e) 70%, transparent);
+    outline: 2px solid color-mix(in srgb, var(--el-color-primary) 50%, transparent);
     outline-offset: 1px;
   }
 }
@@ -249,7 +245,7 @@ watch(searchKeyword, (val) => {
 .sidebar-tree {
   flex: 1;
   overflow-y: auto;
-  padding: 4px 2px 10px;
+  padding: 8px 10px 10px;
 
   :deep(.el-tree) {
     background: transparent;
@@ -261,15 +257,15 @@ watch(searchKeyword, (val) => {
     padding-left: 4px;
     border-radius: 6px;
     transition: background 0.15s;
-    font-size: 13.5px;
+    font-size: 13px;
   }
 
   :deep(.el-tree-node__content:hover) {
-    background: var(--el-fill-color-light);
+    background: #f5f7fa;
   }
 
   :deep(.el-tree-node.is-current > .el-tree-node__content) {
-    background: color-mix(in srgb, var(--scripts-accent, #22c55e) 12%, transparent);
+    background: color-mix(in srgb, var(--el-color-primary) 10%, transparent);
     position: relative;
 
     &::before {
@@ -278,21 +274,21 @@ watch(searchKeyword, (val) => {
       left: 0;
       top: 6px;
       bottom: 6px;
-      width: 2px;
+      width: 2.5px;
       border-radius: 2px;
-      background: var(--scripts-accent, #22c55e);
+      background: var(--el-color-primary);
     }
   }
 
   :deep(.el-tree-node.is-drop-inner > .el-tree-node__content) {
-    background: color-mix(in srgb, var(--scripts-accent, #22c55e) 14%, transparent);
-    outline: 2px dashed var(--scripts-accent, #22c55e);
+    background: color-mix(in srgb, var(--el-color-primary) 12%, transparent);
+    outline: 2px dashed var(--el-color-primary);
     outline-offset: -2px;
   }
 
   :deep(.el-tree__drop-indicator) {
     height: 2px;
-    background: var(--scripts-accent, #22c55e);
+    background: var(--el-color-primary);
     border-radius: 1px;
   }
 
@@ -308,8 +304,8 @@ watch(searchKeyword, (val) => {
 
 .sidebar-footer {
   flex-shrink: 0;
-  padding-top: 8px;
-  border-top: 1px dashed var(--scripts-border-soft, var(--el-border-color-light));
+  padding: 10px 14px 14px;
+  border-top: 1px solid #f0f0f0;
 }
 
 .runner-card {
@@ -318,23 +314,19 @@ watch(searchKeyword, (val) => {
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
-  border: 1px solid var(--scripts-border-soft, var(--el-border-color-light));
+  border: 1px solid #e8e8e8;
   border-radius: 10px;
-  background: var(--scripts-surface-muted, var(--el-fill-color-lighter));
+  background: #f5f7fa;
   color: inherit;
   text-align: left;
   cursor: pointer;
   font-family: inherit;
-  transition: background 0.15s, border-color 0.15s, transform 0.15s;
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.2s;
 
   &:hover {
-    background: color-mix(in srgb, var(--scripts-accent, #22c55e) 8%, transparent);
-    border-color: color-mix(in srgb, var(--scripts-accent, #22c55e) 40%, var(--el-border-color-light));
-    transform: translateY(-1px);
-  }
-
-  &:active {
-    transform: translateY(0);
+    background: color-mix(in srgb, var(--scripts-accent, #22c55e) 8%, #f5f7fa);
+    border-color: color-mix(in srgb, var(--scripts-accent, #22c55e) 40%, #e8e8e8);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
   }
 
   &:focus-visible {
@@ -380,7 +372,7 @@ watch(searchKeyword, (val) => {
   width: 100%;
   min-width: 0;
   border-right: none;
-  border-bottom: 1px solid var(--scripts-border-soft, var(--el-border-color-light));
+  border-bottom: 1px solid #f0f0f0;
 
   .sidebar-toolbar {
     padding: 0;

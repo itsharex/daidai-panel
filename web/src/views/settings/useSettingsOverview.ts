@@ -14,6 +14,7 @@ export function useSettingsOverview() {
   const updatingPanel = ref(false)
   const autoUpdateEnabled = ref(false)
   const savingAutoUpdate = ref(false)
+  const lastCheckTime = ref('')
   const releaseNotesVisible = ref(false)
   const updateProgressVisible = ref(false)
   const updateProgressStatus = ref<UpdateVisualStatus>('idle')
@@ -65,6 +66,11 @@ export function useSettingsOverview() {
     } catch {
       autoUpdateEnabled.value = false
     }
+    try {
+      const res = await configApi.get('auto_update_last_checked_at')
+      const raw = String(res.data?.value ?? res.data?.config?.value ?? '').trim()
+      if (raw) lastCheckTime.value = raw
+    } catch { /* ignore */ }
   }
 
   async function loadVersion() {
@@ -81,6 +87,9 @@ export function useSettingsOverview() {
     try {
       const res = await systemApi.checkUpdate()
       updateInfo.value = res.data
+      const now = new Date().toISOString()
+      lastCheckTime.value = now
+      void configApi.set({ key: 'auto_update_last_checked_at', value: now }).catch(() => {})
       if (res.data.has_update) {
         releaseNotesVisible.value = true
         if (res.data.auto_update_supported) {
@@ -106,6 +115,9 @@ export function useSettingsOverview() {
     try {
       await configApi.set({ key: 'auto_update_enabled', value: value ? 'true' : 'false' })
       ElMessage.success(value ? '静默更新已开启' : '静默更新已关闭')
+      if (value) {
+        void handleCheckUpdate()
+      }
     } catch {
       autoUpdateEnabled.value = previous
       ElMessage.error('保存静默更新设置失败')
@@ -419,6 +431,7 @@ export function useSettingsOverview() {
     updatingPanel,
     autoUpdateEnabled,
     savingAutoUpdate,
+    lastCheckTime,
     releaseNotesVisible,
     updateProgressVisible,
     updateProgressStatus,

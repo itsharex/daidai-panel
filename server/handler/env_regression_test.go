@@ -51,6 +51,73 @@ func TestEnvBatchSetGroupUpdatesSelectedRows(t *testing.T) {
 	}
 }
 
+func TestEnvListSupportsEnabledFilter(t *testing.T) {
+	testutil.SetupTestEnv(t)
+
+	engine := newProtectedRouter()
+	user := testutil.MustCreateUser(t, "env-filter-operator", "operator")
+	token := testutil.MustCreateAccessToken(t, user.Username, user.Role)
+
+	envs := []*model.EnvVar{
+		{Name: "ENABLED_ENV", Value: "1", Enabled: true, Position: 1000},
+		{Name: "DISABLED_ENV", Value: "2", Enabled: true, Position: 2000},
+	}
+	for _, env := range envs {
+		if err := database.DB.Create(env).Error; err != nil {
+			t.Fatalf("create env %q: %v", env.Name, err)
+		}
+	}
+	if err := database.DB.Model(envs[1]).Update("enabled", false).Error; err != nil {
+		t.Fatalf("disable env %q: %v", envs[1].Name, err)
+	}
+
+	enabledRec := performRequest(engine, http.MethodGet, "/api/v1/envs?enabled=true", map[string]string{
+		"Authorization": "Bearer " + token,
+	})
+	if enabledRec.Code != http.StatusOK {
+		t.Fatalf("expected enabled filter 200, got %d, body=%s", enabledRec.Code, enabledRec.Body.String())
+	}
+
+	enabledPayload := decodeJSONMap(t, enabledRec)
+	enabledItems, ok := enabledPayload["data"].([]interface{})
+	if !ok || len(enabledItems) != 1 {
+		t.Fatalf("expected 1 enabled env, got %#v", enabledPayload["data"])
+	}
+	enabledItem, ok := enabledItems[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected enabled env object, got %#v", enabledItems[0])
+	}
+	if got, _ := enabledItem["name"].(string); got != "ENABLED_ENV" {
+		t.Fatalf("expected ENABLED_ENV, got %q", got)
+	}
+	if got, _ := enabledPayload["total"].(float64); got != 1 {
+		t.Fatalf("expected enabled total 1, got %v", got)
+	}
+
+	disabledRec := performRequest(engine, http.MethodGet, "/api/v1/envs?enabled=false", map[string]string{
+		"Authorization": "Bearer " + token,
+	})
+	if disabledRec.Code != http.StatusOK {
+		t.Fatalf("expected disabled filter 200, got %d, body=%s", disabledRec.Code, disabledRec.Body.String())
+	}
+
+	disabledPayload := decodeJSONMap(t, disabledRec)
+	disabledItems, ok := disabledPayload["data"].([]interface{})
+	if !ok || len(disabledItems) != 1 {
+		t.Fatalf("expected 1 disabled env, got %#v", disabledPayload["data"])
+	}
+	disabledItem, ok := disabledItems[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected disabled env object, got %#v", disabledItems[0])
+	}
+	if got, _ := disabledItem["name"].(string); got != "DISABLED_ENV" {
+		t.Fatalf("expected DISABLED_ENV, got %q", got)
+	}
+	if got, _ := disabledPayload["total"].(float64); got != 1 {
+		t.Fatalf("expected disabled total 1, got %v", got)
+	}
+}
+
 func TestEnvBatchRenameUpdatesSelectedRows(t *testing.T) {
 	testutil.SetupTestEnv(t)
 

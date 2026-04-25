@@ -7,13 +7,13 @@ defineProps<{
 </script>
 
 <template>
-  <el-card shadow="never" class="mt-card" v-if="systemStats">
+  <el-card shadow="never" class="stats-card" v-if="systemStats">
     <template #header>
       <div class="card-header">
-        <span class="card-title"><el-icon><InfoFilled /></el-icon> 面板概况</span>
+        <span class="card-title"><el-icon><InfoFilled /></el-icon> 系统概况</span>
       </div>
     </template>
-    <div class="overview-stats-row">
+    <div class="overview-stats-grid">
       <div class="os-item">
         <div class="os-label">任务总数</div>
         <div class="os-value">{{ systemStats.tasks?.total || 0 }}</div>
@@ -45,48 +45,60 @@ defineProps<{
 <style scoped lang="scss">
 @use './config-card-shared.scss' as *;
 
-.mt-card {
-  margin-top: 16px;
+.stats-card {
+  border-radius: 14px;
+  border: 1px solid var(--el-border-color-lighter);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  height: 100%;
 }
 
-.overview-stats-row {
+.overview-stats-grid {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   text-align: center;
+  gap: 10px;
 }
 
 .os-item {
-  padding: 16px 0;
+  padding: 18px 10px;
+  border-radius: 12px;
+  transition: background 0.18s, transform 0.18s;
+  background: var(--el-fill-color-light);
+
+  &:hover {
+    background: color-mix(in srgb, var(--el-color-primary) 6%, var(--el-fill-color-light));
+    transform: translateY(-1px);
+  }
 }
 
 .os-label {
   font-size: 13px;
   color: var(--el-text-color-secondary);
-  margin-bottom: 10px;
+  margin-bottom: 8px;
+  font-weight: 500;
 }
 
 .os-value {
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 700;
+  color: var(--el-text-color-primary);
+  font-family: 'Inter', var(--dd-font-ui), sans-serif;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.01em;
 }
 
 .color-success {
-  color: var(--el-color-success);
+  color: #10b981;
 }
 
 .color-warning {
-  color: var(--el-color-warning);
+  color: #f59e0b;
 }
 
 @media (max-width: 768px) {
-  .overview-stats-row {
+  .overview-stats-grid {
     grid-template-columns: repeat(2, 1fr);
-  }
-}
-
-@media (max-width: 420px) {
-  .overview-stats-row {
-    grid-template-columns: 1fr;
   }
 }
 </style>

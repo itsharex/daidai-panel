@@ -1,7 +1,7 @@
 import request from './request'
 
 export const envApi = {
-  list(params?: { keyword?: string; group?: string; page?: number; page_size?: number }) {
+  list(params?: { keyword?: string; group?: string; enabled?: boolean; page?: number; page_size?: number }) {
     return request.get('/envs', { params }) as Promise<{ data: any[]; total: number; page: number; page_size: number }>
   },
 

@@ -24,7 +24,7 @@ import SponsorWall from './components/SponsorWall.vue'
 
 const authStore = useAuthStore()
 const { dialogFullscreen } = useResponsive()
-const activeTab = ref<'security' | 'sponsors'>('security')
+const activeTab = ref<'profile' | 'security' | 'sponsors'>('profile')
 
 const passwordForm = ref({
   oldPassword: '',
@@ -172,7 +172,12 @@ const usernameInitial = computed(() => {
   return (name[0] ?? '用').toUpperCase()
 })
 
-const avatarUrl = computed(() => authStore.user?.avatar_url || '')
+const avatarCacheBuster = ref(Date.now())
+const avatarUrl = computed(() => {
+  const url = authStore.user?.avatar_url || ''
+  if (!url) return ''
+  return url + '?t=' + avatarCacheBuster.value
+})
 const avatarUploading = ref(false)
 const avatarInputRef = ref<HTMLInputElement | null>(null)
 
@@ -200,9 +205,10 @@ async function handleAvatarFileChange(e: Event) {
 
   avatarUploading.value = true
   try {
-    const res = await authApi.uploadAvatar(file)
+    await authApi.uploadAvatar(file)
     ElMessage.success('头像上传成功')
     await authStore.fetchUser()
+    avatarCacheBuster.value = Date.now()
   } catch (err: any) {
     ElMessage.error(err?.response?.data?.error || '头像上传失败')
   } finally {
@@ -363,258 +369,283 @@ onUnmounted(() => {
       <div class="profile-hero-aura" aria-hidden="true"></div>
 
       <div class="profile-hero-main">
-        <div class="profile-avatar-wrap">
-          <div class="profile-avatar" @click="triggerAvatarUpload" :class="{ 'is-uploading': avatarUploading }">
-            <img v-if="avatarUrl" :src="avatarUrl" alt="用户头像" class="profile-avatar-img" />
-            <span v-else class="profile-avatar-initial">{{ usernameInitial }}</span>
-            <span class="profile-avatar-ring"></span>
-            <div class="profile-avatar-overlay">
-              <el-icon :size="18"><Camera /></el-icon>
+        <div class="profile-hero-left">
+          <div class="profile-avatar-wrap">
+            <div class="profile-avatar" @click="triggerAvatarUpload" :class="{ 'is-uploading': avatarUploading }">
+              <img v-if="avatarUrl" :src="avatarUrl" alt="用户头像" class="profile-avatar-img" />
+              <span v-else class="profile-avatar-initial">{{ usernameInitial }}</span>
+              <span class="profile-avatar-ring"></span>
+              <div class="profile-avatar-overlay">
+                <el-icon :size="18"><Camera /></el-icon>
+              </div>
+              <input
+                ref="avatarInputRef"
+                type="file"
+                accept="image/jpeg,image/png,image/gif,image/webp"
+                class="profile-avatar-input"
+                @change="handleAvatarFileChange"
+              />
             </div>
-            <input
-              ref="avatarInputRef"
-              type="file"
-              accept="image/jpeg,image/png,image/gif,image/webp"
-              class="profile-avatar-input"
-              @change="handleAvatarFileChange"
+            <div class="profile-avatar-camera" @click="triggerAvatarUpload">
+              <el-icon :size="12"><Camera /></el-icon>
+            </div>
+            <el-button
+              v-if="avatarUrl"
+              class="avatar-delete-btn"
+              :icon="Delete"
+              circle
+              size="small"
+              @click.stop="handleDeleteAvatar"
+              title="删除头像"
             />
           </div>
-          <el-button
-            v-if="avatarUrl"
-            class="avatar-delete-btn"
-            :icon="Delete"
-            circle
-            size="small"
-            @click.stop="handleDeleteAvatar"
-            title="删除头像"
-          />
+
+          <div class="profile-hero-body">
+            <h1 class="profile-hero-name">{{ authStore.user?.username || '当前用户' }}</h1>
+            <div class="profile-hero-meta-row">
+              <span class="hero-chip hero-chip--green">
+                <el-icon :size="13"><Avatar /></el-icon>
+                <span>{{ roleLabel }}</span>
+              </span>
+              <span class="hero-chip hero-chip--2fa" :class="{ 'hero-chip--2fa-on': twoFAEnabled }">
+                <span class="hero-chip-dot" :class="{ 'hero-chip-dot--on': twoFAEnabled }"></span>
+                <span>2FA {{ twoFAEnabled ? '已启用' : '未启用' }}</span>
+              </span>
+            </div>
+            <div class="profile-hero-login">
+              <el-icon :size="13"><Clock /></el-icon>
+              <span>最近登录: {{ formatTime(authStore.user?.last_login_at) }}</span>
+            </div>
+          </div>
         </div>
 
-        <div class="profile-hero-body">
-          <span class="profile-hero-eyebrow">个人设置</span>
-          <h1 class="profile-hero-name">{{ authStore.user?.username || '当前用户' }}</h1>
-          <div class="profile-hero-meta-row">
-            <span class="hero-chip" :class="'hero-chip--' + roleTagType">
-              <el-icon :size="13"><Avatar /></el-icon>
-              <span>{{ roleLabel }}</span>
-            </span>
-            <span class="hero-chip hero-chip--2fa" :class="{ 'hero-chip--2fa-on': twoFAEnabled }">
-              <span class="hero-chip-dot" :class="{ 'hero-chip-dot--on': twoFAEnabled }"></span>
-              <span>2FA {{ twoFAEnabled ? '已启用' : '未启用' }}</span>
-            </span>
-            <span class="hero-chip hero-chip--muted">
-              <el-icon :size="13"><Clock /></el-icon>
-              <span>最后登录 {{ formatTime(authStore.user?.last_login_at) }}</span>
-            </span>
-          </div>
+        <div class="profile-hero-badge" aria-hidden="true">
+          <svg viewBox="0 0 80 96" fill="none" xmlns="http://www.w3.org/2000/svg" class="shield-icon">
+            <path d="M40 4L8 20V44C8 66 22 86 40 92C58 86 72 66 72 44V20L40 4Z" fill="currentColor" opacity="0.12" stroke="currentColor" stroke-width="2" stroke-opacity="0.2"/>
+            <path d="M34 48L38 52L50 40" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity="0.3"/>
+          </svg>
         </div>
       </div>
     </header>
 
-    <!-- ================= Tabs ================= -->
-    <el-tabs v-model="activeTab" class="profile-tabs">
-      <el-tab-pane name="security">
-        <template #label>
-          <span class="profile-tab-label">
-            <el-icon :size="14"><Lock /></el-icon>
-            <span>账号安全</span>
-          </span>
-        </template>
+    <!-- ================= Body: sidebar tabs + content ================= -->
+    <div class="profile-body">
+      <!-- Left sidebar tabs -->
+      <nav class="profile-sidebar">
+        <button
+          class="sidebar-tab"
+          :class="{ active: activeTab === 'profile' }"
+          @click="activeTab = 'profile'"
+        >
+          <el-icon :size="15"><User /></el-icon>
+          <span>基本资料</span>
+        </button>
+        <button
+          class="sidebar-tab"
+          :class="{ active: activeTab === 'security' }"
+          @click="activeTab = 'security'"
+        >
+          <el-icon :size="15"><Lock /></el-icon>
+          <span>安全设置</span>
+        </button>
+        <button
+          class="sidebar-tab"
+          :class="{ active: activeTab === 'sponsors' }"
+          @click="activeTab = 'sponsors'"
+        >
+          <el-icon :size="15"><Star /></el-icon>
+          <span>赞助信息</span>
+        </button>
+      </nav>
 
-        <div class="profile-grid">
-          <!-- Left column -->
-          <div class="profile-column profile-column--left">
-            <section class="profile-card profile-card--info">
-              <header class="profile-card-header">
-                <span class="card-title">
-                  <el-icon :size="15"><User /></el-icon>
-                  <span>账户信息</span>
-                </span>
-              </header>
-              <div class="info-grid">
-                <div class="info-row">
-                  <span class="info-label">用户名</span>
-                  <span class="info-value">{{ authStore.user?.username || '-' }}</span>
-                </div>
-                <div class="info-row">
-                  <span class="info-label">角色</span>
-                  <span class="info-value">
-                    <el-tag :type="roleTagType" size="small" effect="light">{{ roleLabel }}</el-tag>
-                  </span>
-                </div>
-                <div class="info-row">
-                  <span class="info-label">注册时间</span>
-                  <span class="info-value">{{ formatTime(authStore.user?.created_at) }}</span>
-                </div>
-                <div class="info-row">
-                  <span class="info-label">最近登录</span>
-                  <span class="info-value">{{ formatTime(authStore.user?.last_login_at) }}</span>
-                </div>
+      <!-- Right content area -->
+      <div class="profile-content">
+        <!-- ===== 基本资料 ===== -->
+        <template v-if="activeTab === 'profile'">
+          <section class="profile-card">
+            <header class="profile-card-header">
+              <span class="card-title">
+                <el-icon :size="15"><User /></el-icon>
+                <span>账户信息</span>
+              </span>
+            </header>
+            <div class="info-grid">
+              <div class="info-cell">
+                <span class="info-label">用户名</span>
+                <span class="info-value">{{ authStore.user?.username || '-' }}</span>
               </div>
-            </section>
-
-            <section class="profile-card profile-card--tip">
-              <header class="profile-card-header">
-                <span class="card-title">
-                  <el-icon :size="15"><InfoFilled /></el-icon>
-                  <span>安全建议</span>
+              <div class="info-cell">
+                <span class="info-label">角色</span>
+                <span class="info-value">
+                  <el-tag :type="roleTagType" size="small" effect="light">{{ roleLabel }}</el-tag>
                 </span>
-              </header>
-              <ul class="tip-list">
-                <li>
-                  <span class="tip-bullet">1</span>
-                  <span>密码建议至少 12 位，包含大小写、数字和特殊字符。</span>
-                </li>
-                <li>
-                  <span class="tip-bullet">2</span>
-                  <span>启用 2FA 后，即使密码泄露，账户仍有第二层保护。</span>
-                </li>
-                <li>
-                  <span class="tip-bullet">3</span>
-                  <span>禁用 2FA 也需要动态验证码，防止会话被劫持后被人关掉 2FA。</span>
-                </li>
-                <li>
-                  <span class="tip-bullet">4</span>
-                  <span>修改密码后当前会话之外的其它登录都会被撤销。</span>
-                </li>
-              </ul>
-            </section>
-          </div>
-
-          <!-- Right column -->
-          <div class="profile-column profile-column--right">
-            <section class="profile-card profile-card--password">
-              <header class="profile-card-header">
-                <span class="card-title">
-                  <el-icon :size="15"><Lock /></el-icon>
-                  <span>修改密码</span>
-                </span>
-              </header>
-              <el-form label-position="top" class="security-form">
-                <el-form-item label="当前密码">
-                  <el-input
-                    v-model="passwordForm.oldPassword"
-                    type="password"
-                    show-password
-                    placeholder="请输入当前密码"
-                  />
-                </el-form-item>
-                <el-form-item label="新密码">
-                  <el-input
-                    v-model="passwordForm.newPassword"
-                    type="password"
-                    show-password
-                    placeholder="至少 6 位"
-                  />
-                </el-form-item>
-                <el-form-item label="确认新密码">
-                  <el-input
-                    v-model="passwordForm.confirmPassword"
-                    type="password"
-                    show-password
-                    placeholder="再次输入新密码"
-                    @keyup.enter="handleChangePassword"
-                  />
-                </el-form-item>
-                <el-form-item>
-                  <el-button
-                    type="primary"
-                    :loading="passwordSaving"
-                    class="primary-cta"
-                    @click="handleChangePassword"
-                  >
-                    <el-icon><Lock /></el-icon>
-                    <span>更新密码</span>
-                  </el-button>
-                </el-form-item>
-              </el-form>
-            </section>
-
-            <section class="profile-card profile-card--twofa" :class="{ 'is-on': twoFAEnabled }">
-              <div class="twofa-halo" aria-hidden="true"></div>
-              <header class="profile-card-header">
-                <span class="card-title">
-                  <el-icon :size="15"><Key /></el-icon>
-                  <span>双因素认证</span>
-                </span>
-                <span class="twofa-status" :class="{ 'twofa-status--on': twoFAEnabled }">
-                  <span class="twofa-status-dot"></span>
-                  <span>{{ twoFAEnabled ? '已启用' : '未启用' }}</span>
-                </span>
-              </header>
-
-              <p class="twofa-desc">
-                <template v-if="twoFAEnabled">
-                  你已经开启 2FA，登录时会要求输入认证器应用里的 6 位动态码。禁用前需要再次输入当前动态码确认操作。
-                </template>
-                <template v-else>
-                  启用后，登录除了账号密码还需要输入认证器（Google / Microsoft Authenticator 等）生成的 6 位动态码。
-                </template>
-              </p>
-
-              <div class="twofa-actions">
-                <el-button
-                  v-if="!twoFAEnabled"
-                  type="primary"
-                  class="primary-cta"
-                  :loading="twoFALoading"
-                  @click="handleSetup2FA"
-                >
-                  <el-icon><Key /></el-icon>
-                  <span>启用 2FA</span>
-                </el-button>
-                <el-button
-                  v-else
-                  class="danger-outline-btn"
-                  :loading="twoFADisabling"
-                  @click="handleDisable2FA"
-                >
-                  <el-icon><Key /></el-icon>
-                  <span>禁用 2FA（需动态码）</span>
-                </el-button>
               </div>
-            </section>
-          </div>
-        </div>
-      </el-tab-pane>
-
-      <el-tab-pane name="sponsors" lazy>
-        <template #label>
-          <span class="profile-tab-label">
-            <el-icon :size="14"><Star /></el-icon>
-            <span>赞助名单</span>
-          </span>
-        </template>
-
-        <section class="sponsor-panel">
-          <div class="sponsor-toolbar">
-            <div class="sponsor-toolbar-copy">
-              <div class="sponsor-toolbar-title-row">
-                <h3>赞助名单</h3>
-                <span class="sponsor-toolbar-hint">{{ sponsorTabHint }}</span>
+              <div class="info-cell">
+                <span class="info-label">注册时间</span>
+                <span class="info-value">{{ formatTime(authStore.user?.created_at) }}</span>
               </div>
-              <p class="sponsor-toolbar-intro">
-                本项目长期以公益方式维护，感谢以下赞助人员对持续开发、服务开销与后续迭代的支持。
-              </p>
+              <div class="info-cell">
+                <span class="info-label">最近登录</span>
+                <span class="info-value">{{ formatTime(authStore.user?.last_login_at) }}</span>
+              </div>
             </div>
-            <el-button
-              class="sponsor-refresh-btn"
-              :loading="sponsorLoading || sponsorRefreshing"
-              @click="handleManualSponsorRefresh"
-            >
-              <el-icon><RefreshRight /></el-icon>
-              <span>立即刷新</span>
-            </el-button>
-          </div>
+          </section>
 
-          <SponsorWall
-            :sponsors="sponsors"
-            :summary="sponsorSummary"
-            :loading="sponsorLoading && sponsors.length === 0"
-          />
-        </section>
-      </el-tab-pane>
-    </el-tabs>
+          <section class="profile-card">
+            <header class="profile-card-header">
+              <span class="card-title">
+                <el-icon :size="15"><InfoFilled /></el-icon>
+                <span>安全建议</span>
+              </span>
+            </header>
+            <ul class="tip-list">
+              <li>
+                <span class="tip-bullet">1</span>
+                <span>密码建议至少 12 位，包含大小写、数字和特殊字符。</span>
+              </li>
+              <li>
+                <span class="tip-bullet">2</span>
+                <span>启用 2FA 后，即使密码泄露，账户仍有第二层保护。</span>
+              </li>
+              <li>
+                <span class="tip-bullet">3</span>
+                <span>禁用 2FA 也需要动态验证码，防止会话被劫持后被人关掉 2FA。</span>
+              </li>
+              <li>
+                <span class="tip-bullet">4</span>
+                <span>修改密码后当前会话之外的其它登录都会被撤销。</span>
+              </li>
+            </ul>
+          </section>
+        </template>
+
+        <!-- ===== 安全设置 ===== -->
+        <template v-if="activeTab === 'security'">
+          <section class="profile-card">
+            <header class="profile-card-header">
+              <span class="card-title">
+                <el-icon :size="15"><Lock /></el-icon>
+                <span>修改密码</span>
+              </span>
+            </header>
+            <el-form label-position="top" class="security-form">
+              <el-form-item label="当前密码">
+                <el-input
+                  v-model="passwordForm.oldPassword"
+                  type="password"
+                  show-password
+                  placeholder="请输入当前密码"
+                />
+              </el-form-item>
+              <el-form-item label="新密码">
+                <el-input
+                  v-model="passwordForm.newPassword"
+                  type="password"
+                  show-password
+                  placeholder="至少 6 位"
+                />
+              </el-form-item>
+              <el-form-item label="确认新密码">
+                <el-input
+                  v-model="passwordForm.confirmPassword"
+                  type="password"
+                  show-password
+                  placeholder="再次输入新密码"
+                  @keyup.enter="handleChangePassword"
+                />
+              </el-form-item>
+              <el-form-item>
+                <el-button
+                  type="primary"
+                  :loading="passwordSaving"
+                  class="primary-cta"
+                  @click="handleChangePassword"
+                >
+                  <el-icon><Lock /></el-icon>
+                  <span>更新密码</span>
+                </el-button>
+              </el-form-item>
+            </el-form>
+          </section>
+
+          <section class="profile-card profile-card--twofa" :class="{ 'is-on': twoFAEnabled }">
+            <div class="twofa-halo" aria-hidden="true"></div>
+            <header class="profile-card-header">
+              <span class="card-title">
+                <el-icon :size="15"><Key /></el-icon>
+                <span>双因素认证</span>
+              </span>
+              <span class="twofa-status" :class="{ 'twofa-status--on': twoFAEnabled }">
+                <span class="twofa-status-dot"></span>
+                <span>{{ twoFAEnabled ? '已启用' : '未启用' }}</span>
+              </span>
+            </header>
+
+            <p class="twofa-desc">
+              <template v-if="twoFAEnabled">
+                你已经开启 2FA，登录时会要求输入认证器应用里的 6 位动态码。禁用前需要再次输入当前动态码确认操作。
+              </template>
+              <template v-else>
+                启用后，登录除了账号密码还需要输入认证器（Google / Microsoft Authenticator 等）生成的 6 位动态码。
+              </template>
+            </p>
+
+            <div class="twofa-actions">
+              <el-button
+                v-if="!twoFAEnabled"
+                type="primary"
+                class="primary-cta"
+                :loading="twoFALoading"
+                @click="handleSetup2FA"
+              >
+                <el-icon><Key /></el-icon>
+                <span>启用 2FA</span>
+              </el-button>
+              <el-button
+                v-else
+                class="danger-outline-btn"
+                :loading="twoFADisabling"
+                @click="handleDisable2FA"
+              >
+                <el-icon><Key /></el-icon>
+                <span>禁用 2FA（需动态码）</span>
+              </el-button>
+            </div>
+          </section>
+        </template>
+
+        <!-- ===== 赞助信息 ===== -->
+        <template v-if="activeTab === 'sponsors'">
+          <section class="sponsor-panel">
+            <div class="sponsor-toolbar">
+              <div class="sponsor-toolbar-copy">
+                <div class="sponsor-toolbar-title-row">
+                  <h3>赞助名单</h3>
+                  <span class="sponsor-toolbar-hint">{{ sponsorTabHint }}</span>
+                </div>
+                <p class="sponsor-toolbar-intro">
+                  本项目长期以公益方式维护，感谢以下赞助人员对持续开发、服务开销与后续迭代的支持。
+                </p>
+              </div>
+              <el-button
+                class="sponsor-refresh-btn"
+                :loading="sponsorLoading || sponsorRefreshing"
+                @click="handleManualSponsorRefresh"
+              >
+                <el-icon><RefreshRight /></el-icon>
+                <span>立即刷新</span>
+              </el-button>
+            </div>
+
+            <SponsorWall
+              :sponsors="sponsors"
+              :summary="sponsorSummary"
+              :loading="sponsorLoading && sponsors.length === 0"
+            />
+          </section>
+        </template>
+      </div>
+    </div>
 
     <!-- ================= Setup 2FA dialog ================= -->
     <el-dialog
@@ -686,15 +717,14 @@ onUnmounted(() => {
 
 <style scoped lang="scss">
 .profile-page {
-  --profile-accent: #22c55e;
-  --profile-ai-accent: #6366f1;
-  --profile-border-soft: color-mix(in srgb, var(--el-border-color-light) 85%, transparent);
+  --profile-accent: #3b82f6;
+  --profile-border: var(--el-border-color-lighter);
   --profile-surface: var(--el-bg-color);
-  --profile-surface-muted: color-mix(in srgb, var(--el-fill-color) 70%, transparent);
+  --profile-surface-muted: var(--el-fill-color-light);
 
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 16px;
   font-family: var(--dd-font-ui);
 }
 
@@ -702,27 +732,27 @@ onUnmounted(() => {
 .profile-hero {
   position: relative;
   overflow: hidden;
-  padding: 26px 28px;
-  border-radius: 18px;
+  padding: 30px 34px;
+  border-radius: 16px;
   background:
     linear-gradient(135deg,
-      color-mix(in srgb, var(--profile-accent) 14%, transparent) 0%,
-      color-mix(in srgb, var(--profile-ai-accent) 12%, transparent) 55%,
-      transparent 100%),
+      rgba(167, 139, 250, 0.18) 0%,
+      rgba(96, 165, 250, 0.12) 50%,
+      rgba(34, 197, 94, 0.06) 100%),
     var(--profile-surface);
-  border: 1px solid var(--profile-border-soft);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  border: 1px solid color-mix(in srgb, var(--profile-accent) 12%, var(--profile-border));
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.05);
 }
 
 .profile-hero-aura {
   position: absolute;
-  inset: auto -80px -120px auto;
-  width: 320px;
-  height: 320px;
+  inset: auto -100px -140px auto;
+  width: 340px;
+  height: 340px;
   border-radius: 50%;
   background:
     radial-gradient(circle at center,
-      color-mix(in srgb, var(--profile-ai-accent) 30%, transparent) 0%,
+      rgba(139, 92, 246, 0.18) 0%,
       transparent 70%);
   pointer-events: none;
 }
@@ -731,9 +761,16 @@ onUnmounted(() => {
   position: relative;
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.profile-hero-left {
+  display: flex;
+  align-items: center;
   gap: 20px;
   min-width: 0;
-  flex-wrap: wrap;
+  flex: 1;
 }
 
 .profile-avatar-wrap {
@@ -743,18 +780,18 @@ onUnmounted(() => {
 
 .profile-avatar {
   position: relative;
-  width: 68px;
-  height: 68px;
-  border-radius: 20px;
+  width: 72px;
+  height: 72px;
+  border-radius: 18px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   color: #fff;
   font-family: var(--dd-font-ui);
-  font-size: 26px;
+  font-size: 28px;
   font-weight: 700;
-  background: linear-gradient(135deg, #22c55e 0%, #6366f1 100%);
-  box-shadow: 0 12px 24px -12px rgba(34, 197, 94, 0.55);
+  background: linear-gradient(135deg, #10b981 0%, #3b82f6 100%);
+  box-shadow: 0 8px 20px -6px rgba(16, 185, 129, 0.45);
   flex-shrink: 0;
   cursor: pointer;
   overflow: hidden;
@@ -791,7 +828,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.45);
+  background: rgba(0, 0, 0, 0.4);
   border-radius: inherit;
   opacity: 0;
   transition: opacity 0.2s;
@@ -802,15 +839,39 @@ onUnmounted(() => {
   display: none;
 }
 
+.profile-avatar-camera {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  z-index: 3;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--profile-surface);
+  border: 2px solid var(--profile-border);
+  color: var(--el-text-color-secondary);
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+  transition: all 0.2s;
+
+  &:hover {
+    color: var(--profile-accent);
+    border-color: var(--profile-accent);
+  }
+}
+
 .avatar-delete-btn {
   position: absolute;
-  bottom: -4px;
-  right: -4px;
+  bottom: -2px;
+  right: -2px;
   z-index: 3;
   color: var(--el-color-danger) !important;
-  border-color: var(--profile-border-soft) !important;
+  border-color: var(--profile-border) !important;
   background: var(--profile-surface) !important;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
 
   &:hover {
     color: #fff !important;
@@ -829,7 +890,7 @@ onUnmounted(() => {
   position: absolute;
   inset: -4px;
   border-radius: inherit;
-  border: 2px solid color-mix(in srgb, var(--profile-accent) 35%, transparent);
+  border: 2.5px solid rgba(34, 197, 94, 0.25);
   z-index: 0;
 }
 
@@ -841,21 +902,13 @@ onUnmounted(() => {
   flex: 1;
 }
 
-.profile-hero-eyebrow {
-  font-size: 11.5px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--el-text-color-placeholder);
-  font-weight: 600;
-}
-
 .profile-hero-name {
   margin: 0;
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 700;
   letter-spacing: 0.2px;
   color: var(--el-text-color-primary);
-  line-height: 1.1;
+  line-height: 1.2;
 }
 
 .profile-hero-meta-row {
@@ -868,33 +921,34 @@ onUnmounted(() => {
 .hero-chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  height: 26px;
-  padding: 0 12px;
+  gap: 5px;
+  height: 24px;
+  padding: 0 10px;
   border-radius: 999px;
   font-size: 12px;
   font-weight: 500;
   letter-spacing: 0.2px;
-  background: color-mix(in srgb, var(--el-fill-color) 90%, transparent);
-  border: 1px solid var(--profile-border-soft);
+  background: #f5f5f5;
+  border: 1px solid var(--profile-border);
   color: var(--el-text-color-regular);
 }
 
-.hero-chip--danger { color: var(--el-color-danger); background: color-mix(in srgb, var(--el-color-danger) 10%, transparent); border-color: color-mix(in srgb, var(--el-color-danger) 28%, transparent); }
-.hero-chip--warning { color: var(--el-color-warning); background: color-mix(in srgb, var(--el-color-warning) 10%, transparent); border-color: color-mix(in srgb, var(--el-color-warning) 28%, transparent); }
-.hero-chip--info { color: var(--el-color-info); background: color-mix(in srgb, var(--el-color-info) 10%, transparent); border-color: color-mix(in srgb, var(--el-color-info) 28%, transparent); }
-.hero-chip--muted { color: var(--el-text-color-secondary); }
+.hero-chip--green {
+  color: #16a34a;
+  background: rgba(34, 197, 94, 0.08);
+  border-color: rgba(34, 197, 94, 0.22);
+}
 
 .hero-chip--2fa {
-  background: color-mix(in srgb, var(--el-color-danger) 8%, transparent);
-  border-color: color-mix(in srgb, var(--el-color-danger) 22%, transparent);
+  background: rgba(245, 108, 108, 0.06);
+  border-color: rgba(245, 108, 108, 0.18);
   color: var(--el-color-danger);
 }
 
 .hero-chip--2fa-on {
-  background: color-mix(in srgb, var(--profile-accent) 12%, transparent);
-  border-color: color-mix(in srgb, var(--profile-accent) 28%, transparent);
-  color: color-mix(in srgb, var(--profile-accent) 80%, var(--el-text-color-primary));
+  background: rgba(34, 197, 94, 0.08);
+  border-color: rgba(34, 197, 94, 0.22);
+  color: #16a34a;
 }
 
 .hero-chip-dot {
@@ -906,59 +960,101 @@ onUnmounted(() => {
 
 .hero-chip-dot--on {
   background: var(--profile-accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--profile-accent) 22%, transparent);
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.18);
 }
 
-/* ================= Tabs ================= */
-.profile-tabs {
-  :deep(.el-tabs__header) {
-    margin: 0;
-  }
-
-  :deep(.el-tabs__nav-wrap::after) {
-    height: 1px;
-    background: var(--profile-border-soft);
-  }
-
-  :deep(.el-tabs__item) {
-    height: 42px;
-    font-weight: 600;
-    font-size: 13.5px;
-  }
-}
-
-.profile-tab-label {
-  display: inline-flex;
+.profile-hero-login {
+  display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
+  margin-top: 2px;
+  font-size: 12.5px;
+  color: var(--el-text-color-secondary);
 }
 
-.profile-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
-  gap: 16px;
-  padding-top: 16px;
+/* ================= Hero Badge (shield) ================= */
+.profile-hero-badge {
+  flex-shrink: 0;
+  color: var(--profile-accent);
 }
 
-.profile-column {
+.shield-icon {
+  width: 72px;
+  height: 86px;
+}
+
+/* ================= Body layout ================= */
+.profile-body {
+  display: flex;
+  gap: 20px;
+  min-height: 0;
+}
+
+/* ================= Sidebar tabs ================= */
+.profile-sidebar {
+  flex-shrink: 0;
+  width: 160px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 4px;
+  background: var(--profile-surface);
+  border: 1px solid var(--profile-border);
+  border-radius: 12px;
+  padding: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  align-self: flex-start;
+}
+
+.sidebar-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--el-text-color-regular);
+  font-size: 13.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+  text-align: left;
+
+  &:hover {
+    background: var(--profile-surface-muted);
+    color: var(--el-text-color-primary);
+  }
+
+  &.active {
+    background: rgba(34, 197, 94, 0.08);
+    color: #16a34a;
+    font-weight: 600;
+  }
+}
+
+/* ================= Content area ================= */
+.profile-content {
+  flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
 }
 
 /* ================= Cards ================= */
 .profile-card {
   position: relative;
   background: var(--profile-surface);
-  border: 1px solid var(--profile-border-soft);
-  border-radius: 14px;
-  padding: 18px 20px;
+  border: 1px solid var(--profile-border);
+  border-radius: 12px;
+  padding: 20px 24px;
   overflow: hidden;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  transition: box-shadow 0.2s;
 
   &:hover {
-    border-color: color-mix(in srgb, var(--profile-accent) 20%, var(--profile-border-soft));
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
   }
 }
 
@@ -967,14 +1063,14 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 14px;
+  margin-bottom: 16px;
 }
 
 .card-title {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 14.5px;
+  font-size: 15px;
   font-weight: 700;
   color: var(--el-text-color-primary);
 }
@@ -986,24 +1082,28 @@ onUnmounted(() => {
   gap: 0;
 }
 
-.info-row {
+.info-cell {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-  padding: 10px 0;
-  border-bottom: 1px dashed var(--profile-border-soft);
+  padding: 11px 0;
+  border-bottom: 1px dashed var(--profile-border);
   font-size: 13.5px;
 
   &:last-child {
     border-bottom: none;
-    padding-bottom: 2px;
+    padding-bottom: 4px;
+  }
+
+  &:first-child {
+    padding-top: 0;
   }
 }
 
 .info-label {
   color: var(--el-text-color-secondary);
-  font-size: 12.5px;
+  font-size: 13px;
   letter-spacing: 0.2px;
 }
 
@@ -1012,6 +1112,7 @@ onUnmounted(() => {
   color: var(--el-text-color-primary);
   text-align: right;
   word-break: break-all;
+  font-size: 13px;
 }
 
 /* Tips */
@@ -1026,9 +1127,10 @@ onUnmounted(() => {
   li {
     display: flex;
     gap: 10px;
-    padding: 10px 12px;
+    padding: 10px 14px;
     border-radius: 10px;
     background: var(--profile-surface-muted);
+    border: 1px solid var(--profile-border);
     font-size: 12.5px;
     line-height: 1.6;
     color: var(--el-text-color-regular);
@@ -1047,34 +1149,34 @@ onUnmounted(() => {
   font-weight: 700;
   font-family: var(--dd-font-mono);
   color: var(--profile-accent);
-  background: color-mix(in srgb, var(--profile-accent) 14%, transparent);
+  background: rgba(34, 197, 94, 0.12);
 }
 
 /* Password */
 .security-form {
   :deep(.el-form-item) {
-    margin-bottom: 14px;
+    margin-bottom: 16px;
   }
 
   :deep(.el-form-item__label) {
-    font-size: 12.5px;
+    font-size: 13px;
     font-weight: 600;
     color: var(--el-text-color-secondary);
   }
 
   :deep(.el-input__wrapper) {
-    border-radius: 10px;
+    border-radius: 8px;
   }
 }
 
 .primary-cta {
-  border-radius: 10px;
+  border-radius: 8px;
   height: 38px;
-  padding: 0 18px;
+  padding: 0 20px;
   font-weight: 600;
   background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
   border: none;
-  box-shadow: 0 8px 20px -12px rgba(34, 197, 94, 0.55);
+  box-shadow: 0 4px 12px -4px rgba(34, 197, 94, 0.45);
 
   &:hover,
   &:focus {
@@ -1085,18 +1187,18 @@ onUnmounted(() => {
 
 /* Two-factor card */
 .profile-card--twofa {
-  border-color: color-mix(in srgb, var(--el-color-danger) 22%, var(--profile-border-soft));
+  border-color: rgba(245, 108, 108, 0.18);
   background:
     linear-gradient(135deg,
-      color-mix(in srgb, var(--el-color-danger) 5%, transparent) 0%,
+      rgba(245, 108, 108, 0.03) 0%,
       transparent 55%),
     var(--profile-surface);
 
   &.is-on {
-    border-color: color-mix(in srgb, var(--profile-accent) 30%, var(--profile-border-soft));
+    border-color: rgba(34, 197, 94, 0.22);
     background:
       linear-gradient(135deg,
-        color-mix(in srgb, var(--profile-accent) 8%, transparent) 0%,
+        rgba(34, 197, 94, 0.04) 0%,
         transparent 60%),
       var(--profile-surface);
   }
@@ -1109,7 +1211,7 @@ onUnmounted(() => {
   height: 180px;
   border-radius: 50%;
   background: radial-gradient(circle,
-    color-mix(in srgb, var(--profile-ai-accent) 24%, transparent) 0%,
+    rgba(99, 102, 241, 0.14) 0%,
     transparent 70%);
   pointer-events: none;
 }
@@ -1125,12 +1227,12 @@ onUnmounted(() => {
   font-weight: 700;
   font-family: var(--dd-font-mono);
   letter-spacing: 0.5px;
-  background: color-mix(in srgb, var(--el-color-danger) 12%, transparent);
+  background: rgba(245, 108, 108, 0.08);
   color: var(--el-color-danger);
 
   &--on {
-    background: color-mix(in srgb, var(--profile-accent) 14%, transparent);
-    color: color-mix(in srgb, var(--profile-accent) 80%, var(--el-text-color-primary));
+    background: rgba(34, 197, 94, 0.1);
+    color: #16a34a;
   }
 }
 
@@ -1142,7 +1244,7 @@ onUnmounted(() => {
 }
 
 .twofa-desc {
-  margin: 0 0 14px;
+  margin: 0 0 16px;
   font-size: 13px;
   line-height: 1.7;
   color: var(--el-text-color-regular);
@@ -1155,13 +1257,13 @@ onUnmounted(() => {
 }
 
 .danger-outline-btn {
-  border-radius: 10px;
+  border-radius: 8px;
   height: 38px;
-  padding: 0 16px;
+  padding: 0 18px;
   font-weight: 600;
   color: var(--el-color-danger);
   background: transparent;
-  border: 1px solid color-mix(in srgb, var(--el-color-danger) 50%, transparent);
+  border: 1px solid rgba(245, 108, 108, 0.4);
 
   &:hover {
     color: #fff;
@@ -1174,8 +1276,7 @@ onUnmounted(() => {
 .sponsor-panel {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding-top: 16px;
+  gap: 16px;
 }
 
 .sponsor-toolbar {
@@ -1184,14 +1285,15 @@ onUnmounted(() => {
   justify-content: space-between;
   gap: 14px;
   flex-wrap: wrap;
-  padding: 16px 20px;
-  border-radius: 14px;
-  border: 1px solid color-mix(in srgb, #f59e0b 16%, transparent);
+  padding: 18px 22px;
+  border-radius: 12px;
+  border: 1px solid rgba(245, 158, 11, 0.16);
   background:
     linear-gradient(135deg,
-      color-mix(in srgb, #f59e0b 10%, transparent) 0%,
-      color-mix(in srgb, #f59e0b 4%, transparent) 100%),
+      rgba(245, 158, 11, 0.06) 0%,
+      rgba(245, 158, 11, 0.02) 100%),
     var(--profile-surface);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 
 .sponsor-toolbar-copy {
@@ -1222,25 +1324,25 @@ onUnmounted(() => {
   margin: 6px 0 0;
   font-size: 12.5px;
   line-height: 1.6;
-  color: color-mix(in srgb, #92400e 80%, var(--el-text-color-regular));
+  color: #78350f;
   max-width: 680px;
 }
 
 .sponsor-refresh-btn {
-  border-radius: 10px;
+  border-radius: 8px;
 }
 
 /* ================= Setup dialog ================= */
 :deep(.setup-2fa-dialog) {
   .el-dialog {
-    border-radius: 16px;
+    border-radius: 12px;
     overflow: hidden;
   }
 
   .el-dialog__header {
-    padding: 18px 20px 14px;
+    padding: 18px 22px 14px;
     margin: 0;
-    border-bottom: 1px solid var(--profile-border-soft);
+    border-bottom: 1px solid var(--profile-border);
   }
 
   .el-dialog__body {
@@ -1248,7 +1350,7 @@ onUnmounted(() => {
   }
 
   .el-dialog__footer {
-    padding: 12px 20px 18px;
+    padding: 12px 22px 18px;
   }
 }
 
@@ -1335,16 +1437,16 @@ onUnmounted(() => {
   width: 220px;
   height: 220px;
   padding: 10px;
-  border-radius: 18px;
+  border-radius: 12px;
   background: #fff;
-  border: 1px solid var(--profile-border-soft);
+  border: 1px solid var(--profile-border);
 }
 
 .secret-box {
   padding: 14px 16px;
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--profile-surface-muted);
-  border: 1px dashed var(--profile-border-soft);
+  border: 1px dashed var(--profile-border);
   text-align: center;
 
   code {
@@ -1360,7 +1462,7 @@ onUnmounted(() => {
 
 .totp-input {
   :deep(.el-input__wrapper) {
-    border-radius: 12px;
+    border-radius: 10px;
   }
 
   :deep(.el-input__inner) {
@@ -1379,9 +1481,22 @@ onUnmounted(() => {
 }
 
 /* ================= Mobile ================= */
-@media (max-width: 900px) {
-  .profile-grid {
-    grid-template-columns: 1fr;
+@media (max-width: 768px) {
+  .profile-body {
+    flex-direction: column;
+  }
+
+  .profile-sidebar {
+    width: 100%;
+    flex-direction: row;
+    overflow-x: auto;
+    padding: 8px;
+    gap: 4px;
+  }
+
+  .sidebar-tab {
+    padding: 8px 14px;
+    font-size: 13px;
   }
 }
 
@@ -1390,8 +1505,14 @@ onUnmounted(() => {
     padding: 20px;
   }
 
+  .profile-hero-left {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
   .profile-hero-name {
-    font-size: 22px;
+    font-size: 20px;
   }
 
   .profile-hero-meta-row {
@@ -1400,6 +1521,15 @@ onUnmounted(() => {
 
   .hero-chip {
     font-size: 11.5px;
+  }
+
+  .profile-card {
+    padding: 16px 18px;
+  }
+
+  .shield-icon {
+    width: 48px;
+    height: 58px;
   }
 }
 </style>

@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import AIConfigCard from './components/AIConfigCard.vue'
+import AlertConfigCard from './components/AlertConfigCard.vue'
 import BackupManagementCard from './components/BackupManagementCard.vue'
 import CaptchaConfigCard from './components/CaptchaConfigCard.vue'
 import IPWhitelistCard from './components/IPWhitelistCard.vue'
@@ -12,12 +13,14 @@ import ProxyConfigCard from './components/ProxyConfigCard.vue'
 import SecurityPassword2FACard from './components/SecurityPassword2FACard.vue'
 import SessionManagementCard from './components/SessionManagementCard.vue'
 import SystemConfigCard from './components/SystemConfigCard.vue'
+import SystemHealthCard from './components/SystemHealthCard.vue'
 import SystemInfoCard from './components/SystemInfoCard.vue'
+import UpdateSettingsCard from './components/UpdateSettingsCard.vue'
 import TaskExecutionCard from './components/TaskExecutionCard.vue'
 import { useSettingsConfig } from './useSettingsConfig'
 import { useSettingsOverview } from './useSettingsOverview'
 import { useSettingsSecurity } from './useSettingsSecurity'
-import { Connection, Document, Lock, MagicStick, Monitor, Refresh } from '@element-plus/icons-vue'
+import { Bell, Connection, Document, Lock, MagicStick, Monitor, Refresh } from '@element-plus/icons-vue'
 
 const authStore = useAuthStore()
 const roleLevel: Record<string, number> = { viewer: 1, operator: 2, admin: 3 }
@@ -39,6 +42,7 @@ const {
   updatingPanel,
   autoUpdateEnabled,
   savingAutoUpdate,
+  lastCheckTime,
   releaseNotesVisible,
   updateProgressVisible,
   updateProgressStatus,
@@ -68,6 +72,7 @@ const {
   configForm,
   loadSystemConfigs,
   handleSaveSystemConfig,
+  handleSaveAlertConfig,
   handleIconUpload,
   handleLogBackgroundUpload,
   previewPanelAppearance,
@@ -154,7 +159,7 @@ function handleTabChange(tab: string) {
     void loadSystemStats()
     void loadSystemInfo()
     void loadUpdatePreferences()
-  } else if (tab === 'config' || tab === 'task-exec' || tab === 'proxy' || tab === 'captcha' || tab === 'ai') {
+  } else if (tab === 'config' || tab === 'task-exec' || tab === 'proxy' || tab === 'captcha' || tab === 'ai' || tab === 'alert') {
     void loadSystemConfigs()
   } else if (tab === 'backup') {
     void loadBackups()
@@ -178,46 +183,58 @@ onMounted(() => {
   <div class="settings-page">
     <div class="page-header">
       <div>
-        <h2 class="page-title">系统设置</h2>
-        <span class="page-subtitle">管理员后台：管理面板配置、安全策略和数据备份</span>
+        <h2 class="page-title">⚙️ 系统设置</h2>
+        <p class="page-subtitle">管理面板配置、安全策略、系统信息和数据备份恢复</p>
       </div>
       <el-button @click="handleRefresh">
-        <el-icon><Refresh /></el-icon>刷新
+        <el-icon><Refresh /></el-icon> 刷新
       </el-button>
     </div>
 
     <el-tabs v-model="activeTab" @tab-change="handleTabChange">
       <el-tab-pane label="概览" name="overview">
-        <OverviewHeroCard
-          :is-admin="isAdmin"
-          :current-version="currentVersion"
-          :update-info="updateInfo"
-          :update-status="updateStatus"
-          :checking-update="checkingUpdate"
-          :updating-panel="updatingPanel"
-          :auto-update-enabled="autoUpdateEnabled"
-          :saving-auto-update="savingAutoUpdate"
-          :release-notes-visible="releaseNotesVisible"
-          :update-progress-visible="updateProgressVisible"
-          :update-progress-status="updateProgressStatus"
-          :update-progress-error="updateProgressError"
-          :on-check-update="handleCheckUpdate"
-          :on-start-update="handleUpdatePanel"
-          :on-restart-panel="handleRestartPanel"
-          :on-toggle-auto-update="handleToggleAutoUpdate"
-          :on-open-release-notes="openReleaseNotes"
-          :on-close-release-notes="closeReleaseNotes"
-          :on-open-git-hub="openGitHub"
-          :on-close-update-progress="closeUpdateProgress"
-        />
+        <div class="overview-grid">
+          <OverviewHeroCard
+            :is-admin="isAdmin"
+            :current-version="currentVersion"
+            :update-info="updateInfo"
+            :update-status="updateStatus"
+            :checking-update="checkingUpdate"
+            :updating-panel="updatingPanel"
+            :auto-update-enabled="autoUpdateEnabled"
+            :saving-auto-update="savingAutoUpdate"
+            :release-notes-visible="releaseNotesVisible"
+            :update-progress-visible="updateProgressVisible"
+            :update-progress-status="updateProgressStatus"
+            :update-progress-error="updateProgressError"
+            :on-check-update="handleCheckUpdate"
+            :on-start-update="handleUpdatePanel"
+            :on-restart-panel="handleRestartPanel"
+            :on-toggle-auto-update="handleToggleAutoUpdate"
+            :on-open-release-notes="openReleaseNotes"
+            :on-close-release-notes="closeReleaseNotes"
+            :on-open-git-hub="openGitHub"
+            :on-close-update-progress="closeUpdateProgress"
+          />
 
-        <OverviewStatsCard :system-stats="systemStats" />
+          <UpdateSettingsCard
+            :version="currentVersion"
+            :last-check-time="lastCheckTime"
+            :auto-update-enabled="autoUpdateEnabled"
+            @update:auto-update-enabled="handleToggleAutoUpdate"
+          />
+        </div>
 
-        <SystemInfoCard
-          :system-info="systemInfo"
-          :format-bytes="formatBytes"
-          :get-usage-class="getUsageClass"
-        />
+        <OverviewStatsCard :system-stats="systemStats" style="margin-bottom: 16px" />
+
+        <div class="overview-info-grid">
+          <SystemInfoCard
+            :system-info="systemInfo"
+            :format-bytes="formatBytes"
+            :get-usage-class="getUsageClass"
+          />
+          <SystemHealthCard />
+        </div>
       </el-tab-pane>
 
       <el-tab-pane v-if="isAdmin" label="面板外观" name="config">
@@ -238,6 +255,18 @@ onMounted(() => {
           :configs-saving="configsSaving"
           :form="configForm"
           :on-save="handleSaveTaskConfig"
+        />
+      </el-tab-pane>
+
+      <el-tab-pane v-if="isAdmin" name="alert">
+        <template #label>
+          <span class="sub-tab-label"><el-icon :size="14"><Bell /></el-icon>告警通知</span>
+        </template>
+        <AlertConfigCard
+          :configs-loading="configsLoading"
+          :configs-saving="configsSaving"
+          :form="configForm"
+          :on-save="handleSaveAlertConfig"
         />
       </el-tab-pane>
 
@@ -377,29 +406,25 @@ onMounted(() => {
 </template>
 
 <style scoped lang="scss">
-.settings-page {
-  padding: 0;
-}
+.settings-page { padding: 0; }
 
 .page-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
+  align-items: flex-start;
+  margin-bottom: 18px;
+  gap: 16px;
+
+  h2 { margin: 0; font-size: 22px; font-weight: 700; color: var(--el-text-color-primary); line-height: 1.3; }
+  .page-subtitle { font-size: 13px; color: var(--el-text-color-secondary); margin: 4px 0 0; display: block; }
 }
 
 .page-title {
-  font-size: 20px;
+  font-size: 22px;
   font-weight: 700;
   margin: 0;
   color: var(--el-text-color-primary);
-}
-
-.page-subtitle {
-  font-size: 13px;
-  color: var(--el-text-color-secondary);
-  display: block;
-  margin-top: 2px;
+  line-height: 1.3;
 }
 
 .sub-tab-label {
@@ -408,11 +433,43 @@ onMounted(() => {
   gap: 4px;
 }
 
+.overview-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+:deep(.el-tabs) {
+  .el-tabs__header {
+    margin-bottom: 20px;
+  }
+  .el-tabs__item {
+    font-size: 14px;
+    &.is-active { font-weight: 600; }
+  }
+}
+
+.overview-info-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+
+  :deep(.mt-card) {
+    margin-top: 0;
+  }
+}
+
 @media (max-width: 768px) {
+  .overview-grid { grid-template-columns: 1fr; }
+  .overview-info-grid { grid-template-columns: 1fr; }
   .page-header {
     flex-direction: column;
     align-items: stretch;
     gap: 10px;
+    margin-bottom: 14px;
+
+    h2 { font-size: 18px; }
   }
 
   :deep(.el-tabs__nav-wrap) {
