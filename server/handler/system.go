@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bufio"
+	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -22,6 +23,27 @@ import (
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
+
+const (
+	systemHealthLastCheckedAtKey = "system_health_last_checked_at"
+	systemHealthLastResultKey    = "system_health_last_result_json"
+)
+
+type systemHealthCheckItem struct {
+	Name    string `json:"name"`
+	Status  string `json:"status"`
+	Message string `json:"message,omitempty"`
+}
+
+type systemHealthSnapshot struct {
+	Items         []systemHealthCheckItem `json:"items"`
+	LastCheckedAt string                  `json:"last_checked_at,omitempty"`
+}
+
+var (
+	systemHealthCheckHTTPClient = &http.Client{Timeout: 3 * time.Second}
+	systemHealthCheckURL        = "https://www.baidu.com"
+)
 
 type SystemHandler struct{}
 
@@ -421,52 +443,103 @@ func (h *SystemHandler) PanelLog(c *gin.Context) {
 	})
 }
 
-func (h *SystemHandler) HealthCheck(c *gin.Context) {
-	type checkItem struct {
-		Name    string `json:"name"`
-		Status  string `json:"status"`
-		Message string `json:"message,omitempty"`
-	}
-	var items []checkItem
+func runSystemHealthChecks() []systemHealthCheckItem {
+	items := make([]systemHealthCheckItem, 0, 4)
 
-	// Database
 	if err := database.DB.Exec("SELECT 1").Error; err != nil {
-		items = append(items, checkItem{Name: "database", Status: "error", Message: err.Error()})
+		items = append(items, systemHealthCheckItem{Name: "database", Status: "error", Message: err.Error()})
 	} else {
-		items = append(items, checkItem{Name: "database", Status: "ok"})
+		items = append(items, systemHealthCheckItem{Name: "database", Status: "ok"})
 	}
 
-	// Memory
 	info := service.GetResourceInfo()
 	memThreshold := float64(model.GetRegisteredConfigInt("memory_warn"))
 	if memThreshold <= 0 {
 		memThreshold = 80
 	}
 	if info.MemoryUsage > memThreshold {
-		items = append(items, checkItem{Name: "memory", Status: "warning", Message: strconv.FormatFloat(info.MemoryUsage, 'f', 1, 64) + "%"})
+		items = append(items, systemHealthCheckItem{Name: "memory", Status: "warning", Message: strconv.FormatFloat(info.MemoryUsage, 'f', 1, 64) + "%"})
 	} else {
-		items = append(items, checkItem{Name: "memory", Status: "ok", Message: strconv.FormatFloat(info.MemoryUsage, 'f', 1, 64) + "%"})
+		items = append(items, systemHealthCheckItem{Name: "memory", Status: "ok", Message: strconv.FormatFloat(info.MemoryUsage, 'f', 1, 64) + "%"})
 	}
 
-	// Scheduler
 	if sched := service.GetScheduler(); sched != nil {
-		items = append(items, checkItem{Name: "scheduler", Status: "ok", Message: "运行中"})
+		items = append(items, systemHealthCheckItem{Name: "scheduler", Status: "ok", Message: "运行中"})
 	} else if schedV2 := service.GetSchedulerV2(); schedV2 != nil {
-		items = append(items, checkItem{Name: "scheduler", Status: "ok", Message: "运行中"})
+		items = append(items, systemHealthCheckItem{Name: "scheduler", Status: "ok", Message: "运行中"})
 	} else {
-		items = append(items, checkItem{Name: "scheduler", Status: "ok", Message: "空闲"})
+		items = append(items, systemHealthCheckItem{Name: "scheduler", Status: "ok", Message: "空闲"})
 	}
 
-	// Network
-	client := &http.Client{Timeout: 3 * time.Second}
-	if resp, err := client.Get("https://www.baidu.com"); err != nil {
-		items = append(items, checkItem{Name: "network", Status: "error", Message: "无法连接外部网络"})
+	if resp, err := systemHealthCheckHTTPClient.Get(systemHealthCheckURL); err != nil {
+		items = append(items, systemHealthCheckItem{Name: "network", Status: "error", Message: "无法连接外部网络"})
 	} else {
 		resp.Body.Close()
-		items = append(items, checkItem{Name: "network", Status: "ok"})
+		if resp.StatusCode >= http.StatusBadRequest {
+			items = append(items, systemHealthCheckItem{Name: "network", Status: "error", Message: "网络检查返回状态异常"})
+		} else {
+			items = append(items, systemHealthCheckItem{Name: "network", Status: "ok"})
+		}
 	}
 
-	response.Success(c, gin.H{"items": items})
+	return items
+}
+
+func loadSystemHealthSnapshot() systemHealthSnapshot {
+	snapshot := systemHealthSnapshot{
+		Items:         []systemHealthCheckItem{},
+		LastCheckedAt: strings.TrimSpace(model.GetConfig(systemHealthLastCheckedAtKey, "")),
+	}
+
+	rawItems := strings.TrimSpace(model.GetConfig(systemHealthLastResultKey, ""))
+	if rawItems == "" {
+		return snapshot
+	}
+
+	if err := json.Unmarshal([]byte(rawItems), &snapshot.Items); err != nil {
+		snapshot.Items = []systemHealthCheckItem{}
+	}
+
+	return snapshot
+}
+
+func saveSystemHealthSnapshot(items []systemHealthCheckItem, checkedAt time.Time) error {
+	rawItems, err := json.Marshal(items)
+	if err != nil {
+		return err
+	}
+
+	if err := model.SetConfig(systemHealthLastResultKey, string(rawItems)); err != nil {
+		return err
+	}
+	if err := model.SetConfig(systemHealthLastCheckedAtKey, checkedAt.Format(time.RFC3339)); err != nil {
+		return err
+	}
+	return nil
+}
+
+func buildSystemHealthSnapshot(items []systemHealthCheckItem, checkedAt string) gin.H {
+	return gin.H{
+		"items":           items,
+		"last_checked_at": checkedAt,
+	}
+}
+
+func (h *SystemHandler) HealthCheck(c *gin.Context) {
+	snapshot := loadSystemHealthSnapshot()
+	response.Success(c, buildSystemHealthSnapshot(snapshot.Items, snapshot.LastCheckedAt))
+}
+
+func (h *SystemHandler) RunHealthCheck(c *gin.Context) {
+	items := runSystemHealthChecks()
+	checkedAt := time.Now()
+
+	if err := saveSystemHealthSnapshot(items, checkedAt); err != nil {
+		response.InternalError(c, "保存健康检查结果失败: "+err.Error())
+		return
+	}
+
+	response.Success(c, buildSystemHealthSnapshot(items, checkedAt.Format(time.RFC3339)))
 }
 
 func (h *SystemHandler) RegisterRoutes(r *gin.RouterGroup) {
@@ -481,6 +554,7 @@ func (h *SystemHandler) RegisterRoutes(r *gin.RouterGroup) {
 		sys.GET("/version", middleware.OpenAPIAccess("system"), middleware.RequireRole("viewer"), h.Version)
 		sys.GET("/check-update", middleware.OpenAPIAccess("system"), middleware.RequireRole("viewer"), h.CheckUpdate)
 		sys.GET("/health-check", middleware.RequireRole("viewer"), h.HealthCheck)
+		sys.POST("/health-check", middleware.RequireRole("viewer"), h.RunHealthCheck)
 		sys.GET("/update-status", middleware.RequireAdmin(), h.UpdateStatus)
 		sys.POST("/update", middleware.RequireAdmin(), h.UpdatePanel)
 		sys.POST("/restart", middleware.RequireAdmin(), h.Restart)

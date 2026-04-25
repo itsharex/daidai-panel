@@ -1,5 +1,5 @@
 <template>
-  <div class="deps-page">
+  <div class="deps-page dd-fixed-page">
     <div class="page-header">
       <div>
         <h2>📚 依赖管理</h2>
@@ -94,7 +94,7 @@
           安装日志
           <el-button link size="small" @click="androidInstallLog = []">清空</el-button>
         </div>
-        <pre>{{ androidInstallLog.join('\n') }}</pre>
+        <pre v-html="androidInstallLogHtml"></pre>
       </div>
     </el-card>
 
@@ -268,11 +268,11 @@
         :header-cell-style="{ background: '#f8fafc', color: '#64748b', fontWeight: 600, fontSize: '13px' }"
       >
         <el-table-column type="selection" width="40" />
-        <el-table-column prop="name" label="名称" min-width="200">
+        <el-table-column prop="name" label="名称" min-width="160">
           <template #default="{ row }">
             <div class="dep-name-cell">
               <span class="dep-name-avatar" :style="{ background: getLetterColor(row.name) }">{{ (row.name || '?').charAt(0).toUpperCase() }}</span>
-              <span class="dep-name-text">{{ row.name }}</span>
+              <span class="dep-name-text" :title="row.name">{{ row.name }}</span>
             </div>
           </template>
         </el-table-column>
@@ -291,14 +291,26 @@
             <span class="time-text">{{ new Date(row.created_at).toLocaleString('zh-CN') }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="200" fixed="right" align="center">
+        <el-table-column label="操作" width="176" fixed="right" align="center">
           <template #default="{ row }">
             <div class="action-btns">
               <el-button type="primary" text size="small" @click="viewLog(row)">详情</el-button>
               <el-button v-if="row.status === 'installing' || row.status === 'removing'" type="warning" text size="small" @click="handleCancel(row)">取消</el-button>
-              <el-button type="warning" text size="small" @click="handleReinstall(row)" :disabled="isProcessing(row.status)">重装</el-button>
-              <el-button type="danger" text size="small" @click="handleDelete(row)" :disabled="isProcessing(row.status)">卸载</el-button>
-              <el-button type="danger" text size="small" @click="handleForceDelete(row)" :disabled="isProcessing(row.status)">强制卸载</el-button>
+              <el-button v-else type="warning" text size="small" @click="handleReinstall(row)" :disabled="isProcessing(row.status)">重装</el-button>
+              <el-dropdown trigger="click" placement="bottom-end">
+                <el-button text size="small" class="action-more-btn">
+                  更多
+                  <el-icon><ArrowDown /></el-icon>
+                </el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item @click="handleDelete(row)" :disabled="isProcessing(row.status)">卸载</el-dropdown-item>
+                    <el-dropdown-item @click="handleForceDelete(row)" :disabled="isProcessing(row.status)">
+                      <span class="danger-dropdown-text">强制卸载</span>
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
             </div>
           </template>
         </el-table-column>
@@ -356,7 +368,7 @@
           取消当前任务
         </el-button>
       </div>
-      <pre ref="logContainerRef" class="log-content">{{ logContent || '暂无日志' }}</pre>
+      <pre ref="logContainerRef" class="log-content" v-html="logContentHtml"></pre>
     </el-dialog>
     <el-dialog v-model="showMirrorDialog" title="软件包镜像源设置" width="560px" :fullscreen="dialogFullscreen">
       <el-form label-width="110px" v-loading="mirrorLoading">
@@ -451,11 +463,13 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { openAuthorizedEventStream, type EventStreamConnection } from '@/utils/sse'
 import { usePageActivity } from '@/composables/usePageActivity'
 import { useResponsive } from '@/composables/useResponsive'
+import { ansiToHtml, normalizeAnsi } from '@/utils/ansi'
 
 // ---------- Android 面具版脚本运行时 ----------
 const androidStatus = ref<AndroidRuntimeStatus | null>(null)
 const androidInstallingName = ref<string>('')
 const androidInstallLog = ref<string[]>([])
+const androidInstallLogHtml = computed(() => ansiToHtml(normalizeAnsi(androidInstallLog.value.join('\n'))))
 let androidInstallAbort: AbortController | null = null
 
 async function loadAndroidStatus() {
@@ -558,6 +572,7 @@ const loading = ref(false)
 const showCreateDialog = ref(false)
 const showLogDialog = ref(false)
 const logContent = ref('')
+const logContentHtml = computed(() => ansiToHtml(normalizeAnsi(logContent.value || '暂无日志')))
 const logDone = ref(true)
 const currentLogRow = ref<any | null>(null)
 let eventSource: EventStreamConnection | null = null
@@ -1096,11 +1111,18 @@ onBeforeUnmount(() => {
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04); border: 1px solid var(--el-border-color-lighter); overflow: hidden;
 }
 
-.dep-name-cell { display: flex; align-items: center; gap: 10px; }
+.dep-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
 .dep-name-avatar {
-  width: 34px; height: 34px; border-radius: 50%;
+  width: 24px; height: 24px; border-radius: 8px;
   display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-  font-size: 14px; font-weight: 700; color: #fff;
+  font-size: 11px; font-weight: 700; color: #fff;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
 }
 
 .js-icon-block {
@@ -1121,10 +1143,44 @@ onBeforeUnmount(() => {
   &:hover { color: var(--el-text-color-primary); }
   &.active { background: var(--el-bg-color); color: var(--el-color-primary); box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06); font-weight: 600; }
 }
-.dep-name-text { font-weight: 500; color: var(--el-text-color-primary); }
+.dep-name-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  color: var(--el-text-color-primary);
+}
 .version-text { font-family: var(--dd-font-mono); font-size: 13px; color: var(--el-text-color-secondary); }
 .time-text { font-family: var(--dd-font-mono); font-size: 12px; color: var(--el-text-color-regular); }
-.action-btns { display: flex; align-items: center; justify-content: center; gap: 2px; }
+.action-btns {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+
+  :deep(.el-button) {
+    height: 26px;
+    padding: 0 5px;
+    margin-left: 0;
+    font-size: 12px;
+  }
+
+  :deep(.el-button + .el-button) {
+    margin-left: 0;
+  }
+}
+
+.action-more-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.danger-dropdown-text {
+  color: var(--el-color-danger);
+}
 
 // ---------- Pagination ----------
 .pagination-bar {
@@ -1136,7 +1192,8 @@ onBeforeUnmount(() => {
   --el-table-border-color: #f0f0f0;
   .el-table__header-wrapper th { border-bottom: 1px solid #e8e8e8; }
   .el-table__row td { border-bottom: 1px solid #f5f5f5; }
-  .el-table__cell { padding: 12px 0; }
+  .el-table__cell { padding: 8px 0; }
+  .el-table__fixed-right .el-table__cell { padding-left: 4px; padding-right: 4px; }
 }
 
 // ---------- Mobile card layout ----------

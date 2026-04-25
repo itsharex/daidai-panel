@@ -10,6 +10,7 @@ import { usePageActivity } from '@/composables/usePageActivity'
 import { useResponsive } from '@/composables/useResponsive'
 import { extractError } from '@/utils/error'
 import { canOperate } from '@/utils/roles'
+import { ansiToHtml, normalizeAnsi } from '@/utils/ansi'
 
 const route = useRoute()
 const authStore = useAuthStore()
@@ -68,6 +69,8 @@ const detailByteLabel = computed(() => {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 })
+const detailContentHtml = computed(() => ansiToHtml(normalizeAnsi(detailContent.value || '（正在加载日志...）')))
+const fileContentHtml = computed(() => ansiToHtml(normalizeAnsi(fileContentData.value || '(空文件)')))
 
 let mounted = false
 
@@ -450,7 +453,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="logs-page">
+  <div class="logs-page dd-fixed-page">
     <!-- ======= Page Header ======= -->
     <div class="page-header">
       <div>
@@ -695,7 +698,7 @@ onBeforeUnmount(() => {
       </template>
 
       <div class="detail-body">
-        <pre ref="logContentRef" class="detail-log dd-log-surface">{{ detailContent || '（正在加载日志...）' }}</pre>
+        <pre ref="logContentRef" class="detail-log dd-log-surface" v-html="detailContentHtml"></pre>
         <div class="detail-status-bar">
           <div class="detail-status-group">
             <span class="detail-status-item">{{ detailLineCount }} 行</span>
@@ -750,7 +753,7 @@ onBeforeUnmount(() => {
     </el-dialog>
 
     <el-dialog v-model="showFileContent" :title="fileContentName" width="820px" :fullscreen="dialogFullscreen">
-      <pre class="detail-log dd-log-surface">{{ fileContentData }}</pre>
+      <pre class="detail-log dd-log-surface" v-html="fileContentHtml"></pre>
     </el-dialog>
   </div>
 </template>

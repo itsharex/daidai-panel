@@ -180,7 +180,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="settings-page">
+  <div class="settings-page dd-scroll-page">
     <div class="page-header">
       <div>
         <h2 class="page-title">⚙️ 系统设置</h2>

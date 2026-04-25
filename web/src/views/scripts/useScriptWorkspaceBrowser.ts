@@ -14,7 +14,8 @@ type ScriptBrowserState = {
 }
 
 export function useScriptWorkspaceBrowser() {
-  const { isMobile } = useResponsive()
+  const { isMobile, isTablet } = useResponsive()
+  const isCompactLayout = computed(() => isTablet.value)
   const mobileShowEditor = ref(false)
 
   const fileTree = ref<TreeNode[]>([])
@@ -65,8 +66,8 @@ export function useScriptWorkspaceBrowser() {
     return folders
   })
 
-  watch(isMobile, (mobile) => {
-    if (!mobile) {
+  watch(isCompactLayout, (compact) => {
+    if (!compact) {
       mobileShowEditor.value = false
     }
   })
@@ -207,6 +208,7 @@ export function useScriptWorkspaceBrowser() {
 
   return {
     isMobile,
+    isCompactLayout,
     mobileShowEditor,
     fileTree,
     selectedFile,

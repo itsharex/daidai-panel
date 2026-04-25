@@ -130,7 +130,7 @@ function methodClass(method: string) {
 </script>
 
 <template>
-  <div class="api-docs-page">
+  <div class="api-docs-page dd-fixed-page">
     <div class="page-header">
       <h3 class="page-title">
         <el-icon><Connection /></el-icon>
@@ -397,6 +397,7 @@ function methodClass(method: string) {
 <style scoped lang="scss">
 .api-docs-page {
   animation: fadeIn 0.3s ease-out;
+  min-height: 0;
 }
 
 .page-header {
@@ -423,7 +424,8 @@ function methodClass(method: string) {
 .api-layout {
   display: flex;
   gap: 16px;
-  min-height: calc(100vh - 160px);
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .api-sider {
@@ -433,9 +435,7 @@ function methodClass(method: string) {
   border-radius: 10px;
   border: 1px solid var(--el-border-color-lighter);
   overflow: hidden;
-  position: sticky;
-  top: 0;
-  max-height: calc(100vh - 160px);
+  height: 100%;
   display: flex;
   flex-direction: column;
 }

@@ -143,6 +143,22 @@ func runCmdWithCallback(ctx context.Context, cmd *exec.Cmd, emit PullCallback) (
 	return buf.String(), err
 }
 
+func gitHasWorkingTreeChanges(ctx context.Context, repoDir string, env []string) (bool, error) {
+	cmd := exec.CommandContext(ctx, "git", "status", "--porcelain", "--untracked-files=all")
+	cmd.Dir = repoDir
+	cmd.Env = env
+
+	output, err := cmd.Output()
+	if err != nil {
+		if ctx != nil && ctx.Err() != nil {
+			return false, fmt.Errorf("拉取已停止")
+		}
+		return false, err
+	}
+
+	return strings.TrimSpace(string(output)) != "", nil
+}
+
 func pullGitRepoWithCallback(ctx context.Context, sub *model.Subscription, sshKeyPath string, emit PullCallback) (string, error) {
 	saveDir := sub.SaveDir
 	if saveDir == "" {
@@ -213,11 +229,22 @@ func pullGitRepoWithCallback(ctx context.Context, sub *model.Subscription, sshKe
 			fullOutput.WriteString(output)
 		} else {
 			emit("[保留本地修改] 正在合并远端更新（保留本地修改的文件）")
-			cmd = exec.CommandContext(ctx, "git", "stash")
-			cmd.Dir = destDir
-			cmd.Env = env
-			stashOutput, _ := runCmdWithCallback(ctx, cmd, emit)
-			hasStash := !strings.Contains(stashOutput, "No local changes")
+			hasStash, err := gitHasWorkingTreeChanges(ctx, destDir, env)
+			if err != nil {
+				return fullOutput.String(), err
+			}
+			if hasStash {
+				cmd = exec.CommandContext(ctx, "git", "stash", "push", "--include-untracked", "-m", "daidai-panel-subscription-update")
+				cmd.Dir = destDir
+				cmd.Env = env
+				output, err = runCmdWithCallback(ctx, cmd, emit)
+				fullOutput.WriteString(output)
+				if err != nil {
+					return fullOutput.String(), err
+				}
+			} else {
+				emit("[保留本地修改] 未检测到本地改动，跳过暂存恢复")
+			}
 
 			cmd = exec.CommandContext(ctx, "git", "reset", "--hard", "FETCH_HEAD")
 			cmd.Dir = destDir

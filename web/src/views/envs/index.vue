@@ -498,6 +498,10 @@ function handlePageSizeChange(newSize: EnvPageSizeSelection) {
   void loadData()
 }
 
+function handlePageSizeSelect(value: string) {
+  handlePageSizeChange(value as EnvPageSizeSelection)
+}
+
 function openCreate() {
   editDialogMode.value = 'create'
   currentEditEnv.value = { id: 0, name: '', value: '', remarks: '', group: '' }
@@ -783,7 +787,7 @@ function handleStatusFilter(value: '' | 'enabled' | 'disabled') {
 </script>
 
 <template>
-  <div class="envs-page">
+  <div class="envs-page dd-fixed-page">
     <div class="page-header">
       <div>
         <h2>🔧 环境变量</h2>
@@ -1092,14 +1096,32 @@ function handleStatusFilter(value: '' | 'enabled' | 'disabled') {
 
     <div class="pagination-bar">
       <span class="pagination-total">共 {{ total }} 条数据</span>
-      <el-pagination
-        v-if="showPager"
-        v-model:current-page="page"
-        :page-size="pageSize"
-        :total="total"
-        layout="prev, pager, next"
-        @current-change="handlePageChange"
-      />
+      <div class="pagination-actions">
+        <div class="page-size-picker">
+          <span class="page-size-picker__label">每页</span>
+          <el-select
+            :model-value="pageSizeSelection"
+            size="small"
+            style="width: 112px"
+            @change="handlePageSizeSelect"
+          >
+            <el-option
+              v-for="option in pageSizeOptions"
+              :key="option.value"
+              :label="option.label"
+              :value="option.value"
+            />
+          </el-select>
+        </div>
+        <el-pagination
+          v-if="showPager"
+          v-model:current-page="page"
+          :page-size="pageSize"
+          :total="total"
+          layout="prev, pager, next"
+          @current-change="handlePageChange"
+        />
+      </div>
     </div>
 
     <el-dialog v-model="showExportDialog" title="导出环境变量" width="600px" :fullscreen="isMobile">
@@ -1356,12 +1378,33 @@ function handleStatusFilter(value: '' | 'enabled' | 'disabled') {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
   padding: 0 4px;
 }
 
 .pagination-total {
   font-size: 13px;
   color: var(--el-text-color-secondary);
+}
+
+.pagination-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.page-size-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.page-size-picker__label {
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+  white-space: nowrap;
 }
 
 /* ---- Table internals ---- */
@@ -1782,6 +1825,20 @@ function handleStatusFilter(value: '' | 'enabled' | 'disabled') {
 
   .batch-actions {
     flex-wrap: wrap;
+  }
+
+  .pagination-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .pagination-actions {
+    justify-content: space-between;
+  }
+
+  .page-size-picker {
+    width: 100%;
+    justify-content: space-between;
   }
 
   .env-card__title-row {

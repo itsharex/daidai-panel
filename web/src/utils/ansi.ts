@@ -12,12 +12,52 @@ const ANSI_BG_COLORS: Record<number, string> = {
   104: '#3b8eea', 105: '#d670d6', 106: '#29b8db', 107: '#ffffff',
 }
 
+const ANSI_256_BASE_COLORS = [
+  '#000000', '#800000', '#008000', '#808000', '#000080', '#800080', '#008080', '#c0c0c0',
+  '#808080', '#ff0000', '#00ff00', '#ffff00', '#0000ff', '#ff00ff', '#00ffff', '#ffffff',
+] as const
+
 function escapeHtml(text: string): string {
   return text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
+}
+
+function sanitizeLogSegment(text: string): string {
+  // Drop unsupported ANSI cursor/control sequences so they do not leak into the UI.
+  // eslint-disable-next-line no-control-regex
+  return text
+    .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)?/g, '')
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]|\x1b[@-_]/g, '')
+}
+
+function ansi256ToHex(code: number): string {
+  if (code >= 0 && code <= 15) {
+    return ANSI_256_BASE_COLORS[code] ?? ''
+  }
+
+  if (code >= 16 && code <= 231) {
+    const value = code - 16
+    const red = Math.floor(value / 36)
+    const green = Math.floor((value % 36) / 6)
+    const blue = value % 6
+    const toChannel = (n: number) => n === 0 ? 0 : 55 + n * 40
+    return rgbToHex(toChannel(red), toChannel(green), toChannel(blue))
+  }
+
+  if (code >= 232 && code <= 255) {
+    const channel = 8 + (code - 232) * 10
+    return rgbToHex(channel, channel, channel)
+  }
+
+  return ''
+}
+
+function rgbToHex(red: number, green: number, blue: number): string {
+  const toHex = (value: number) => Math.max(0, Math.min(255, value)).toString(16).padStart(2, '0')
+  return `#${toHex(red)}${toHex(green)}${toHex(blue)}`
 }
 
 export function ansiToHtml(text: string): string {
@@ -49,14 +89,15 @@ export function ansiToHtml(text: string): string {
   let match: RegExpExecArray | null
   while ((match = ansiRegex.exec(text)) !== null) {
     const before = text.slice(lastIndex, match.index)
-    if (before) result += escapeHtml(before)
+    if (before) result += escapeHtml(sanitizeLogSegment(before))
     lastIndex = match.index + match[0].length
 
     const codes = match[1]
       ? match[1].split(';').map(Number)
       : [0]
 
-    for (const code of codes) {
+    for (let index = 0; index < codes.length; index++) {
+      const code = codes[index] ?? 0
       if (code === 0) {
         fg = ''; bg = ''; bold = false; dim = false; italic = false; underline = false
       } else if (code === 1) {
@@ -81,6 +122,21 @@ export function ansiToHtml(text: string): string {
         fg = ANSI_COLORS[code]
       } else if (ANSI_BG_COLORS[code]) {
         bg = ANSI_BG_COLORS[code]
+      } else if ((code === 38 || code === 48) && codes[index + 1] === 5) {
+        const color = ansi256ToHex(codes[index + 2] ?? -1)
+        if (color && code === 38) fg = color
+        if (color && code === 48) bg = color
+        index += 2
+      } else if ((code === 38 || code === 48) && codes[index + 1] === 2) {
+        const red = codes[index + 2]
+        const green = codes[index + 3]
+        const blue = codes[index + 4]
+        if (typeof red === 'number' && typeof green === 'number' && typeof blue === 'number') {
+          const color = rgbToHex(red, green, blue)
+          if (code === 38) fg = color
+          if (code === 48) bg = color
+        }
+        index += 4
       }
     }
 
@@ -97,7 +153,7 @@ export function ansiToHtml(text: string): string {
   }
 
   const remaining = text.slice(lastIndex)
-  if (remaining) result += escapeHtml(remaining)
+  if (remaining) result += escapeHtml(sanitizeLogSegment(remaining))
 
   while (openSpans > 0) {
     result += '</span>'
@@ -122,9 +178,8 @@ export function containsAnsi(text: string): boolean {
  * leaving bare sequences like [34m.
  */
 export function normalizeAnsi(text: string): string {
-  // If it already has proper ESC sequences, return as-is
-  // eslint-disable-next-line no-control-regex
-  if (/\x1b\[/.test(text)) return text
   // Replace bare [<digits>m patterns with proper ESC sequences
-  return text.replace(/\[([0-9;]+)m/g, '\x1b[$1m')
+  // without touching already valid ESC-prefixed sequences.
+  // eslint-disable-next-line no-control-regex
+  return text.replace(/(^|[^\x1b])\[([0-9;]+)m/g, '$1\x1b[$2m')
 }

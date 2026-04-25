@@ -538,7 +538,7 @@ function rerunLog(log: any) {
 </script>
 
 <template>
-  <div class="dashboard-page">
+  <div class="dashboard-page dd-scroll-page">
     <!-- ============ Hero: Welcome banner + Quick actions ============ -->
     <section class="hero-row">
       <div class="hero-banner">

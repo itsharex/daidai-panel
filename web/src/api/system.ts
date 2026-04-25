@@ -38,6 +38,17 @@ export interface PanelUpdateStatus {
   registry_url?: string
 }
 
+export interface SystemHealthItem {
+  name: string
+  status: string
+  message?: string
+}
+
+export interface SystemHealthSnapshot {
+  items: SystemHealthItem[]
+  last_checked_at?: string
+}
+
 export const systemApi = {
   info: () => request.get('/system/info'),
   dashboard: (range?: number) => request.get('/system/dashboard', { params: range ? { range } : undefined }),
@@ -62,9 +73,8 @@ export const systemApi = {
     request.post('/system/restore', { filename, password }, { timeout: 0 }),
   deleteBackup: (filename: string) =>
     request.delete('/system/backup', { params: { filename } }),
-  healthCheck() {
-    return request.get('/system/health-check') as Promise<{ items: Array<{ name: string; status: string; message?: string }> }>
-  },
+  healthStatus: () => request.get('/system/health-check') as Promise<SystemHealthSnapshot>,
+  healthCheck: () => request.post('/system/health-check') as Promise<SystemHealthSnapshot>,
   uploadBackup: (file: File) => {
     const formData = new FormData()
     formData.append('file', file)

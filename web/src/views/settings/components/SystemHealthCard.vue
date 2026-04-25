@@ -1,14 +1,17 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { systemApi } from '@/api/system'
+import { computed, onMounted, ref } from 'vue'
+import { systemApi, type SystemHealthItem, type SystemHealthSnapshot } from '@/api/system'
 import { ElMessage } from 'element-plus'
 import { Refresh, CircleCheckFilled, CircleCloseFilled, WarningFilled } from '@element-plus/icons-vue'
 
 const checking = ref(false)
-const checked = ref(false)
-const healthItems = ref<Array<{ name: string; status: string; message?: string }>>([])
+const loadingSnapshot = ref(false)
+const rawHealthItems = ref<SystemHealthItem[]>([])
+const lastCheckedAt = ref('')
 
-type HealthItem = { name: string; status: string; message?: string }
+type HealthApiResponse = Partial<SystemHealthSnapshot> & {
+  data?: Partial<SystemHealthSnapshot>
+}
 
 const nameMap: Record<string, string> = {
   database: '数据库连接',
@@ -17,17 +20,62 @@ const nameMap: Record<string, string> = {
   network: '外部网络连接',
 }
 
+const checked = computed(() => rawHealthItems.value.length > 0 || Boolean(lastCheckedAt.value))
+
+const healthItems = computed(() =>
+  rawHealthItems.value.map(item => ({
+    name: nameMap[item.name] || item.name,
+    status: item.status,
+    message: item.message,
+  }))
+)
+
+const lastCheckedLabel = computed(() => formatDateTime(lastCheckedAt.value))
+
+function applySnapshot(response?: HealthApiResponse | null) {
+  const payload = response?.data ?? response ?? {}
+  rawHealthItems.value = Array.isArray(payload.items) ? payload.items : []
+  lastCheckedAt.value = typeof payload.last_checked_at === 'string' ? payload.last_checked_at : ''
+}
+
+function formatDateTime(value?: string) {
+  if (!value) {
+    return ''
+  }
+
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) {
+    return value
+  }
+
+  return new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(parsed)
+}
+
+async function loadSnapshot() {
+  loadingSnapshot.value = true
+  try {
+    const res = await systemApi.healthStatus()
+    applySnapshot(res)
+  } catch (err: any) {
+    ElMessage.error(err?.response?.data?.error || '加载健康检查记录失败')
+  } finally {
+    loadingSnapshot.value = false
+  }
+}
+
 async function handleCheck() {
   checking.value = true
   try {
     const res = await systemApi.healthCheck()
-    const items: HealthItem[] = (res as any).data?.items || (res as any).items || []
-    healthItems.value = items.map(i => ({
-      name: nameMap[i.name] || i.name,
-      status: i.status,
-      message: i.message,
-    }))
-    checked.value = true
+    applySnapshot(res)
   } catch (err: any) {
     ElMessage.error(err?.response?.data?.error || '健康检查失败')
   } finally {
@@ -48,21 +96,32 @@ function statusLabel(status: string) {
   if (isWarning(status)) return '警告'
   return '异常'
 }
+
+onMounted(() => {
+  void loadSnapshot()
+})
 </script>
 
 <template>
   <el-card shadow="never" class="health-card">
     <template #header>
       <div class="card-header">
-        <span class="card-title"><el-icon><CircleCheckFilled /></el-icon> 系统健康</span>
+        <div class="card-header__main">
+          <span class="card-title"><el-icon><CircleCheckFilled /></el-icon> 系统健康</span>
+          <span v-if="lastCheckedLabel" class="card-header__meta">上次检查：{{ lastCheckedLabel }}</span>
+        </div>
         <el-button size="small" :loading="checking" @click="handleCheck">
           <el-icon><Refresh /></el-icon> 立即检查
         </el-button>
       </div>
     </template>
 
-    <div v-if="!checked" class="health-placeholder">
-      点击「立即检查」执行一次系统健康检测
+    <div v-if="loadingSnapshot && !checked" class="health-placeholder">
+      正在加载最近一次健康检查记录...
+    </div>
+
+    <div v-else-if="!checked" class="health-placeholder">
+      暂无健康检查记录，点击「立即检查」执行一次系统健康检测
     </div>
 
     <div v-else class="health-list">
@@ -94,6 +153,18 @@ function statusLabel(status: string) {
   border: 1px solid #f0f0f0;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
   height: 100%;
+}
+
+.card-header__main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.card-header__meta {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
 }
 
 .health-placeholder {
@@ -170,5 +241,11 @@ function statusLabel(status: string) {
   font-size: 12px;
   color: var(--el-text-color-secondary);
   flex-shrink: 0;
+}
+
+@media (max-width: 768px) {
+  .card-header__main {
+    align-items: flex-start;
+  }
 }
 </style>

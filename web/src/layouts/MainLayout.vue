@@ -354,13 +354,15 @@ async function loadVersion() {
 
       <!-- Page content -->
       <main class="layout-main">
-        <router-view v-slot="{ Component, route: viewRoute }">
-          <transition name="page-fade" mode="out-in">
-            <keep-alive :max="3">
-              <component :is="Component" :key="viewRoute.path" />
-            </keep-alive>
-          </transition>
-        </router-view>
+        <div class="route-shell">
+          <router-view v-slot="{ Component, route: viewRoute }">
+            <transition name="page-fade" mode="out-in">
+              <keep-alive :max="3">
+                <component :is="Component" :key="viewRoute.path" />
+              </keep-alive>
+            </transition>
+          </router-view>
+        </div>
       </main>
 
       <!-- Footer -->
@@ -942,9 +944,20 @@ async function loadVersion() {
 
 .layout-main {
   flex: 1;
-  overflow-y: auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   padding: 20px;
   background: var(--el-bg-color-page);
+}
+
+.route-shell {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 // ==================== Footer ====================
@@ -1018,7 +1031,12 @@ async function loadVersion() {
   }
 
   .layout-main {
+    overflow-y: auto;
     padding: max(12px, env(safe-area-inset-top)) 12px calc(16px + env(safe-area-inset-bottom));
+  }
+
+  .route-shell {
+    overflow: visible;
   }
 
   .header-center {

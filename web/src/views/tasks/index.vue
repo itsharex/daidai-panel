@@ -68,6 +68,7 @@ const viewFilters = ref<TaskViewFilter[]>([])
 const viewSortRules = ref<TaskViewSortRule[]>([])
 const canOperateTasks = computed(() => canOperate(authStore.user?.role))
 const canPollTaskStatus = computed(() => hasRunningTasks.value && isPageActive.value && selectedIds.value.length === 0)
+const desktopTableHeight = computed(() => (isMobile.value ? undefined : '100%'))
 
 function handleViewChange(filters: TaskViewFilter[], sortRules: TaskViewSortRule[]) {
   viewFilters.value = filters
@@ -593,7 +594,7 @@ async function handleImport(event: Event) {
 </script>
 
 <template>
-  <div class="tasks-page">
+  <div class="tasks-page dd-fixed-page">
     <div class="page-header">
       <div>
         <h2>⏰ 定时任务</h2>
@@ -814,6 +815,7 @@ async function handleImport(event: Event) {
       <el-table
         v-loading="loading"
         :data="tasks"
+        :height="desktopTableHeight"
         @selection-change="handleSelectionChange"
         style="width: 100%"
         :header-cell-style="{ background: '#f8fafc', color: '#64748b', fontWeight: 600, fontSize: '13px' }"
@@ -979,6 +981,7 @@ async function handleImport(event: Event) {
 .tasks-page {
   padding: 0;
   font-size: 14px;
+  min-width: 0;
 }
 
 .page-header {
@@ -1284,6 +1287,36 @@ async function handleImport(event: Event) {
 .pagination-total {
   font-size: 13px;
   color: var(--el-text-color-secondary);
+}
+
+@media screen and (min-width: 769px) {
+  .tasks-page {
+    height: 100%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .tasks-page > * {
+    flex-shrink: 0;
+    min-width: 0;
+  }
+
+  .table-card {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  :deep(.table-card .el-table) {
+    flex: 1 1 auto;
+  }
+
+  .pagination-bar {
+    flex-shrink: 0;
+  }
 }
 
 :deep(.el-table) {

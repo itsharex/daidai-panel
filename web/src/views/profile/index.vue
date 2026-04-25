@@ -173,16 +173,31 @@ const usernameInitial = computed(() => {
 })
 
 const avatarCacheBuster = ref(Date.now())
+const avatarLoadFailed = ref(false)
+const hasAvatar = computed(() => Boolean(authStore.user?.avatar_url))
 const avatarUrl = computed(() => {
   const url = authStore.user?.avatar_url || ''
-  if (!url) return ''
-  return url + '?t=' + avatarCacheBuster.value
+  if (!url || avatarLoadFailed.value) return ''
+  const separator = url.includes('?') ? '&' : '?'
+  return `${url}${separator}t=${avatarCacheBuster.value}`
 })
 const avatarUploading = ref(false)
 const avatarInputRef = ref<HTMLInputElement | null>(null)
 
+watch(
+  () => authStore.user?.avatar_url,
+  () => {
+    avatarLoadFailed.value = false
+  },
+  { immediate: true }
+)
+
 function triggerAvatarUpload() {
   avatarInputRef.value?.click()
+}
+
+function handleAvatarLoadError() {
+  avatarLoadFailed.value = true
 }
 
 async function handleAvatarFileChange(e: Event) {
@@ -207,6 +222,7 @@ async function handleAvatarFileChange(e: Event) {
   try {
     await authApi.uploadAvatar(file)
     ElMessage.success('头像上传成功')
+    avatarLoadFailed.value = false
     await authStore.fetchUser()
     avatarCacheBuster.value = Date.now()
   } catch (err: any) {
@@ -225,6 +241,7 @@ async function handleDeleteAvatar() {
   try {
     await authApi.deleteAvatar()
     ElMessage.success('头像已删除')
+    avatarLoadFailed.value = false
     await authStore.fetchUser()
   } catch (err: any) {
     ElMessage.error(err?.response?.data?.error || '删除头像失败')
@@ -363,7 +380,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="profile-page">
+  <div class="profile-page dd-scroll-page">
     <!-- ================= Hero ================= -->
     <header class="profile-hero">
       <div class="profile-hero-aura" aria-hidden="true"></div>
@@ -372,7 +389,7 @@ onUnmounted(() => {
         <div class="profile-hero-left">
           <div class="profile-avatar-wrap">
             <div class="profile-avatar" @click="triggerAvatarUpload" :class="{ 'is-uploading': avatarUploading }">
-              <img v-if="avatarUrl" :src="avatarUrl" alt="用户头像" class="profile-avatar-img" />
+              <img v-if="avatarUrl" :src="avatarUrl" alt="用户头像" class="profile-avatar-img" @error="handleAvatarLoadError" />
               <span v-else class="profile-avatar-initial">{{ usernameInitial }}</span>
               <span class="profile-avatar-ring"></span>
               <div class="profile-avatar-overlay">
@@ -390,7 +407,7 @@ onUnmounted(() => {
               <el-icon :size="12"><Camera /></el-icon>
             </div>
             <el-button
-              v-if="avatarUrl"
+              v-if="hasAvatar"
               class="avatar-delete-btn"
               :icon="Delete"
               circle

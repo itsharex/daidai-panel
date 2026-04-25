@@ -1,5 +1,5 @@
 <template>
-  <div class="open-api-page">
+  <div class="open-api-page dd-fixed-page">
     <div class="page-header">
       <div>
         <h2>🔑 Open API 管理</h2>

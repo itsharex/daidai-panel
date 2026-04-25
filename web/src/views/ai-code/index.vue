@@ -242,7 +242,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="ai-code-page" :class="{ mobile: isMobile }">
+  <div class="ai-code-page dd-fixed-page" :class="{ mobile: isMobile }">
     <div class="page-header">
       <div class="page-copy">
         <div class="page-kicker">Ai Code</div>
@@ -376,7 +376,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  height: calc(100dvh - 120px);
+  height: 100%;
   min-height: 0;
 }
 

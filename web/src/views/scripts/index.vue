@@ -31,6 +31,7 @@ const ai = useScriptAI({
 
 const {
   isMobile,
+  isCompactLayout,
   mobileShowEditor,
   fileTree,
   selectedFile,
@@ -198,7 +199,7 @@ async function handleCancelEdit() {
 </script>
 
 <template>
-  <div class="scripts-page" :class="{ mobile: isMobile }">
+  <div class="scripts-page dd-fixed-page" :class="{ mobile: isMobile, compact: isCompactLayout }">
     <div class="page-header">
       <div>
         <h2>脚本管理</h2>
@@ -206,9 +207,9 @@ async function handleCancelEdit() {
       </div>
     </div>
 
-    <div class="scripts-workspace" :class="{ 'mobile-show-editor': isMobile && mobileShowEditor }">
+    <div class="scripts-workspace" :class="{ 'mobile-show-editor': isCompactLayout && mobileShowEditor }">
       <ScriptsSidebar
-        :is-mobile="isMobile"
+        :is-mobile="isCompactLayout"
         :mobile-show-editor="mobileShowEditor"
         :tree-loading="treeLoading"
         :file-tree="fileTree"
@@ -229,7 +230,7 @@ async function handleCancelEdit() {
       <ScriptsEditorPane
         v-model:file-content="fileContent"
         v-model:is-editing="isEditing"
-        :is-mobile="isMobile"
+        :is-mobile="isCompactLayout"
         :mobile-show-editor="mobileShowEditor"
         :selected-file="selectedFile"
         :is-binary="isBinary"
@@ -364,6 +365,7 @@ async function handleCancelEdit() {
   padding: 0;
   font-size: 14px;
   font-family: var(--dd-font-ui);
+  min-height: 0;
 }
 
 /* ---- Page Header (design system) ---- */
@@ -392,7 +394,8 @@ async function handleCancelEdit() {
 /* ---- Workspace (3-panel container) ---- */
 .scripts-workspace {
   display: flex;
-  height: calc(100dvh - 180px);
+  flex: 1 1 auto;
+  min-height: 0;
   gap: 0;
   background: var(--scripts-surface);
   border-radius: 14px;
@@ -422,6 +425,9 @@ async function handleCancelEdit() {
 
 /* ---- Mobile layout ---- */
 .scripts-page.mobile {
+  height: auto;
+  overflow: visible;
+
   .page-header {
     flex-direction: column;
     gap: 10px;
@@ -449,6 +455,46 @@ async function handleCancelEdit() {
 
     :deep(.scripts-editor) {
       width: 100%;
+      flex: 1;
+    }
+  }
+
+  .scripts-workspace.mobile-show-editor {
+    :deep(.scripts-editor) {
+      height: 100%;
+    }
+  }
+}
+
+/* ---- Compact desktop/tablet layout ---- */
+.scripts-page.compact:not(.mobile) {
+  .page-header {
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 14px;
+
+    h2 {
+      font-size: 18px;
+    }
+  }
+
+  .scripts-workspace {
+    flex-direction: column;
+    min-height: 0;
+    height: 100%;
+    border-radius: 14px;
+
+    :deep(.scripts-sidebar) {
+      width: 100%;
+      min-width: 0;
+      flex: 1;
+      border-right: none;
+      border-bottom: 1px solid #f0f0f0;
+    }
+
+    :deep(.scripts-editor) {
+      width: 100%;
+      min-width: 0;
       flex: 1;
     }
   }

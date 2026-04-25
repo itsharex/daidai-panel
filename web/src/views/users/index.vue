@@ -198,7 +198,7 @@ function getRoleName(role: string) {
 </script>
 
 <template>
-  <div class="users-page">
+  <div class="users-page dd-fixed-page">
     <div class="page-header">
       <div>
         <h2>👥 用户管理</h2>

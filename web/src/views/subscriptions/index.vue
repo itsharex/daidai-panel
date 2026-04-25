@@ -6,6 +6,7 @@ import { configApi } from '@/api/system'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { openAuthorizedEventStream, type EventStreamConnection } from '@/utils/sse'
 import { useResponsive } from '@/composables/useResponsive'
+import { ansiToHtml, normalizeAnsi } from '@/utils/ansi'
 
 const subList = ref<any[]>([])
 const loading = ref(false)
@@ -94,9 +95,11 @@ const logLoading = ref(false)
 
 const showLogDetail = ref(false)
 const logDetailContent = ref('')
+const logDetailContentHtml = computed(() => ansiToHtml(normalizeAnsi(logDetailContent.value || '(无日志内容)')))
 
 const showPullLog = ref(false)
 const pullLogLines = ref<string[]>([])
+const pullLogLineHtmlList = computed(() => pullLogLines.value.map(line => ansiToHtml(normalizeAnsi(line))))
 const pullRunning = ref(false)
 const pullingSubId = ref<number | null>(null)
 let pullEventSource: EventStreamConnection | null = null
@@ -618,7 +621,7 @@ function viewLogDetail(log: any) {
 </script>
 
 <template>
-  <div class="subscriptions-page">
+  <div class="subscriptions-page dd-fixed-page">
     <div class="page-header">
       <div>
         <h2>📦 订阅管理</h2>
@@ -958,12 +961,12 @@ function viewLogDetail(log: any) {
     </el-dialog>
 
     <el-dialog v-model="showLogDetail" title="日志详情" width="700px" :fullscreen="dialogFullscreen">
-      <pre class="pull-log-content" style="min-height: 100px">{{ logDetailContent || '(无日志内容)' }}</pre>
+      <pre class="pull-log-content" style="min-height: 100px" v-html="logDetailContentHtml"></pre>
     </el-dialog>
 
     <el-dialog v-model="showPullLog" title="拉取日志" width="700px" :fullscreen="dialogFullscreen" :close-on-click-modal="false" @close="closePullStream">
       <div ref="pullLogRef" class="pull-log-content">
-        <div v-for="(line, i) in pullLogLines" :key="i" class="pull-log-line">{{ line }}</div>
+        <div v-for="(line, i) in pullLogLineHtmlList" :key="i" class="pull-log-line" v-html="line"></div>
         <div v-if="pullRunning" class="pull-log-line pull-running">
       <span class="pull-spinner"></span> 拉取中...
     </div>
@@ -1175,7 +1178,7 @@ function viewLogDetail(log: any) {
 .pull-log-content {
   background: #1e1e1e; color: #d4d4d4; font-family: var(--dd-font-mono, monospace);
   font-size: 13px; line-height: 1.6; padding: 12px 16px; border-radius: 6px;
-  max-height: 400px; overflow-y: auto;
+  max-height: 400px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;
 }
 .pull-log-line { white-space: pre-wrap; word-break: break-all; }
 .pull-running { color: #e6a23c; display: flex; align-items: center; gap: 8px; }
