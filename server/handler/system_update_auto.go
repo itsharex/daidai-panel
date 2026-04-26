@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	autoUpdateLastCheckedAtKey   = "auto_update_last_checked_at"
-	autoUpdatePendingVersionKey  = "auto_update_pending_version"
+	autoUpdateLastCheckedAtKey    = "auto_update_last_checked_at"
+	autoUpdatePendingVersionKey   = "auto_update_pending_version"
 	autoUpdatePendingStartedAtKey = "auto_update_pending_started_at"
 )
 
@@ -105,7 +105,7 @@ func runPanelAutoUpdateCheck() {
 		return
 	}
 
-	plan, err := buildPanelUpdatePlan()
+	plan, err := buildPanelUpdatePlanForRelease(release)
 	if err != nil {
 		service.SendNotification("静默更新失败", "自动更新准备失败："+err.Error())
 		return

@@ -239,6 +239,7 @@ const groupedTemplates = computed(() => {
       title="选择定时规则"
       width="700px"
       :fullscreen="dialogFullscreen"
+      :lock-scroll="false"
       :close-on-click-modal="false"
     >
       <div class="cron-templates-dialog">

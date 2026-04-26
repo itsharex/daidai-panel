@@ -13,6 +13,9 @@ var globalExecutor *TaskExecutor
 
 func InitSchedulerV2() {
 	globalExecutor = NewTaskExecutor()
+	if count := RecoverAbandonedActiveTasks("面板上次异常退出，运行中的任务已标记为中断"); count > 0 {
+		log.Printf("recovered %d abandoned active task(s)", count)
+	}
 
 	workerCount := model.GetRegisteredConfigInt("max_concurrent_tasks")
 	if workerCount < 1 {
@@ -48,6 +51,25 @@ func ShutdownSchedulerV2() {
 	if globalScheduler != nil {
 		globalScheduler.Stop()
 	}
+
+	if globalExecutor != nil {
+		killed := globalExecutor.StopAllRunningTasks()
+		if killed > 0 {
+			log.Printf("interrupted %d running task process(es) during panel shutdown", killed)
+		}
+		if ok := globalExecutor.Wait(5 * time.Second); !ok {
+			log.Println("timed out waiting for running task cleanup")
+		}
+	}
+
+	if count := MarkActiveTasksInterrupted("面板正在关闭或重启，任务已被中断"); count > 0 {
+		log.Printf("marked %d active task(s) as interrupted during shutdown", count)
+	}
+
+	if globalScheduler != nil {
+		globalScheduler = nil
+	}
+	globalExecutor = nil
 }
 
 func GetSchedulerV2() *SchedulerV2 {

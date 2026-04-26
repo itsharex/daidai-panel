@@ -12,15 +12,36 @@ import (
 const latestPanelReleaseAPI = "https://api.github.com/repos/linzixuanzz/daidai-panel/releases/latest"
 
 type panelReleaseInfo struct {
-	TagName     string `json:"tag_name"`
-	Name        string `json:"name"`
-	Body        string `json:"body"`
-	HTMLURL     string `json:"html_url"`
-	PublishedAt string `json:"published_at"`
+	TagName     string              `json:"tag_name"`
+	Name        string              `json:"name"`
+	Body        string              `json:"body"`
+	HTMLURL     string              `json:"html_url"`
+	PublishedAt string              `json:"published_at"`
+	Assets      []panelReleaseAsset `json:"assets"`
+}
+
+type panelReleaseAsset struct {
+	Name               string `json:"name"`
+	BrowserDownloadURL string `json:"browser_download_url"`
+	Size               int64  `json:"size"`
 }
 
 func (r panelReleaseInfo) version() string {
 	return strings.TrimPrefix(strings.TrimSpace(r.TagName), "v")
+}
+
+func (r panelReleaseInfo) findAsset(name string) (panelReleaseAsset, bool) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return panelReleaseAsset{}, false
+	}
+
+	for _, asset := range r.Assets {
+		if strings.EqualFold(strings.TrimSpace(asset.Name), name) {
+			return asset, true
+		}
+	}
+	return panelReleaseAsset{}, false
 }
 
 func fetchLatestPanelRelease() (*panelReleaseInfo, error) {

@@ -21,20 +21,28 @@ import (
 const (
 	dockerSocketPath             = "/var/run/docker.sock"
 	defaultDockerHubRegistryHost = "registry-1.docker.io"
+	panelUpdateDeploymentDocker  = "docker"
+	panelUpdateDeploymentBinary  = "binary"
 )
 
 type panelUpdateStatusSnapshot struct {
-	Status        string    `json:"status"`
-	Phase         string    `json:"phase"`
-	Message       string    `json:"message"`
-	Error         string    `json:"error,omitempty"`
-	StartedAt     time.Time `json:"started_at,omitempty"`
-	UpdatedAt     time.Time `json:"updated_at"`
-	ContainerName string    `json:"container_name,omitempty"`
-	ImageName     string    `json:"image_name,omitempty"`
-	PullImageName string    `json:"pull_image_name,omitempty"`
-	MirrorHost    string    `json:"mirror_host,omitempty"`
-	RegistryURL   string    `json:"registry_url,omitempty"`
+	Status         string    `json:"status"`
+	Phase          string    `json:"phase"`
+	Message        string    `json:"message"`
+	Error          string    `json:"error,omitempty"`
+	StartedAt      time.Time `json:"started_at,omitempty"`
+	UpdatedAt      time.Time `json:"updated_at"`
+	DeploymentType string    `json:"deployment_type,omitempty"`
+	ContainerName  string    `json:"container_name,omitempty"`
+	ImageName      string    `json:"image_name,omitempty"`
+	PullImageName  string    `json:"pull_image_name,omitempty"`
+	MirrorHost     string    `json:"mirror_host,omitempty"`
+	RegistryURL    string    `json:"registry_url,omitempty"`
+	ReleaseVersion string    `json:"release_version,omitempty"`
+	AssetName      string    `json:"asset_name,omitempty"`
+	AssetURL       string    `json:"asset_url,omitempty"`
+	InstallDir     string    `json:"install_dir,omitempty"`
+	BinaryName     string    `json:"binary_name,omitempty"`
 }
 
 type panelUpdateManager struct {
@@ -43,13 +51,23 @@ type panelUpdateManager struct {
 }
 
 type panelUpdatePlan struct {
-	ContainerName string
-	ImageName     string
-	PullImageName string
-	Channel       string
-	MirrorHost    string
-	RegistryURL   string
-	RunArgs       []string
+	DeploymentType string
+	ContainerName  string
+	ImageName      string
+	PullImageName  string
+	Channel        string
+	MirrorHost     string
+	RegistryURL    string
+	RunArgs        []string
+	ReleaseVersion string
+	AssetName      string
+	AssetURL       string
+	InstallDir     string
+	BinaryName     string
+	ExecutablePath string
+	CurrentPID     int
+	ServerPID      int
+	ServerPIDFile  string
 }
 
 type dockerInspectInfo struct {
@@ -108,16 +126,22 @@ func (m *panelUpdateManager) begin(plan *panelUpdatePlan) error {
 
 	now := time.Now()
 	m.snapshot = panelUpdateStatusSnapshot{
-		Status:        "running",
-		Phase:         "preparing",
-		Message:       "更新环境校验通过，准备检查镜像仓库并拉取最新镜像",
-		StartedAt:     now,
-		UpdatedAt:     now,
-		ContainerName: plan.ContainerName,
-		ImageName:     plan.ImageName,
-		PullImageName: plan.PullImageName,
-		MirrorHost:    plan.MirrorHost,
-		RegistryURL:   plan.RegistryURL,
+		Status:         "running",
+		Phase:          "preparing",
+		Message:        buildPanelUpdateBeginMessage(plan),
+		StartedAt:      now,
+		UpdatedAt:      now,
+		DeploymentType: plan.DeploymentType,
+		ContainerName:  plan.ContainerName,
+		ImageName:      plan.ImageName,
+		PullImageName:  plan.PullImageName,
+		MirrorHost:     plan.MirrorHost,
+		RegistryURL:    plan.RegistryURL,
+		ReleaseVersion: plan.ReleaseVersion,
+		AssetName:      plan.AssetName,
+		AssetURL:       plan.AssetURL,
+		InstallDir:     plan.InstallDir,
+		BinaryName:     plan.BinaryName,
 	}
 	return nil
 }
@@ -171,6 +195,28 @@ func (h *SystemHandler) UpdateStatus(c *gin.Context) {
 }
 
 func buildPanelUpdatePlan() (*panelUpdatePlan, error) {
+	return buildPanelUpdatePlanForRelease(nil)
+}
+
+func buildPanelUpdatePlanForRelease(release *panelReleaseInfo) (*panelUpdatePlan, error) {
+	dockerPlan, dockerErr := buildDockerPanelUpdatePlan()
+	if dockerErr == nil {
+		return dockerPlan, nil
+	}
+
+	if shouldRequireDockerPanelUpdate() {
+		return nil, dockerErr
+	}
+
+	binaryPlan, binaryErr := buildBinaryPanelUpdatePlan(release)
+	if binaryErr == nil {
+		return binaryPlan, nil
+	}
+
+	return nil, fmt.Errorf("%s；二进制后台更新也不可用：%s", dockerErr.Error(), binaryErr.Error())
+}
+
+func buildDockerPanelUpdatePlan() (*panelUpdatePlan, error) {
 	if _, err := exec.LookPath("docker"); err != nil {
 		return nil, fmt.Errorf("当前运行环境未提供 Docker CLI，无法使用面板内一键更新")
 	}
@@ -214,14 +260,23 @@ func buildPanelUpdatePlan() (*panelUpdatePlan, error) {
 	)
 
 	return &panelUpdatePlan{
-		ContainerName: containerName,
-		ImageName:     imageName,
-		PullImageName: pullImageName,
-		Channel:       resolvePanelUpdateChannel(imageName),
-		MirrorHost:    mirrorHost,
-		RegistryURL:   registryURL,
-		RunArgs:       buildContainerRunArgs(containerName, imageName, info),
+		DeploymentType: panelUpdateDeploymentDocker,
+		ContainerName:  containerName,
+		ImageName:      imageName,
+		PullImageName:  pullImageName,
+		Channel:        resolvePanelUpdateChannel(imageName),
+		MirrorHost:     mirrorHost,
+		RegistryURL:    registryURL,
+		RunArgs:        buildContainerRunArgs(containerName, imageName, info),
 	}, nil
+}
+
+func shouldRequireDockerPanelUpdate() bool {
+	if _, err := os.Stat("/.dockerenv"); err == nil {
+		return true
+	}
+	return strings.TrimSpace(os.Getenv("IMAGE_NAME")) != "" ||
+		strings.TrimSpace(os.Getenv("CONTAINER_NAME")) != ""
 }
 
 func inspectCurrentPanelContainer() (*dockerInspectInfo, error) {
@@ -463,6 +518,14 @@ func executePanelUpdate(plan *panelUpdatePlan) {
 }
 
 func executePanelUpdateWithOptions(plan *panelUpdatePlan, options panelUpdateExecutionOptions) {
+	if plan.DeploymentType == panelUpdateDeploymentBinary {
+		executeBinaryPanelUpdateWithOptions(plan, options)
+		return
+	}
+	executeDockerPanelUpdateWithOptions(plan, options)
+}
+
+func executeDockerPanelUpdateWithOptions(plan *panelUpdatePlan, options panelUpdateExecutionOptions) {
 	panelUpdater.setRunning("preparing", fmt.Sprintf("正在检查镜像仓库连通性 %s", plan.RegistryURL))
 	if err := preflightUpdateRegistry(plan); err != nil {
 		panelUpdater.fail(err)
@@ -530,6 +593,39 @@ func executePanelUpdateWithOptions(plan *panelUpdatePlan, options panelUpdateExe
 	}
 
 	panelUpdater.setRestarting("更新任务已启动，正在重建面板容器并切换到新版本")
+}
+
+func buildPanelUpdateBeginMessage(plan *panelUpdatePlan) string {
+	if plan.DeploymentType == panelUpdateDeploymentBinary {
+		if strings.TrimSpace(plan.AssetName) != "" {
+			return fmt.Sprintf("更新环境校验通过，准备下载二进制更新包 %s", plan.AssetName)
+		}
+		return "更新环境校验通过，准备下载二进制更新包"
+	}
+	return "更新环境校验通过，准备检查镜像仓库并拉取最新镜像"
+}
+
+func buildPanelUpdateTarget(plan *panelUpdatePlan) gin.H {
+	target := gin.H{
+		"deployment_type": plan.DeploymentType,
+	}
+
+	if plan.DeploymentType == panelUpdateDeploymentBinary {
+		target["release_version"] = plan.ReleaseVersion
+		target["asset_name"] = plan.AssetName
+		target["asset_url"] = plan.AssetURL
+		target["install_dir"] = plan.InstallDir
+		target["binary_name"] = plan.BinaryName
+		return target
+	}
+
+	target["container_name"] = plan.ContainerName
+	target["image_name"] = plan.ImageName
+	target["pull_image_name"] = plan.PullImageName
+	target["channel"] = plan.Channel
+	target["mirror_host"] = plan.MirrorHost
+	target["registry_url"] = plan.RegistryURL
+	return target
 }
 
 func buildPanelUpdateHelperScript(plan *panelUpdatePlan) string {

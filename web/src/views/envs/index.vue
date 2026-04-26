@@ -21,7 +21,8 @@ type EnvFormModel = {
   name: string
   value: string
   remarks: string
-  group: string
+  group?: string
+  groups: string[]
 }
 
 const envList = ref<any[]>([])
@@ -32,8 +33,7 @@ const initialPageSizeSelection = readEnvPageSizeSelection()
 const pageSizeSelection = ref<EnvPageSizeSelection>(initialPageSizeSelection)
 const pageSize = ref(initialPageSizeSelection === 'all' ? envAllFetchBatchSize : Number(initialPageSizeSelection))
 const keyword = ref('')
-const currentGroup = ref('')
-const groupFilter = ref('')
+const groupFilters = ref<string[]>([])
 const groups = ref<string[]>([])
 const selectedIds = ref<number[]>([])
 const selectedIdSet = computed(() => new Set(selectedIds.value))
@@ -197,6 +197,36 @@ function getGroupBadgeStyle(group: string): CSSProperties {
   return style
 }
 
+function splitEnvGroups(value: string): string[] {
+  return value
+    .split(/[,，;；\n\r\t]/)
+    .map(group => group.trim())
+    .filter((group, index, list) => group !== '' && list.indexOf(group) === index)
+}
+
+function normalizeGroupList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return splitEnvGroups(value.filter(item => typeof item === 'string').join(','))
+  }
+  if (typeof value === 'string') {
+    return splitEnvGroups(value)
+  }
+  return []
+}
+
+function normalizeEnvRow(row: any) {
+  const rowGroups = normalizeGroupList(row.groups?.length ? row.groups : row.group)
+  return {
+    ...row,
+    group: rowGroups.join(','),
+    groups: rowGroups
+  }
+}
+
+function normalizeEnvRows(rows: any[]) {
+  return rows.map(row => normalizeEnvRow(row))
+}
+
 function updateDragPointer(evt: any) {
   const pointerEvent = evt?.originalEvent || evt
   if (typeof pointerEvent?.clientY === 'number') {
@@ -309,10 +339,9 @@ async function loadData() {
   loading.value = true
   selectedIds.value = []
   try {
-    const group = groupFilter.value || currentGroup.value || undefined
     const params = {
       keyword: keyword.value || undefined,
-      group,
+      groups: groupFilters.value.length > 0 ? groupFilters.value.join(',') : undefined,
       enabled: statusFilter.value === 'enabled' ? true : statusFilter.value === 'disabled' ? false : undefined
     }
 
@@ -332,7 +361,7 @@ async function loadData() {
           totalCount = res.total || 0
         }
 
-        const items = res.data || []
+        const items = normalizeEnvRows(res.data || [])
         allItems.push(...items)
 
         if (items.length === 0 || allItems.length >= totalCount || items.length < envAllFetchBatchSize) {
@@ -349,7 +378,7 @@ async function loadData() {
         page: page.value,
         page_size: pageSize.value
       })
-      envList.value = res.data || []
+      envList.value = normalizeEnvRows(res.data || [])
       total.value = res.total || 0
 
       if (envList.value.length === 0 && total.value > 0 && page.value > 1) {
@@ -374,7 +403,7 @@ async function loadData() {
 async function loadGroups() {
   try {
     const res = await envApi.groups()
-    groups.value = res.data || []
+    groups.value = normalizeGroupList(res.data || [])
   } catch {
     // ignore
   }
@@ -480,13 +509,6 @@ function handleGroupSelect() {
   void loadData()
 }
 
-function handleGroupFilter(group: string) {
-  currentGroup.value = currentGroup.value === group ? '' : group
-  groupFilter.value = ''
-  page.value = 1
-  void loadData()
-}
-
 function handlePageChange(newPage: number) {
   page.value = newPage
   void loadData()
@@ -504,7 +526,7 @@ function handlePageSizeSelect(value: string) {
 
 function openCreate() {
   editDialogMode.value = 'create'
-  currentEditEnv.value = { id: 0, name: '', value: '', remarks: '', group: '' }
+  currentEditEnv.value = { id: 0, name: '', value: '', remarks: '', group: '', groups: [] }
   showEditDialog.value = true
 }
 
@@ -515,7 +537,8 @@ function openDuplicate(row: any) {
     name: row.name || '',
     value: '',
     remarks: row.remarks || '',
-    group: row.group || ''
+    group: row.group || '',
+    groups: normalizeGroupList(row.groups?.length ? row.groups : row.group)
   }
   showEditDialog.value = true
 }
@@ -527,7 +550,8 @@ function openEdit(row: any) {
     name: row.name || '',
     value: row.value || '',
     remarks: row.remarks || '',
-    group: row.group || ''
+    group: row.group || '',
+    groups: normalizeGroupList(row.groups?.length ? row.groups : row.group)
   }
   showEditDialog.value = true
 }
@@ -545,7 +569,8 @@ async function handleSave(data: EnvFormModel | EnvFormModel[]) {
         name: data.name,
         value: data.value,
         remarks: data.remarks,
-        group: data.group
+        group: data.group,
+        groups: data.groups
       })
       ElMessage.success('更新成功')
     }
@@ -649,9 +674,9 @@ async function confirmBatchRename(payload: { name: string }) {
   }
 }
 
-async function confirmBatchGroup(group: string) {
+async function confirmBatchGroup(groups: string[]) {
   try {
-    await envApi.batchSetGroup(selectedIds.value, group)
+    await envApi.batchSetGroup(selectedIds.value, normalizeGroupList(groups))
     ElMessage.success('批量分组成功')
     showBatchGroupDialog.value = false
     clearTableSelection()
@@ -869,7 +894,16 @@ function handleStatusFilter(value: '' | 'enabled' | 'disabled') {
         >
           <template #prefix><el-icon><Search /></el-icon></template>
         </el-input>
-        <el-select v-model="groupFilter" placeholder="分组筛选" clearable style="width: 150px" @change="handleGroupSelect">
+        <el-select
+          v-model="groupFilters"
+          placeholder="分组筛选"
+          multiple
+          collapse-tags
+          collapse-tags-tooltip
+          clearable
+          class="toolbar__group-filter"
+          @change="handleGroupSelect"
+        >
           <el-option v-for="g in groups" :key="g" :label="g" :value="g" />
         </el-select>
       </div>
@@ -909,10 +943,17 @@ function handleStatusFilter(value: '' | 'enabled' | 'disabled') {
                   </div>
                 </div>
                 <div class="env-card__tools">
-                  <span v-if="row.group" class="group-pill" :style="getGroupBadgeStyle(row.group)">
-                    <span class="group-dot" />
-                    {{ row.group }}
-                  </span>
+                  <div v-if="row.groups.length > 0" class="group-pill-list">
+                    <span
+                      v-for="group in row.groups"
+                      :key="group"
+                      class="group-pill"
+                      :style="getGroupBadgeStyle(group)"
+                    >
+                      <span class="group-dot" />
+                      <span class="group-pill__text">{{ group }}</span>
+                    </span>
+                  </div>
                   <span v-else class="env-empty-text">未分组</span>
                 </div>
               </div>
@@ -1030,12 +1071,19 @@ function handleStatusFilter(value: '' | 'enabled' | 'disabled') {
             <span class="env-remarks-text" :title="row.remarks || ''">{{ row.remarks || '-' }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="group" label="关联任务" width="120" align="center">
+        <el-table-column prop="group" label="分组" min-width="180" align="center">
           <template #default="{ row }">
-            <span v-if="row.group" class="group-pill" :style="getGroupBadgeStyle(row.group)">
-              <span class="group-dot" />
-              {{ row.group }}
-            </span>
+            <div v-if="row.groups.length > 0" class="group-pill-list group-pill-list--table">
+              <span
+                v-for="group in row.groups"
+                :key="group"
+                class="group-pill"
+                :style="getGroupBadgeStyle(group)"
+              >
+                <span class="group-dot" />
+                <span class="group-pill__text">{{ group }}</span>
+              </span>
+            </div>
             <span v-else class="env-empty-text">未分组</span>
           </template>
         </el-table-column>
@@ -1324,6 +1372,10 @@ function handleStatusFilter(value: '' | 'enabled' | 'disabled') {
   &__search {
     width: 260px;
   }
+
+  &__group-filter {
+    width: 220px;
+  }
 }
 
 .status-tabs {
@@ -1547,6 +1599,7 @@ function handleStatusFilter(value: '' | 'enabled' | 'disabled') {
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+  min-width: 0;
 }
 
 .env-card__actions > * {
@@ -1653,6 +1706,25 @@ function handleStatusFilter(value: '' | 'enabled' | 'disabled') {
   color: hsl(var(--group-hue) 55% 32%);
   background: hsl(var(--group-hue) 85% 96%);
   box-shadow: inset 0 0 0 1px hsl(var(--group-hue) 72% 78% / 0.7);
+}
+
+.group-pill-list {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 0;
+}
+
+.group-pill-list--table {
+  justify-content: center;
+}
+
+.group-pill__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .group-dot {
@@ -1810,6 +1882,10 @@ function handleStatusFilter(value: '' | 'enabled' | 'disabled') {
     }
 
     &__search {
+      width: 100% !important;
+    }
+
+    &__group-filter {
       width: 100% !important;
     }
 

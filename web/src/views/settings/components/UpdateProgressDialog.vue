@@ -28,7 +28,10 @@ const { dialogFullscreen } = useResponsive()
 const now = ref(Date.now())
 let elapsedTimer: ReturnType<typeof setInterval> | null = null
 
-const steps = [
+const deploymentType = computed(() => props.updateStatus?.deployment_type || 'docker')
+const isBinaryUpdate = computed(() => deploymentType.value === 'binary')
+
+const dockerSteps = [
   {
     key: 'prepare',
     title: '校验环境',
@@ -56,10 +59,57 @@ const steps = [
   },
 ] as const
 
+const binarySteps = [
+  {
+    key: 'prepare',
+    title: '校验环境',
+    hint: '识别当前平台、安装目录与 Release 更新包',
+  },
+  {
+    key: 'download',
+    title: '下载更新包',
+    hint: '从 GitHub Release 下载当前平台二进制包',
+  },
+  {
+    key: 'extract',
+    title: '解压校验',
+    hint: '安全解压并校验目标程序文件',
+  },
+  {
+    key: 'apply',
+    title: '后台替换',
+    hint: '保留配置与数据目录，替换程序和前端文件',
+  },
+  {
+    key: 'wait',
+    title: '等待上线',
+    hint: '轮询检测新版本服务重新连通',
+  },
+] as const
+
+const steps = computed(() => isBinaryUpdate.value ? binarySteps : dockerSteps)
 const currentPhase = computed(() => props.updateStatus?.phase || 'preparing')
 const progressPercent = computed(() => {
   if (props.status === 'timeout') {
     return 96
+  }
+  if (isBinaryUpdate.value) {
+    switch (currentPhase.value) {
+      case 'preparing':
+        return 12
+      case 'downloading':
+        return 38
+      case 'extracting':
+        return 58
+      case 'scheduling':
+        return 76
+      case 'restarting':
+        return 92
+      case 'failed':
+        return 18
+      default:
+        return props.status === 'restarting' ? 92 : 8
+    }
   }
   switch (currentPhase.value) {
     case 'preparing':
@@ -80,6 +130,24 @@ const progressPercent = computed(() => {
 const currentStepIndex = computed(() => {
   if (props.status === 'restarting' || props.status === 'timeout') {
     return 4
+  }
+  if (isBinaryUpdate.value) {
+    switch (currentPhase.value) {
+      case 'preparing':
+        return 0
+      case 'downloading':
+        return 1
+      case 'extracting':
+        return 2
+      case 'scheduling':
+        return 3
+      case 'restarting':
+        return 4
+      case 'failed':
+        return 0
+      default:
+        return 0
+    }
   }
   switch (currentPhase.value) {
     case 'preparing':
@@ -195,6 +263,24 @@ function stepState(index: number) {
 }
 
 function phaseLabel(phase: string) {
+  if (isBinaryUpdate.value) {
+    switch (phase) {
+      case 'preparing':
+        return '环境校验'
+      case 'downloading':
+        return '下载更新包'
+      case 'extracting':
+        return '解压校验'
+      case 'scheduling':
+        return '后台替换'
+      case 'restarting':
+        return '重启切换'
+      case 'failed':
+        return '更新失败'
+      default:
+        return '处理中'
+    }
+  }
   switch (phase) {
     case 'preparing':
       return '环境校验'
@@ -289,22 +375,34 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="update-progress-targets">
-        <span v-if="updateStatus?.container_name" class="update-target-chip">
+        <span v-if="isBinaryUpdate && updateStatus?.asset_name" class="update-target-chip">
+          <el-icon><Download /></el-icon>
+          更新包：{{ updateStatus.asset_name }}
+        </span>
+        <span v-if="isBinaryUpdate && updateStatus?.install_dir" class="update-target-chip">
+          <el-icon><Box /></el-icon>
+          目录：{{ updateStatus.install_dir }}
+        </span>
+        <span v-if="isBinaryUpdate && updateStatus?.binary_name" class="update-target-chip">
+          <el-icon><Download /></el-icon>
+          程序：{{ updateStatus.binary_name }}
+        </span>
+        <span v-if="!isBinaryUpdate && updateStatus?.container_name" class="update-target-chip">
           <el-icon><Box /></el-icon>
           容器：{{ updateStatus.container_name }}
         </span>
-        <span v-if="updateStatus?.image_name" class="update-target-chip">
+        <span v-if="!isBinaryUpdate && updateStatus?.image_name" class="update-target-chip">
           <el-icon><Download /></el-icon>
           镜像：{{ updateStatus.image_name }}
         </span>
         <span
-          v-if="updateStatus?.pull_image_name && updateStatus.pull_image_name !== updateStatus.image_name"
+          v-if="!isBinaryUpdate && updateStatus?.pull_image_name && updateStatus.pull_image_name !== updateStatus.image_name"
           class="update-target-chip"
         >
           <el-icon><Download /></el-icon>
           拉取：{{ updateStatus.pull_image_name }}
         </span>
-        <span v-if="updateStatus?.mirror_host" class="update-target-chip">
+        <span v-if="!isBinaryUpdate && updateStatus?.mirror_host" class="update-target-chip">
           <el-icon><RefreshRight /></el-icon>
           镜像源：{{ updateStatus.mirror_host }}
         </span>

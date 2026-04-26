@@ -133,6 +133,7 @@ watch(searchKeyword, (val) => {
   width: 300px;
   min-width: 300px;
   height: 100%;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -141,6 +142,7 @@ watch(searchKeyword, (val) => {
   border-right: 1px solid #f0f0f0;
   box-sizing: border-box;
   font-family: var(--dd-font-ui);
+  overflow: hidden;
 }
 
 .sidebar-top {
@@ -243,21 +245,31 @@ watch(searchKeyword, (val) => {
 }
 
 .sidebar-tree {
-  flex: 1;
-  overflow-y: auto;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
   padding: 8px 10px 10px;
 
   :deep(.el-tree) {
     background: transparent;
     color: inherit;
+    min-width: 0;
+  }
+
+  :deep(.el-tree-node),
+  :deep(.el-tree-node__children) {
+    min-width: 0;
   }
 
   :deep(.el-tree-node__content) {
     height: 34px;
+    min-width: 0;
     padding-left: 4px;
     border-radius: 6px;
     transition: background 0.15s;
     font-size: 13px;
+    overflow: hidden;
   }
 
   :deep(.el-tree-node__content:hover) {
@@ -371,6 +383,7 @@ watch(searchKeyword, (val) => {
 .scripts-sidebar.mobile {
   width: 100%;
   min-width: 0;
+  min-height: 0;
   border-right: none;
   border-bottom: 1px solid #f0f0f0;
 

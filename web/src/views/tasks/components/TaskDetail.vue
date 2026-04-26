@@ -66,6 +66,7 @@ function handleClose() {
     title="任务详情"
     width="700px"
     :fullscreen="dialogFullscreen"
+    :lock-scroll="false"
     @close="handleClose"
   >
     <el-descriptions v-if="task" :column="dialogFullscreen ? 1 : 2" border>

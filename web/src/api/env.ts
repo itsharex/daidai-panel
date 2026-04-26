@@ -1,11 +1,19 @@
 import request from './request'
 
+export type EnvPayload = {
+  name: string
+  value?: string
+  remarks?: string
+  group?: string
+  groups?: string[]
+}
+
 export const envApi = {
-  list(params?: { keyword?: string; group?: string; enabled?: boolean; page?: number; page_size?: number }) {
+  list(params?: { keyword?: string; group?: string; groups?: string; enabled?: boolean; page?: number; page_size?: number }) {
     return request.get('/envs', { params }) as Promise<{ data: any[]; total: number; page: number; page_size: number }>
   },
 
-  create(data: { name: string; value?: string; remarks?: string; group?: string } | { name: string; value?: string; remarks?: string; group?: string }[]) {
+  create(data: EnvPayload | EnvPayload[]) {
     return request.post('/envs', data) as Promise<{ message: string; data: any }>
   },
 
@@ -41,8 +49,8 @@ export const envApi = {
     return request.put('/envs/batch/disable', { ids }) as Promise<{ message: string }>
   },
 
-  batchSetGroup(ids: number[], group: string) {
-    return request.put('/envs/batch/group', { ids, group }) as Promise<{ message: string }>
+  batchSetGroup(ids: number[], groups: string[]) {
+    return request.put('/envs/batch/group', { ids, groups }) as Promise<{ message: string }>
   },
 
   sort(sourceId: number, targetId?: number) {

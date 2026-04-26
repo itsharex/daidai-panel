@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"daidai-panel/database"
@@ -57,6 +58,8 @@ type SchedulerV2 struct {
 	handler      SchedulerEventHandler
 	runningTasks map[uint][]int64
 	runningLock  sync.RWMutex
+	stopOnce     sync.Once
+	stopped      atomic.Bool
 }
 
 func NewSchedulerV2(config SchedulerConfig, handler SchedulerEventHandler) *SchedulerV2 {
@@ -95,24 +98,61 @@ func (s *SchedulerV2) Start() {
 }
 
 func (s *SchedulerV2) Stop() {
-	ctx := s.cron.Stop()
-	<-ctx.Done()
+	if s == nil {
+		return
+	}
 
-	close(s.stopCh)
-	s.wg.Wait()
+	s.stopOnce.Do(func() {
+		s.stopped.Store(true)
 
-	log.Println("scheduler v2 stopped")
+		if s.cron != nil {
+			ctx := s.cron.Stop()
+			<-ctx.Done()
+		}
+
+		if s.stopCh != nil {
+			close(s.stopCh)
+		}
+
+		done := make(chan struct{})
+		go func() {
+			s.wg.Wait()
+			close(done)
+		}()
+
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			log.Println("scheduler v2 stop timed out; continuing shutdown")
+		}
+
+		log.Println("scheduler v2 stopped")
+	})
 }
 
 func (s *SchedulerV2) worker(id int) {
 	defer s.wg.Done()
 
 	for {
+		if s.stopped.Load() {
+			return
+		}
+
 		select {
 		case <-s.stopCh:
 			return
 		case req := <-s.taskQueue:
-			<-s.rateLimiter
+			if s.stopped.Load() {
+				return
+			}
+			select {
+			case <-s.stopCh:
+				return
+			case <-s.rateLimiter:
+			}
+			if s.stopped.Load() {
+				return
+			}
 			s.executeTask(req)
 		}
 	}
@@ -185,6 +225,10 @@ func (s *SchedulerV2) removeRunningTask(taskID uint, goid int64) {
 }
 
 func (s *SchedulerV2) Enqueue(req *ExecutionRequest) error {
+	if s == nil || s.stopped.Load() {
+		return fmt.Errorf("scheduler stopped")
+	}
+
 	select {
 	case s.taskQueue <- req:
 		return nil

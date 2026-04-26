@@ -154,6 +154,7 @@ function handleSubmit() {
     :title="task ? '编辑任务' : '新建任务'"
     width="640px"
     :fullscreen="dialogFullscreen"
+    :lock-scroll="false"
     destroy-on-close
     @update:model-value="emit('update:visible', $event)"
   >

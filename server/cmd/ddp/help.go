@@ -43,7 +43,7 @@ func printHelp() {
   1. 没有使用 dd 作为命令名，因为 Linux 已自带 dd 命令，容易冲突。
   2. task run 会在当前终端里同步执行并等待结果。
   3. sub pull 会在当前终端里实时输出拉库日志。
-  4. update 依赖 /var/run/docker.sock 挂载。
+  4. update 会自动识别 Docker 或二进制部署；Docker 模式依赖 /var/run/docker.sock 挂载。
   5. script / env / list / logs 这类命令不会依赖面板前端，容器里直接可用。
 
 示例:

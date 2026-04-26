@@ -99,7 +99,7 @@ watch(
             v-model="importText"
             type="textarea"
             :rows="10"
-            placeholder='[{"name": "KEY", "value": "VALUE", "remarks": "", "group": ""}]'
+            placeholder='[{"name": "KEY", "value": "VALUE", "remarks": "", "groups": ["prod", "notify"]}]'
           />
         </div>
       </el-form-item>

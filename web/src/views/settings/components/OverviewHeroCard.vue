@@ -70,8 +70,11 @@ defineProps<{
         >
           <div v-if="updateInfo.has_update">
             <p>发布时间: {{ new Date(updateInfo.published_at).toLocaleString() }}</p>
-            <p v-if="updateInfo.update_target?.mirror_host" class="hero-meta">镜像源：{{ updateInfo.update_target.mirror_host }}</p>
-            <p v-if="updateInfo.update_target?.channel" class="hero-meta">渠道：{{ updateInfo.update_target.channel === 'debian' ? 'Debian' : 'Latest (Alpine)' }}</p>
+            <p v-if="updateInfo.update_target?.deployment_type === 'binary'" class="hero-meta">更新方式：二进制后台更新</p>
+            <p v-if="updateInfo.update_target?.asset_name" class="hero-meta">更新包：{{ updateInfo.update_target.asset_name }}</p>
+            <p v-if="updateInfo.update_target?.install_dir" class="hero-meta">安装目录：{{ updateInfo.update_target.install_dir }}</p>
+            <p v-if="updateInfo.update_target?.deployment_type !== 'binary' && updateInfo.update_target?.mirror_host" class="hero-meta">镜像源：{{ updateInfo.update_target.mirror_host }}</p>
+            <p v-if="updateInfo.update_target?.deployment_type !== 'binary' && updateInfo.update_target?.channel" class="hero-meta">渠道：{{ updateInfo.update_target.channel === 'debian' ? 'Debian' : 'Latest (Alpine)' }}</p>
             <p v-if="!updateInfo.auto_update_supported" class="hero-meta">{{ updateInfo.update_disabled_reason || '当前部署暂不支持一键更新' }}</p>
             <div class="hero-alert-actions">
               <el-button v-if="isAdmin && updateInfo.auto_update_supported" type="primary" size="small" round :loading="updatingPanel" @click="onStartUpdate">立即更新</el-button>

@@ -245,7 +245,13 @@ defineExpose({ loadViews })
       @saved="handleManagementSaved"
     />
 
-    <el-dialog v-model="showDialog" :title="isEditMode ? '编辑视图' : '创建视图'" width="600px" :fullscreen="dialogFullscreen">
+    <el-dialog
+      v-model="showDialog"
+      :title="isEditMode ? '编辑视图' : '创建视图'"
+      width="600px"
+      :fullscreen="dialogFullscreen"
+      :lock-scroll="false"
+    >
       <el-form :label-width="dialogFullscreen ? 'auto' : '90px'" :label-position="dialogFullscreen ? 'top' : 'right'">
         <el-form-item label="视图名称" required>
           <el-input v-model="editForm.name" placeholder="请输入视图名称" />

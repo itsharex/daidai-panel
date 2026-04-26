@@ -118,7 +118,8 @@ func applyDefaultTaskListOrdering(query *gorm.DB) *gorm.DB {
 		Order("CASE WHEN status IN (1, 0.5, 2) THEN 0 WHEN status = 0 THEN 1 ELSE 2 END ASC").
 		Order("is_pinned DESC").
 		Order("sort_order ASC").
-		Order("created_at DESC")
+		Order("created_at DESC").
+		Order("id DESC")
 }
 
 func respondTaskList(c *gin.Context, tasks []model.Task, total int64, page, pageSize int) {
@@ -190,7 +191,10 @@ func defaultTaskListLess(left, right model.Task) bool {
 	if left.SortOrder != right.SortOrder {
 		return left.SortOrder < right.SortOrder
 	}
-	return left.CreatedAt.After(right.CreatedAt)
+	if !left.CreatedAt.Equal(right.CreatedAt) {
+		return left.CreatedAt.After(right.CreatedAt)
+	}
+	return left.ID > right.ID
 }
 
 func loadSubscriptionNameMap(tasks []model.Task) map[uint]string {

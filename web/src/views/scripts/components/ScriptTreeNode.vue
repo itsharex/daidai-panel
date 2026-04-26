@@ -84,9 +84,11 @@ const extLabel = computed(() => {
   align-items: center;
   gap: 10px;
   flex: 1;
+  width: 100%;
   min-width: 0;
   padding: 0 2px;
   font-family: var(--dd-font-ui);
+  overflow: hidden;
 }
 
 .tree-node-dot {

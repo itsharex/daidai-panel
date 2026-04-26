@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -216,6 +217,78 @@ func TestBuildContainerRunArgsPreservesCustomDataDirEnvAndMount(t *testing.T) {
 	}
 	if got[len(got)-1] != "linzixuanzz/daidai-panel:latest" {
 		t.Fatalf("expected image name to remain the final run arg, got %v", got)
+	}
+}
+
+func TestResolveBinaryReleaseTargetMatchesReleaseAssets(t *testing.T) {
+	cases := []struct {
+		goos       string
+		goarch     string
+		assetName  string
+		binaryName string
+	}{
+		{"windows", "amd64", "daidai-windows-amd64.zip", "daidai-server.exe"},
+		{"linux", "amd64", "daidai-linux-amd64.tar.gz", "daidai-linux-amd64"},
+		{"linux", "arm64", "daidai-linux-arm64.tar.gz", "daidai-linux-arm64"},
+		{"linux", "386", "daidai-linux-386.tar.gz", "daidai-linux-386"},
+		{"linux", "arm", "daidai-linux-armv7.tar.gz", "daidai-linux-armv7"},
+	}
+
+	for _, tc := range cases {
+		assetName, binaryName, err := resolveBinaryReleaseTarget(tc.goos, tc.goarch)
+		if err != nil {
+			t.Fatalf("unexpected error for %s/%s: %v", tc.goos, tc.goarch, err)
+		}
+		if assetName != tc.assetName {
+			t.Fatalf("expected asset %q for %s/%s, got %q", tc.assetName, tc.goos, tc.goarch, assetName)
+		}
+		if binaryName != tc.binaryName {
+			t.Fatalf("expected binary %q for %s/%s, got %q", tc.binaryName, tc.goos, tc.goarch, binaryName)
+		}
+	}
+}
+
+func TestResolveBinaryReleaseTargetRejectsUnsupportedPlatform(t *testing.T) {
+	if _, _, err := resolveBinaryReleaseTarget("darwin", "arm64"); err == nil {
+		t.Fatalf("expected unsupported platform error")
+	}
+}
+
+func TestPanelReleaseFindAssetByName(t *testing.T) {
+	release := panelReleaseInfo{
+		Assets: []panelReleaseAsset{
+			{Name: "daidai-linux-amd64.tar.gz", BrowserDownloadURL: "https://example.com/linux"},
+		},
+	}
+
+	asset, ok := release.findAsset("DAIDAI-LINUX-AMD64.TAR.GZ")
+	if !ok {
+		t.Fatalf("expected asset to be found case-insensitively")
+	}
+	if asset.BrowserDownloadURL != "https://example.com/linux" {
+		t.Fatalf("unexpected asset url: %s", asset.BrowserDownloadURL)
+	}
+}
+
+func TestSafeArchiveTargetPathRejectsTraversal(t *testing.T) {
+	base := t.TempDir()
+	if _, err := safeArchiveTargetPath(base, "../config.yaml"); err == nil {
+		t.Fatalf("expected traversal path to be rejected")
+	}
+	if _, err := safeArchiveTargetPath(base, "web/../../config.yaml"); err == nil {
+		t.Fatalf("expected nested traversal path to be rejected")
+	}
+}
+
+func TestSafeArchiveTargetPathAllowsNestedFile(t *testing.T) {
+	base := t.TempDir()
+	got, err := safeArchiveTargetPath(base, "web/assets/app.js")
+	if err != nil {
+		t.Fatalf("expected nested file to be allowed: %v", err)
+	}
+	want := filepath.Join(base, "web", "assets", "app.js")
+	if got != want {
+		t.Fatalf("expected %q, got %q", want, got)
 	}
 }
 

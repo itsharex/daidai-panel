@@ -700,7 +700,14 @@ async function handleImport(event: Event) {
                 <div class="task-card__name-block">
                   <div class="task-card__name-line">
                     <el-icon v-if="row.is_pinned" class="pin-icon" :class="{ 'is-readonly': !canOperateTasks }" @click="canOperateTasks && handlePin(row)"><Star /></el-icon>
-                    <span class="dd-mobile-card__title">{{ row.name }}</span>
+                    <button
+                      type="button"
+                      class="dd-mobile-card__title task-name-link"
+                      :title="`查看 ${row.name} 的日志文件`"
+                      @click.stop="openLogFiles(row)"
+                    >
+                      {{ row.name }}
+                    </button>
                   </div>
                 </div>
               </div>
@@ -828,7 +835,14 @@ async function handleImport(event: Event) {
               <el-icon v-if="row.is_pinned" class="pin-icon" :class="{ 'is-readonly': !canOperateTasks }" @click.stop="canOperateTasks && handlePin(row)"><Star /></el-icon>
               <div class="task-name-info">
                 <div class="task-name-inline">
-                  <span class="task-name-text">{{ row.name }}</span>
+                  <button
+                    type="button"
+                    class="task-name-text task-name-link"
+                    :title="`查看 ${row.name} 的日志文件`"
+                    @click.stop="openLogFiles(row)"
+                  >
+                    {{ row.name }}
+                  </button>
                   <el-tag size="small" effect="plain" class="task-label task-label--type">
                     {{ getTaskTypeLabel(row.task_type) }}
                   </el-tag>
@@ -1209,6 +1223,36 @@ async function handleImport(event: Event) {
 .task-name-text {
   font-weight: 500;
   color: var(--el-text-color-primary);
+  min-width: 0;
+}
+
+.task-name-link {
+  max-width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--el-color-primary);
+  font: inherit;
+  line-height: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color 0.15s ease, text-decoration-color 0.15s ease;
+
+  &:hover {
+    color: var(--el-color-primary-dark-2);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+  }
+
+  &:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--el-color-primary) 45%, transparent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
 }
 
 .task-name-inline {
@@ -1304,14 +1348,17 @@ async function handleImport(event: Event) {
   }
 
   .table-card {
-    flex: 1 1 auto;
+    flex: 1 1 0;
+    height: 0;
     min-height: 0;
     display: flex;
     flex-direction: column;
+    overflow: hidden;
   }
 
   :deep(.table-card .el-table) {
     flex: 1 1 auto;
+    min-height: 0;
   }
 
   .pagination-bar {

@@ -51,6 +51,137 @@ func TestEnvBatchSetGroupUpdatesSelectedRows(t *testing.T) {
 	}
 }
 
+func TestEnvBatchSetGroupAcceptsMultipleGroups(t *testing.T) {
+	testutil.SetupTestEnv(t)
+
+	engine := newProtectedRouter()
+	user := testutil.MustCreateUser(t, "env-multi-group-operator", "operator")
+	token := testutil.MustCreateAccessToken(t, user.Username, user.Role)
+
+	env := &model.EnvVar{Name: "FOO", Value: "1", Enabled: true, Position: 1000}
+	if err := database.DB.Create(env).Error; err != nil {
+		t.Fatalf("create env: %v", err)
+	}
+
+	rec := performJSONRequest(
+		engine,
+		http.MethodPut,
+		"/api/v1/envs/batch/group",
+		fmt.Sprintf(`{"ids":[%d],"groups":["release","prod","release"]}`, env.ID),
+		map[string]string{"Authorization": "Bearer " + token},
+		"",
+	)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var current model.EnvVar
+	if err := database.DB.First(&current, env.ID).Error; err != nil {
+		t.Fatalf("reload env: %v", err)
+	}
+	if current.Group != "release,prod" {
+		t.Fatalf("expected normalized group release,prod, got %q", current.Group)
+	}
+}
+
+func TestEnvListSupportsMultipleGroupFilters(t *testing.T) {
+	testutil.SetupTestEnv(t)
+
+	engine := newProtectedRouter()
+	user := testutil.MustCreateUser(t, "env-multi-filter-operator", "operator")
+	token := testutil.MustCreateAccessToken(t, user.Username, user.Role)
+
+	envs := []*model.EnvVar{
+		{Name: "PROD_ONLY", Value: "1", Group: "prod", Enabled: true, Position: 1000},
+		{Name: "DEV_AND_PROD", Value: "2", Group: "dev,prod", Enabled: true, Position: 2000},
+		{Name: "STAGE_ONLY", Value: "3", Group: "stage", Enabled: true, Position: 3000},
+	}
+	for _, env := range envs {
+		if err := database.DB.Create(env).Error; err != nil {
+			t.Fatalf("create env %q: %v", env.Name, err)
+		}
+	}
+
+	rec := performRequest(engine, http.MethodGet, "/api/v1/envs?groups=dev,prod", map[string]string{
+		"Authorization": "Bearer " + token,
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d, body=%s", rec.Code, rec.Body.String())
+	}
+
+	payload := decodeJSONMap(t, rec)
+	items, ok := payload["data"].([]interface{})
+	if !ok || len(items) != 2 {
+		t.Fatalf("expected 2 envs for dev/prod filter, got %#v", payload["data"])
+	}
+
+	gotNames := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		env, ok := item.(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected env object, got %#v", item)
+		}
+		gotNames[env["name"].(string)] = struct{}{}
+		groups, ok := env["groups"].([]interface{})
+		if !ok || len(groups) == 0 {
+			t.Fatalf("expected groups array in response, got %#v", env["groups"])
+		}
+	}
+	if _, exists := gotNames["PROD_ONLY"]; !exists {
+		t.Fatalf("expected PROD_ONLY in filter result, got %v", gotNames)
+	}
+	if _, exists := gotNames["DEV_AND_PROD"]; !exists {
+		t.Fatalf("expected DEV_AND_PROD in filter result, got %v", gotNames)
+	}
+	if _, exists := gotNames["STAGE_ONLY"]; exists {
+		t.Fatalf("did not expect STAGE_ONLY in filter result, got %v", gotNames)
+	}
+}
+
+func TestEnvGroupsSplitsStoredMultiGroups(t *testing.T) {
+	testutil.SetupTestEnv(t)
+
+	engine := newProtectedRouter()
+	user := testutil.MustCreateUser(t, "env-group-list-operator", "operator")
+	token := testutil.MustCreateAccessToken(t, user.Username, user.Role)
+
+	envs := []*model.EnvVar{
+		{Name: "A", Value: "1", Group: "prod,dev", Enabled: true, Position: 1000},
+		{Name: "B", Value: "2", Group: "prod", Enabled: true, Position: 2000},
+		{Name: "C", Value: "3", Group: "stage", Enabled: true, Position: 3000},
+	}
+	for _, env := range envs {
+		if err := database.DB.Create(env).Error; err != nil {
+			t.Fatalf("create env %q: %v", env.Name, err)
+		}
+	}
+
+	rec := performRequest(engine, http.MethodGet, "/api/v1/envs/groups", map[string]string{
+		"Authorization": "Bearer " + token,
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d, body=%s", rec.Code, rec.Body.String())
+	}
+
+	payload := decodeJSONMap(t, rec)
+	items, ok := payload["data"].([]interface{})
+	if !ok {
+		t.Fatalf("expected group list, got %#v", payload["data"])
+	}
+	got := make([]string, 0, len(items))
+	for _, item := range items {
+		text, ok := item.(string)
+		if !ok {
+			t.Fatalf("expected string group, got %#v", item)
+		}
+		got = append(got, text)
+	}
+	expected := []string{"dev", "prod", "stage"}
+	if strings.Join(got, ",") != strings.Join(expected, ",") {
+		t.Fatalf("expected groups %v, got %v", expected, got)
+	}
+}
+
 func TestEnvListSupportsEnabledFilter(t *testing.T) {
 	testutil.SetupTestEnv(t)
 

@@ -39,7 +39,7 @@ type Task struct {
 	DependsOn              *uint      `gorm:"index" json:"depends_on"`
 	SortOrder              int        `json:"sort_order"`
 	IsPinned               bool       `json:"is_pinned"`
-	PID                    *int       `json:"pid"`
+	PID                    *int       `gorm:"column:pid" json:"pid"`
 	LogPath                *string    `gorm:"size:256" json:"log_path"`
 	LastRunningTime        *float64   `json:"last_running_time"`
 	TaskBefore             *string    `gorm:"type:text" json:"task_before"`

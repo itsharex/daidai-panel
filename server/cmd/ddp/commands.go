@@ -19,6 +19,8 @@ import (
 	"daidai-panel/pkg/crypto"
 	"daidai-panel/pkg/validator"
 	"daidai-panel/service"
+
+	"gorm.io/gorm"
 )
 
 func run(args []string) int {
@@ -206,11 +208,15 @@ func runCheck(rt *cliRuntime) error {
 	if _, err := os.Stat("/var/run/docker.sock"); err == nil {
 		add("Docker Socket", "OK", "已挂载 /var/run/docker.sock，可使用 ddp update", false)
 	} else {
-		add("Docker Socket", "WARN", "未挂载，ddp update 不可用", false)
+		add("Docker Socket", "WARN", "未挂载，Docker 容器更新不可用；二进制部署会尝试后台更新", false)
 	}
 
 	if plan, err := handler.BuildPanelUpdatePlanInfo(); err == nil {
-		add("更新目标", "OK", fmt.Sprintf("%s -> %s", plan.ContainerName, plan.PullImageName), false)
+		if plan.DeploymentType == "binary" {
+			add("更新目标", "OK", fmt.Sprintf("二进制包 %s -> %s", plan.AssetName, plan.InstallDir), false)
+		} else {
+			add("更新目标", "OK", fmt.Sprintf("%s -> %s", plan.ContainerName, plan.PullImageName), false)
+		}
 	}
 
 	failures := 0
@@ -308,8 +314,15 @@ func runUpdate(rt *cliRuntime) error {
 	}
 
 	fmt.Printf("更新状态: %s / %s\n", status.Status, status.Phase)
-	fmt.Printf("当前容器: %s\n", status.ContainerName)
-	fmt.Printf("目标镜像: %s\n", status.PullImageName)
+	if status.DeploymentType == "binary" {
+		fmt.Printf("更新方式: 二进制后台更新\n")
+		fmt.Printf("更新包: %s\n", status.AssetName)
+		fmt.Printf("安装目录: %s\n", status.InstallDir)
+		fmt.Printf("目标程序: %s\n", status.BinaryName)
+	} else {
+		fmt.Printf("当前容器: %s\n", status.ContainerName)
+		fmt.Printf("目标镜像: %s\n", status.PullImageName)
+	}
 	fmt.Printf("说明: %s\n", status.Message)
 	return nil
 }
@@ -595,8 +608,8 @@ func stopTaskNow(rt *cliRuntime, identifier string) error {
 	inactiveStatus := service.ResolveTaskInactiveStatus(task)
 	if err := database.DB.Model(task).Updates(map[string]interface{}{
 		"status":   inactiveStatus,
-		"pid":      nil,
-		"log_path": nil,
+		"pid":      gorm.Expr("NULL"),
+		"log_path": gorm.Expr("NULL"),
 	}).Error; err != nil {
 		return err
 	}

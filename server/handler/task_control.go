@@ -12,6 +12,7 @@ import (
 	"daidai-panel/service"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 func disableTaskAndRemoveSchedule(task *model.Task) string {
@@ -76,8 +77,8 @@ func (h *TaskHandler) Stop(c *gin.Context) {
 	inactiveStatus := service.ResolveTaskInactiveStatus(&task)
 	database.DB.Model(&task).Updates(map[string]interface{}{
 		"status":   inactiveStatus,
-		"pid":      nil,
-		"log_path": nil,
+		"pid":      gorm.Expr("NULL"),
+		"log_path": gorm.Expr("NULL"),
 	})
 
 	var runningLog model.TaskLog

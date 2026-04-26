@@ -120,6 +120,7 @@ func EnsureColumns() {
 		{"sort_order", "INTEGER DEFAULT 0"},
 		{"is_pinned", "BOOLEAN DEFAULT 0"},
 	})
+	migrateLegacyTaskPIDColumn()
 
 	ensureTableColumns("task_logs", []columnDef{
 		{"log_path", "VARCHAR(256)"},
@@ -131,7 +132,7 @@ func EnsureColumns() {
 	ensureTableColumns("env_vars", []columnDef{
 		{"position", "REAL DEFAULT 10000.0"},
 		{"sort_order", "INTEGER DEFAULT 0"},
-		{"\"group\"", "VARCHAR(64) DEFAULT ''"},
+		{"\"group\"", "VARCHAR(512) DEFAULT ''"},
 	})
 
 	ensureTableColumns("subscriptions", []columnDef{
@@ -187,6 +188,19 @@ func EnsureColumns() {
 	dropEnvVarUniqueIndex()
 
 	log.Printf("column check completed")
+}
+
+// migrateLegacyTaskPIDColumn copies values from the old GORM-derived p_id column
+// into pid. The Task.PID field is now explicitly mapped to pid, but older local
+// SQLite databases may still contain p_id from previous AutoMigrate runs.
+func migrateLegacyTaskPIDColumn() {
+	existing := getExistingColumns("tasks")
+	if !existing["p_id"] || !existing["pid"] {
+		return
+	}
+	if err := DB.Exec("UPDATE tasks SET pid = p_id WHERE pid IS NULL AND p_id IS NOT NULL").Error; err != nil {
+		log.Printf("warn: failed to migrate legacy tasks.p_id values to tasks.pid: %v", err)
+	}
 }
 
 // dropEnvVarUniqueIndex 迁移：青龙化后 (name, remarks) 不再是业务唯一键，

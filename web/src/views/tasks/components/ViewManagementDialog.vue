@@ -137,6 +137,7 @@ watch(
     title="视图管理"
     width="520px"
     :fullscreen="dialogFullscreen"
+    :lock-scroll="false"
     :close-on-click-modal="false"
     @update:model-value="handleClose"
   >

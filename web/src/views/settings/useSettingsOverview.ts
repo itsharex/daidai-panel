@@ -148,14 +148,15 @@ export function useSettingsOverview() {
     }
 
     try {
-      const mirrorHost = updateInfo.value?.update_target?.mirror_host
-      const pullImageName = updateInfo.value?.update_target?.pull_image_name
-      const mirrorText = mirrorHost
-        ? `当前将通过镜像源 ${mirrorHost} 拉取更新镜像。`
-        : '当前将直接从默认镜像仓库拉取更新镜像。'
-      const pullTargetText = pullImageName ? `\n拉取目标：${pullImageName}` : ''
+      const updateTarget = updateInfo.value?.update_target || {}
+      const isBinaryUpdate = updateTarget.deployment_type === 'binary'
+      const mirrorHost = updateTarget.mirror_host
+      const pullImageName = updateTarget.pull_image_name
+      const confirmMessage = isBinaryUpdate
+        ? buildBinaryUpdateConfirmMessage(updateTarget)
+        : buildDockerUpdateConfirmMessage(mirrorHost, pullImageName)
       await ElMessageBox.confirm(
-        `确认开始更新面板吗？系统会先拉取最新镜像，再自动重建容器。更新期间服务会短暂中断。\n${mirrorText}${pullTargetText}`,
+        confirmMessage,
         '立即更新',
         {
           confirmButtonText: '开始更新',
@@ -186,6 +187,20 @@ export function useSettingsOverview() {
     } catch (err: any) {
       failUpdateProgress(err?.response?.data?.error || err?.message || '更新失败，请手动更新')
     }
+  }
+
+  function buildDockerUpdateConfirmMessage(mirrorHost?: string, pullImageName?: string) {
+    const mirrorText = mirrorHost
+      ? `当前将通过镜像源 ${mirrorHost} 拉取更新镜像。`
+      : '当前将直接从默认镜像仓库拉取更新镜像。'
+    const pullTargetText = pullImageName ? `\n拉取目标：${pullImageName}` : ''
+    return `确认开始更新面板吗？系统会先拉取最新镜像，再自动重建容器。更新期间服务会短暂中断。\n${mirrorText}${pullTargetText}`
+  }
+
+  function buildBinaryUpdateConfirmMessage(updateTarget: any) {
+    const assetText = updateTarget.asset_name ? `\n更新包：${updateTarget.asset_name}` : ''
+    const installDirText = updateTarget.install_dir ? `\n安装目录：${updateTarget.install_dir}` : ''
+    return `确认开始更新面板吗？系统会在后台下载当前平台的二进制更新包，替换程序与前端文件，并自动重启面板。\n后台更新会保留 config.yaml、Dumb-Panel、data、logs、backups 等本地配置与数据目录。${assetText}${installDirText}`
   }
 
   function openUpdateProgress(snapshot?: PanelUpdateStatus | null) {

@@ -1,14 +1,20 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net"
+	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
+	"time"
 
 	"daidai-panel/appboot"
 	"daidai-panel/config"
@@ -149,6 +155,28 @@ func setupPanelLog(dataDir string) io.Writer {
 	return io.MultiWriter(os.Stdout, logFile)
 }
 
+func writeServerPIDFile(dataDir string) func() {
+	if strings.TrimSpace(dataDir) == "" {
+		return func() {}
+	}
+
+	pidDir := filepath.Join(dataDir, "run")
+	if err := os.MkdirAll(pidDir, 0o755); err != nil {
+		log.Printf("write pid dir failed: %v", err)
+		return func() {}
+	}
+
+	pidFile := filepath.Join(pidDir, "daidai-server.pid")
+	if err := os.WriteFile(pidFile, []byte(fmt.Sprintf("%d\n", os.Getpid())), 0o644); err != nil {
+		log.Printf("write pid file failed: %v", err)
+		return func() {}
+	}
+
+	return func() {
+		_ = os.Remove(pidFile)
+	}
+}
+
 func main() {
 	cfg, err := config.Load("config.yaml")
 	if err != nil {
@@ -159,6 +187,8 @@ func main() {
 	log.SetOutput(&startupLogFilter{dst: panelWriter})
 	gin.DefaultWriter = panelWriter
 	gin.DefaultErrorWriter = panelWriter
+	cleanupPIDFile := writeServerPIDFile(cfg.Data.Dir)
+	defer cleanupPIDFile()
 
 	if err := appboot.InitWithConfig(cfg); err != nil {
 		log.Fatalf("bootstrap failed: %v", err)
@@ -209,8 +239,29 @@ func main() {
 	log.SetOutput(panelWriter)
 	printStartupSummary(cfg.Server.Port)
 
-	if err := engine.RunListener(listener); err != nil {
-		log.Fatalf("server failed: %v", err)
+	server := &http.Server{Handler: engine}
+	serverErr := make(chan error, 1)
+	go func() {
+		serverErr <- server.Serve(listener)
+	}()
+
+	shutdownSignals := make(chan os.Signal, 1)
+	signal.Notify(shutdownSignals, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(shutdownSignals)
+
+	select {
+	case err := <-serverErr:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("server failed: %v", err)
+		}
+	case sig := <-shutdownSignals:
+		log.Printf("received %s, shutting down panel", sig)
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := server.Shutdown(ctx); err != nil {
+			log.Printf("server graceful shutdown failed: %v", err)
+			_ = server.Close()
+		}
 	}
 }
 

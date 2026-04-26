@@ -80,3 +80,28 @@ func TestSchedulerV2EnqueueStartupTasks(t *testing.T) {
 		t.Fatalf("expected startup task status queued, got %v", updated.Status)
 	}
 }
+
+func TestSchedulerV2RejectsEnqueueAfterStop(t *testing.T) {
+	testutil.SetupTestEnv(t)
+
+	scheduler := NewSchedulerV2(SchedulerConfig{
+		WorkerCount:  1,
+		QueueSize:    10,
+		RateInterval: time.Hour,
+	}, nil)
+	scheduler.Start()
+	scheduler.Stop()
+
+	err := scheduler.Enqueue(&ExecutionRequest{
+		TaskID: 1,
+		Task: &model.Task{
+			ID:      1,
+			Name:    "stopped task",
+			Command: "echo no",
+			Status:  model.TaskStatusEnabled,
+		},
+	})
+	if err == nil {
+		t.Fatal("expected stopped scheduler to reject enqueue")
+	}
+}

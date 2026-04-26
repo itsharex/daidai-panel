@@ -404,6 +404,7 @@ function handleClose() {
     top="5vh"
     align-center
     :show-close="false"
+    :lock-scroll="false"
     class="log-viewer-dialog"
     destroy-on-close
     @close="handleClose"

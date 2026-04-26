@@ -15,6 +15,8 @@ import (
 	"daidai-panel/config"
 	"daidai-panel/database"
 	"daidai-panel/model"
+
+	"gorm.io/gorm"
 )
 
 type TaskExecutor struct {
@@ -22,6 +24,7 @@ type TaskExecutor struct {
 	logDir           string
 	runningProcesses map[uint]map[int]*os.Process
 	processLock      sync.Mutex
+	runWG            sync.WaitGroup
 }
 
 func NewTaskExecutor() *TaskExecutor {
@@ -88,7 +91,11 @@ func (e *TaskExecutor) OnTaskExecuting(req *ExecutionRequest) error {
 
 	req.TaskLogID = taskLog.ID
 
-	go e.runTask(req, taskLog, tinyLog)
+	e.runWG.Add(1)
+	go func() {
+		defer e.runWG.Done()
+		e.runTask(req, taskLog, tinyLog)
+	}()
 
 	return nil
 }
@@ -133,7 +140,7 @@ func (e *TaskExecutor) OnTaskFailed(req *ExecutionRequest, err error) {
 		"last_run_at":       now,
 		"last_run_status":   runStatus,
 		"last_running_time": 0.0,
-		"pid":               nil,
+		"pid":               gorm.Expr("NULL"),
 	})
 }
 
@@ -168,6 +175,50 @@ func (e *TaskExecutor) StopTask(taskID uint) bool {
 	return false
 }
 
+func (e *TaskExecutor) StopAllRunningTasks() int {
+	if e == nil {
+		return 0
+	}
+
+	e.processLock.Lock()
+	processesByTask := e.runningProcesses
+	e.runningProcesses = make(map[uint]map[int]*os.Process)
+	e.processLock.Unlock()
+
+	count := 0
+	for _, processes := range processesByTask {
+		for _, process := range processes {
+			KillProcessGroup(process)
+			count++
+		}
+	}
+	return count
+}
+
+func (e *TaskExecutor) Wait(timeout time.Duration) bool {
+	if e == nil {
+		return true
+	}
+
+	done := make(chan struct{})
+	go func() {
+		e.runWG.Wait()
+		close(done)
+	}()
+
+	if timeout <= 0 {
+		<-done
+		return true
+	}
+
+	select {
+	case <-done:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
+}
+
 func (e *TaskExecutor) runTask(req *ExecutionRequest, taskLog *model.TaskLog, tinyLog *TinyLog) {
 	task := req.Task
 	plan := req.CommandPlan
@@ -200,7 +251,9 @@ func (e *TaskExecutor) runTask(req *ExecutionRequest, taskLog *model.TaskLog, ti
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("task %d panicked: %v", req.TaskID, r)
-			fmt.Fprintf(tinyLog, "\n[任务异常崩溃: %v]\n", r)
+			if tinyLog != nil {
+				fmt.Fprintf(tinyLog, "\n[任务异常崩溃: %v]\n", r)
+			}
 			exitCode = 1
 		}
 
@@ -235,7 +288,7 @@ func (e *TaskExecutor) runTask(req *ExecutionRequest, taskLog *model.TaskLog, ti
 			"status":            inactiveStatus,
 			"last_run_status":   runStatus,
 			"last_running_time": duration,
-			"pid":               nil,
+			"pid":               gorm.Expr("NULL"),
 		})
 
 		e.processLock.Lock()

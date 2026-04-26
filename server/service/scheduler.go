@@ -17,6 +17,7 @@ import (
 	cronu "daidai-panel/pkg/cron"
 
 	"github.com/robfig/cron/v3"
+	"gorm.io/gorm"
 )
 
 type Scheduler struct {
@@ -181,8 +182,8 @@ func (s *Scheduler) executeTask(taskID uint) {
 			database.DB.Model(&model.Task{}).Where("id = ?", taskID).Updates(map[string]interface{}{
 				"status":          model.TaskStatusEnabled,
 				"last_run_status": model.RunFailed,
-				"pid":             nil,
-				"log_path":        nil,
+				"pid":             gorm.Expr("NULL"),
+				"log_path":        gorm.Expr("NULL"),
 			})
 			s.logLock.Lock()
 			s.liveDone[taskID] = true
@@ -370,8 +371,8 @@ func (s *Scheduler) executeTaskInner(taskID uint) {
 		"status":            model.TaskStatusEnabled,
 		"last_run_status":   runStatus,
 		"last_running_time": duration,
-		"pid":               nil,
-		"log_path":          nil,
+		"pid":               gorm.Expr("NULL"),
+		"log_path":          gorm.Expr("NULL"),
 	})
 
 	endNow := time.Now()

@@ -25,7 +25,6 @@ import {
   View,
   Document,
   More,
-  Promotion,
 } from '@element-plus/icons-vue'
 import { useResponsive } from '@/composables/useResponsive'
 import { canAdminister, hasRequiredRole } from '@/utils/roles'
@@ -268,14 +267,6 @@ const resourceItems = computed(() => {
     },
   ]
 })
-
-function formatNetSpeed(bytesPerSec: number) {
-  if (!bytesPerSec || bytesPerSec < 0) return '0 KB/s'
-  if (bytesPerSec < 1024 * 1024) {
-    return (bytesPerSec / 1024).toFixed(1) + ' KB/s'
-  }
-  return (bytesPerSec / (1024 * 1024)).toFixed(1) + ' MB/s'
-}
 
 function formatBytes(bytes: number) {
   if (!bytes) return '0 B'
@@ -727,25 +718,18 @@ function rerunLog(log: any) {
             </div>
           </div>
           <div class="resource-row">
-            <div class="resource-row__icon" style="background: rgba(6, 182, 212, 0.12); color: #06b6d4">
-              <el-icon :size="16"><Promotion /></el-icon>
+            <div class="resource-row__icon" style="background: rgba(245, 158, 11, 0.12); color: #f59e0b">
+              <el-icon :size="16"><Timer /></el-icon>
             </div>
             <div class="resource-row__body">
               <div class="resource-row__top">
-                <span class="resource-row__label">网络</span>
-                <span class="resource-row__detail">
-                  <span class="net-speed-badge net-speed-badge--down">
-                    <el-icon :size="10"><ArrowDown /></el-icon> {{ formatNetSpeed(sysInfo.net_rx_speed) }}
-                  </span>
-                  <span class="net-speed-badge net-speed-badge--up">
-                    <el-icon :size="10"><ArrowUp /></el-icon> {{ formatNetSpeed(sysInfo.net_tx_speed) }}
-                  </span>
-                </span>
+                <span class="resource-row__label">面板运行</span>
+                <span class="resource-row__detail uptime-detail">{{ sysInfo.uptime || '-' }}</span>
               </div>
-              <div class="net-activity-bar">
-                <div class="net-activity-bar__track">
-                  <div class="net-activity-bar__pulse" :class="{ 'is-active': (sysInfo.net_rx_speed || 0) + (sysInfo.net_tx_speed || 0) > 0 }"></div>
-                </div>
+              <div class="uptime-track">
+                <span class="uptime-track__dot"></span>
+                <span class="uptime-track__line"></span>
+                <span class="uptime-track__text">自本次面板启动后持续运行</span>
               </div>
             </div>
           </div>
@@ -827,6 +811,15 @@ function rerunLog(log: any) {
           </div>
         </div>
         <table v-else class="log-table">
+          <colgroup>
+            <col class="log-table__col log-table__col--name" />
+            <col class="log-table__col log-table__col--status" />
+            <col class="log-table__col log-table__col--time" />
+            <col class="log-table__col log-table__col--duration" />
+            <col class="log-table__col log-table__col--trigger" />
+            <col class="log-table__col log-table__col--env" />
+            <col class="log-table__col log-table__col--actions" />
+          </colgroup>
           <thead>
             <tr>
               <th>任务名称</th>
@@ -1455,60 +1448,42 @@ function rerunLog(log: any) {
   transition: width 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 
-.net-speed-badge {
-  display: inline-flex;
+.uptime-detail {
+  font-family: 'Inter', var(--dd-font-ui), sans-serif;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: #f59e0b;
+}
+
+.uptime-track {
+  display: flex;
   align-items: center;
-  gap: 3px;
-  padding: 1px 6px;
-  border-radius: 6px;
-  font-size: 11px;
-  font-weight: 600;
-  font-family: var(--dd-font-mono, monospace);
-
-  &--down {
-    background: rgba(59, 130, 246, 0.1);
-    color: #3b82f6;
-  }
-
-  &--up {
-    background: rgba(16, 185, 129, 0.1);
-    color: #10b981;
-  }
-}
-
-.net-activity-bar {
+  gap: 8px;
   margin-top: 6px;
+  color: var(--el-text-color-placeholder);
+  font-size: 11.5px;
 }
 
-.net-activity-bar__track {
+.uptime-track__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f59e0b;
+  box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.14);
+  flex-shrink: 0;
+}
+
+.uptime-track__line {
   height: 6px;
+  flex: 1;
   border-radius: 999px;
-  background: var(--el-fill-color);
+  background: linear-gradient(90deg, rgba(245, 158, 11, 0.35), rgba(245, 158, 11, 0.08));
   overflow: hidden;
-  position: relative;
 }
 
-.net-activity-bar__pulse {
-  position: absolute;
-  top: 0;
-  left: 0;
-  height: 100%;
-  width: 30%;
-  border-radius: 999px;
-  background: linear-gradient(90deg, #06b6d4, #3b82f6);
-  opacity: 0.3;
-  transform: translateX(-100%);
-
-  &.is-active {
-    opacity: 1;
-    animation: net-pulse 1.8s ease-in-out infinite;
-  }
-}
-
-@keyframes net-pulse {
-  0% { transform: translateX(-100%); }
-  50% { transform: translateX(230%); }
-  100% { transform: translateX(-100%); }
+.uptime-track__text {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 // ============ Activity ============
@@ -1583,9 +1558,18 @@ function rerunLog(log: any) {
 // ============ Recent Logs Table ============
 .log-table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: separate;
   border-spacing: 0;
   font-size: 13px;
+
+  &__col--name { width: 19%; }
+  &__col--status { width: 9%; }
+  &__col--time { width: 18%; }
+  &__col--duration { width: 10%; }
+  &__col--trigger { width: 14%; }
+  &__col--env { width: 16%; }
+  &__col--actions { width: 14%; }
 
   thead {
     background: var(--el-fill-color-light);
@@ -1596,9 +1580,10 @@ function rerunLog(log: any) {
     font-weight: 600;
     font-size: 12px;
     color: var(--el-text-color-secondary);
-    padding: 12px 14px;
+    padding: 12px 16px;
     border-bottom: 1px solid var(--el-border-color-lighter);
     white-space: nowrap;
+    line-height: 1.25;
   }
 
   tbody tr {
@@ -1610,10 +1595,11 @@ function rerunLog(log: any) {
   }
 
   td {
-    padding: 12px 14px;
+    padding: 12px 16px;
     border-bottom: 1px solid var(--el-border-color-lighter);
     color: var(--el-text-color-primary);
     vertical-align: middle;
+    line-height: 1.35;
   }
 
   tbody tr:last-child td {
@@ -1640,25 +1626,40 @@ function rerunLog(log: any) {
 }
 
 .log-cell-name {
+  display: block;
   font-weight: 500;
   color: var(--el-text-color-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .log-cell-time,
 .log-cell-duration {
+  display: inline-block;
+  min-width: 0;
   font-size: 12.5px;
   color: var(--el-text-color-secondary);
   font-family: 'Inter', var(--dd-font-ui), sans-serif;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .log-cell-trigger {
+  display: inline-block;
+  max-width: 100%;
   font-size: 12.5px;
   color: var(--el-text-color-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .log-status-chip {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
   padding: 2px 10px;
   border-radius: 999px;
   font-size: 11.5px;
@@ -1682,18 +1683,25 @@ function rerunLog(log: any) {
 }
 
 .env-chip {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
   padding: 2px 8px;
   border-radius: 6px;
   font-size: 11.5px;
   font-weight: 500;
   font-family: 'Inter', var(--dd-font-ui), sans-serif;
   letter-spacing: 0.02em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .log-cell-actions {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 2px;
 }
 

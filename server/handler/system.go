@@ -345,19 +345,12 @@ func (h *SystemHandler) CheckUpdate(c *gin.Context) {
 	updateDisabledReason := ""
 	updateTarget := gin.H{}
 
-	plan, planErr := buildPanelUpdatePlan()
+	plan, planErr := buildPanelUpdatePlanForRelease(release)
 	if planErr != nil {
 		autoUpdateSupported = false
 		updateDisabledReason = planErr.Error()
 	} else {
-		updateTarget = gin.H{
-			"container_name":  plan.ContainerName,
-			"image_name":      plan.ImageName,
-			"pull_image_name": plan.PullImageName,
-			"channel":         plan.Channel,
-			"mirror_host":     plan.MirrorHost,
-			"registry_url":    plan.RegistryURL,
-		}
+		updateTarget = buildPanelUpdateTarget(plan)
 	}
 
 	response.Success(c, gin.H{

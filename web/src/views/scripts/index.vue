@@ -395,6 +395,9 @@ async function handleCancelEdit() {
 .scripts-workspace {
   display: flex;
   flex: 1 1 auto;
+  width: 100%;
+  height: 0;
+  min-width: 0;
   min-height: 0;
   gap: 0;
   background: var(--scripts-surface);
@@ -406,12 +409,17 @@ async function handleCancelEdit() {
 
 /* ---- Sidebar deep overrides ---- */
 :deep(.scripts-sidebar) {
+  flex: 0 0 300px;
+  min-height: 0;
+  overflow: hidden;
   border-right: 1px solid var(--el-border-color-lighter);
   background: var(--el-bg-color);
 }
 
 /* ---- Editor deep overrides ---- */
 :deep(.scripts-editor) {
+  min-height: 0;
+  overflow: hidden;
   background: var(--el-bg-color);
 }
 
@@ -441,6 +449,7 @@ async function handleCancelEdit() {
   .scripts-workspace {
     flex-direction: column;
     height: calc(100dvh - 160px);
+    min-height: 0;
     border-radius: 0;
     border: none;
     box-shadow: none;
@@ -448,14 +457,17 @@ async function handleCancelEdit() {
     :deep(.scripts-sidebar) {
       width: 100%;
       min-width: unset;
-      flex: 1;
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: hidden;
       border-right: none;
       border-bottom: 1px solid #f0f0f0;
     }
 
     :deep(.scripts-editor) {
       width: 100%;
-      flex: 1;
+      flex: 1 1 auto;
+      min-height: 0;
     }
   }
 
@@ -481,13 +493,15 @@ async function handleCancelEdit() {
   .scripts-workspace {
     flex-direction: column;
     min-height: 0;
-    height: 100%;
+    height: 0;
     border-radius: 14px;
 
     :deep(.scripts-sidebar) {
       width: 100%;
       min-width: 0;
-      flex: 1;
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: hidden;
       border-right: none;
       border-bottom: 1px solid #f0f0f0;
     }
@@ -495,7 +509,8 @@ async function handleCancelEdit() {
     :deep(.scripts-editor) {
       width: 100%;
       min-width: 0;
-      flex: 1;
+      flex: 1 1 auto;
+      min-height: 0;
     }
   }
 

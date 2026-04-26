@@ -20,8 +20,8 @@
 
 呆呆面板 (Daidai Panel) 是一款轻量级定时任务管理平台，采用 Go (Gin) + Vue3 (Element Plus) + SQLite 架构，专注于脚本托管与自动化任务调度。支持 Python、Node.js、Shell、TypeScript、Go 等多语言脚本的定时执行与可视化管理，内置 18 种消息推送渠道、订阅管理、环境变量、依赖管理、Open API 等功能。Docker 一键部署，开箱即用。
 
-> 最新稳定版：`v2.1.5` · [更新日志](./docs/release-notes/v2.1.5.md)<br>
-> 本次重点：修复 UI 重构后的头像、固定布局、分页、系统健康、订阅拉取、依赖管理与 ANSI 日志显示等体验问题。
+> 最新稳定版：`v2.1.6` · [更新日志](./docs/release-notes/v2.1.6.md)<br>
+> 本次重点：二进制后台更新保护配置、环境变量多分组、任务运行态重启兜底、日志快捷查看与仪表盘细节优化。
 
 ## 功能特性
 
@@ -187,7 +187,7 @@ docker run -d --pull=always \
 docker compose -f docker-compose.debian.yml up -d
 
 # 或基于源码本地构建
-docker build --build-arg VERSION=2.1.5 -f Dockerfile.debian -t daidai-panel:debian-local .
+docker build --build-arg VERSION=2.1.6 -f Dockerfile.debian -t daidai-panel:debian-local .
 ```
 
 ### Windows 单机版（不走 Docker）
@@ -213,7 +213,7 @@ daidai-panel-windows-amd64/
 
 **可选：脚本执行环境**。如需面板调度 Python / Node.js 脚本，请自行安装 Python 3.10+ 和 Node.js 20 LTS 并勾选 "Add to PATH"，重启 `start.bat` 即可（`ddp.exe`、脚本执行器会从 PATH 找到对应的 `python` / `node`）。
 
-**升级**：关掉正在跑的 `start.bat`，下载新版 zip 解压到新目录，把旧版本的 `Dumb-Panel\` 整个文件夹拷到新目录，重启新版本 `start.bat`。Windows 单机版**不支持**面板内一键更新（Docker 专属）、Magisk 模块。
+**升级**：优先在面板后台进入「系统设置」→「概览」→「检查系统更新」→「立即更新」。二进制后台更新会自动下载对应平台的 Release 包，替换程序与前端文件，并保留现有 `config.yaml`、`Dumb-Panel\`、`data\`、`logs\`、`backups\` 等本地配置和数据目录。只有在程序目录没有写入权限、网络无法访问 GitHub Release，或后台更新失败时，才需要手动下载新版 zip 后迁移数据。
 
 ### Android Magisk 模块（Root 手机）
 
@@ -361,7 +361,10 @@ server {
 
 ### 面板内一键更新（推荐）
 
-进入「系统设置」→「概览」→ 点「检查系统更新」。需要在 `docker-compose.yml` 里挂载了 `/var/run/docker.sock` 才能触发一键更新。
+进入「系统设置」→「概览」→ 点「检查系统更新」。系统会自动识别当前部署方式：
+
+- **Docker 部署**：需要在 `docker-compose.yml` 里挂载 `/var/run/docker.sock`，更新时拉取最新镜像并按当前容器参数重建。
+- **二进制部署**：自动匹配 `daidai-windows-amd64.zip` 或 `daidai-linux-*.tar.gz`，后台下载、解压、替换程序和 `web/` 前端文件，更新过程会跳过 `config.yaml` 与数据目录，避免覆盖服务器本地配置。
 
 ### 手动更新
 
@@ -378,7 +381,7 @@ docker compose -f docker-compose.debian.yml up -d
 本地基于源码自己构建的镜像，重新 build 即可：
 
 ```bash
-docker build --build-arg VERSION=2.1.5 -f Dockerfile.debian -t daidai-panel:debian-local .
+docker build --build-arg VERSION=2.1.6 -f Dockerfile.debian -t daidai-panel:debian-local .
 ```
 
 ## 容器命令 `ddp`

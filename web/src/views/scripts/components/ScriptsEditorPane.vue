@@ -304,15 +304,19 @@ watch(
 .scripts-editor {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: #fff;
   font-family: var(--dd-font-ui);
+  overflow: hidden;
 }
 
 /* ---------------- Empty state ---------------- */
 .editor-empty {
   flex: 1;
+  min-height: 0;
+  overflow: auto;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -607,13 +611,15 @@ watch(
   .code-editor {
     flex: 1;
     height: 100%;
-    min-height: 420px;
+    min-height: 0;
   }
 }
 
 .code-preview {
   margin: 0;
+  flex: 1;
   height: 100%;
+  min-height: 0;
   overflow: auto;
   padding: 18px 22px;
   background: var(--dd-editor-bg-color, #1e1e1e);
@@ -735,7 +741,7 @@ watch(
 
   .editor-body {
     .code-editor {
-      min-height: 300px;
+      min-height: 0;
     }
   }
 

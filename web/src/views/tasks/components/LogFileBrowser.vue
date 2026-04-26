@@ -128,6 +128,7 @@ function handleClose() {
     :title="`日志文件 - ${taskName}`"
     width="1000px"
     :fullscreen="dialogFullscreen"
+    :lock-scroll="false"
     @close="handleClose"
   >
     <div class="log-files-browser">

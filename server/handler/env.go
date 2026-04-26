@@ -52,7 +52,55 @@ func orderedEnvQuery() *gorm.DB {
 }
 
 func normalizeEnvGroupValue(value string) string {
-	return strings.TrimSpace(value)
+	return model.NormalizeEnvGroupValue(value)
+}
+
+func normalizeEnvGroupsPayload(group string, groups []string) string {
+	if len(groups) > 0 {
+		return model.JoinEnvGroups(groups)
+	}
+	return normalizeEnvGroupValue(group)
+}
+
+func parseEnvGroupFilter(rawValues ...string) []string {
+	return model.SplitEnvGroups(strings.Join(rawValues, ","))
+}
+
+func applyEnvGroupFilters(query *gorm.DB, groups []string) *gorm.DB {
+	if len(groups) == 0 {
+		return query
+	}
+
+	clauses := make([]string, 0, len(groups))
+	args := make([]interface{}, 0, len(groups))
+	for _, group := range groups {
+		clauses = append(clauses, "instr(',' || \"group\" || ',', ?) > 0")
+		args = append(args, ","+group+",")
+	}
+	return query.Where("("+strings.Join(clauses, " OR ")+")", args...)
+}
+
+func envGroupValueFromImportItem(item map[string]interface{}) (string, bool) {
+	if rawGroups, ok := item["groups"]; ok {
+		switch groups := rawGroups.(type) {
+		case []interface{}:
+			values := make([]string, 0, len(groups))
+			for _, value := range groups {
+				if text, ok := value.(string); ok {
+					values = append(values, text)
+				}
+			}
+			return model.JoinEnvGroups(values), true
+		case []string:
+			return model.JoinEnvGroups(groups), true
+		case string:
+			return normalizeEnvGroupValue(groups), true
+		}
+	}
+
+	group, ok := item["group"].(string)
+	normalized := normalizeEnvGroupValue(group)
+	return normalized, ok && normalized != ""
 }
 
 func nextEnvPosition(tx *gorm.DB, sortOrder int) (float64, error) {
@@ -160,7 +208,7 @@ func reorderEnvWithinSortBucket(tx *gorm.DB, sourceID uint, targetID *uint) erro
 
 func (h *EnvHandler) List(c *gin.Context) {
 	keyword := c.Query("keyword")
-	group := c.Query("group")
+	groupFilters := parseEnvGroupFilter(append(c.QueryArray("groups"), c.Query("groups"), c.Query("group"))...)
 	enabledRaw := c.Query("enabled")
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
@@ -178,9 +226,7 @@ func (h *EnvHandler) List(c *gin.Context) {
 		like := "%" + keyword + "%"
 		query = query.Where("UPPER(name) LIKE UPPER(?) OR UPPER(remarks) LIKE UPPER(?) OR UPPER(value) LIKE UPPER(?) OR UPPER(\"group\") LIKE UPPER(?)", like, like, like, like)
 	}
-	if group != "" {
-		query = query.Where("\"group\" = ?", group)
-	}
+	query = applyEnvGroupFilters(query, groupFilters)
 	if enabledRaw != "" {
 		enabled, err := strconv.ParseBool(enabledRaw)
 		if err == nil {
@@ -221,10 +267,11 @@ func (h *EnvHandler) Create(c *gin.Context) {
 	}
 
 	type envItem struct {
-		Name    string `json:"name"`
-		Value   string `json:"value"`
-		Remarks string `json:"remarks"`
-		Group   string `json:"group"`
+		Name    string   `json:"name"`
+		Value   string   `json:"value"`
+		Remarks string   `json:"remarks"`
+		Group   string   `json:"group"`
+		Groups  []string `json:"groups"`
 	}
 
 	var items []envItem
@@ -275,7 +322,7 @@ func (h *EnvHandler) Create(c *gin.Context) {
 			Name:      item.Name,
 			Value:     item.Value,
 			Remarks:   item.Remarks,
-			Group:     normalizeEnvGroupValue(item.Group),
+			Group:     normalizeEnvGroupsPayload(item.Group, item.Groups),
 			Enabled:   true,
 			SortOrder: envNormalSortOrder,
 			Position:  nextPos,
@@ -308,11 +355,12 @@ func (h *EnvHandler) Create(c *gin.Context) {
 }
 
 type updateEnvRequest struct {
-	Name    *string `json:"name"`
-	Value   *string `json:"value"`
-	Remarks *string `json:"remarks"`
-	Group   *string `json:"group"`
-	Enabled *bool   `json:"enabled"`
+	Name    *string   `json:"name"`
+	Value   *string   `json:"value"`
+	Remarks *string   `json:"remarks"`
+	Group   *string   `json:"group"`
+	Groups  *[]string `json:"groups"`
+	Enabled *bool     `json:"enabled"`
 }
 
 func (h *EnvHandler) Update(c *gin.Context) {
@@ -352,7 +400,12 @@ func (h *EnvHandler) Update(c *gin.Context) {
 	if req.Remarks != nil && *req.Remarks != env.Remarks {
 		updates["remarks"] = *req.Remarks
 	}
-	if req.Group != nil {
+	if req.Groups != nil {
+		normalized := model.JoinEnvGroups(*req.Groups)
+		if normalized != env.Group {
+			updates["group"] = normalized
+		}
+	} else if req.Group != nil {
 		normalized := normalizeEnvGroupValue(*req.Group)
 		if normalized != env.Group {
 			updates["group"] = normalized
@@ -563,11 +616,21 @@ func (h *EnvHandler) Sort(c *gin.Context) {
 }
 
 func (h *EnvHandler) Groups(c *gin.Context) {
-	var groups []string
-	database.DB.Model(&model.EnvVar{}).
-		Where("\"group\" != ''").
-		Distinct("\"group\"").
-		Pluck("\"group\"", &groups)
+	var rawGroups []string
+	database.DB.Raw(`SELECT "group" FROM env_vars WHERE "group" != ''`).Scan(&rawGroups)
+
+	groupSet := make(map[string]struct{})
+	for _, raw := range rawGroups {
+		for _, group := range model.SplitEnvGroups(raw) {
+			groupSet[group] = struct{}{}
+		}
+	}
+
+	groups := make([]string, 0, len(groupSet))
+	for group := range groupSet {
+		groups = append(groups, group)
+	}
+	sort.Strings(groups)
 
 	response.Success(c, gin.H{"data": groups})
 }
@@ -634,6 +697,7 @@ func (h *EnvHandler) ExportAll(c *gin.Context) {
 			"value":   e.Value,
 			"remarks": e.Remarks,
 			"group":   e.Group,
+			"groups":  model.SplitEnvGroups(e.Group),
 			"enabled": e.Enabled,
 		}
 	}
@@ -784,7 +848,7 @@ func (h *EnvHandler) Import(c *gin.Context) {
 		}
 
 		remarks, _ := item["remarks"].(string)
-		group, _ := item["group"].(string)
+		group, hasGroup := envGroupValueFromImportItem(item)
 
 		enabled := true
 		if statusVal, ok := item["status"].(float64); ok {
@@ -804,8 +868,8 @@ func (h *EnvHandler) Import(c *gin.Context) {
 					"value":   value,
 					"enabled": enabled,
 				}
-				if group != "" {
-					updates["group"] = normalizeEnvGroupValue(group)
+				if hasGroup {
+					updates["group"] = group
 				}
 				database.DB.Model(&existing).Updates(updates)
 				imported++
@@ -823,7 +887,7 @@ func (h *EnvHandler) Import(c *gin.Context) {
 			Name:      name,
 			Value:     value,
 			Remarks:   remarks,
-			Group:     normalizeEnvGroupValue(group),
+			Group:     group,
 			Enabled:   enabled,
 			SortOrder: envNormalSortOrder,
 			Position:  nextPos,
@@ -899,8 +963,9 @@ func (h *EnvHandler) CancelMoveToTop(c *gin.Context) {
 
 func (h *EnvHandler) BatchSetGroup(c *gin.Context) {
 	var req struct {
-		IDs   []uint `json:"ids" binding:"required"`
-		Group string `json:"group"`
+		IDs    []uint   `json:"ids" binding:"required"`
+		Group  string   `json:"group"`
+		Groups []string `json:"groups"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "请求参数错误")
@@ -909,7 +974,7 @@ func (h *EnvHandler) BatchSetGroup(c *gin.Context) {
 
 	result := database.DB.Model(&model.EnvVar{}).
 		Where("id IN ?", req.IDs).
-		Updates(map[string]interface{}{"group": normalizeEnvGroupValue(req.Group)})
+		Updates(map[string]interface{}{"group": normalizeEnvGroupsPayload(req.Group, req.Groups)})
 	if result.Error != nil {
 		response.InternalError(c, "批量分组失败")
 		return

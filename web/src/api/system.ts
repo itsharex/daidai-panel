@@ -31,11 +31,17 @@ export interface PanelUpdateStatus {
   error?: string
   started_at?: string
   updated_at?: string
+  deployment_type?: 'docker' | 'binary'
   container_name?: string
   image_name?: string
   pull_image_name?: string
   mirror_host?: string
   registry_url?: string
+  release_version?: string
+  asset_name?: string
+  asset_url?: string
+  install_dir?: string
+  binary_name?: string
 }
 
 export interface SystemHealthItem {

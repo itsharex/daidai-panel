@@ -60,7 +60,9 @@ func runEnvList(rt *cliRuntime, args []string) error {
 	query := database.DB.Model(&model.EnvVar{}).
 		Order("sort_order DESC, position ASC, created_at ASC, id ASC")
 	if group != "" {
-		query = query.Where("\"group\" = ?", group)
+		if normalizedGroup := model.NormalizeEnvGroupValue(group); normalizedGroup != "" {
+			query = query.Where("instr(',' || \"group\" || ',', ?) > 0", ","+normalizedGroup+",")
+		}
 	}
 	if keyword != "" {
 		like := "%" + keyword + "%"
@@ -170,7 +172,7 @@ func runEnvSet(rt *cliRuntime, args []string) error {
 			Name:      name,
 			Value:     value,
 			Remarks:   remarks,
-			Group:     strings.TrimSpace(group),
+			Group:     model.NormalizeEnvGroupValue(group),
 			Enabled:   enabled,
 			SortOrder: 0,
 			Position:  position,
@@ -182,7 +184,7 @@ func runEnvSet(rt *cliRuntime, args []string) error {
 	case 1:
 		updates := map[string]interface{}{
 			"value":   value,
-			"group":   strings.TrimSpace(group),
+			"group":   model.NormalizeEnvGroupValue(group),
 			"remarks": remarks,
 			"enabled": enabled,
 		}
