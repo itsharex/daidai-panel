@@ -60,6 +60,12 @@ html, body {
   text-rendering: optimizeLegibility;
 }
 
+@media screen and (min-width: 769px) {
+  html, body {
+    overflow: hidden;
+  }
+}
+
 #app {
   height: 100%;
 }
@@ -339,6 +345,54 @@ html.dark {
     &:hover {
       background: rgba(255, 255, 255, 0.25);
     }
+  }
+
+  // ===== 全局深色模式补丁：覆盖各页面 hardcoded 浅色，避免文字与浅色背景冲突 =====
+  // Element Plus 表头 inline-style 写死 #f8fafc / #64748b，需要 !important 覆盖
+  .el-table th.el-table__cell,
+  .el-table th.el-table__cell.is-leaf {
+    background-color: var(--el-fill-color-light) !important;
+    color: var(--el-text-color-regular) !important;
+  }
+
+  // Dashboard hero 横幅：浅紫蓝渐变改为深色版本
+  .hero-banner {
+    background: linear-gradient(135deg, #312e81 0%, #1e293b 55%, #0f172a 100%) !important;
+    border-color: rgba(139, 92, 246, 0.28) !important;
+  }
+  .hero-banner__title {
+    color: #f1f5f9 !important;
+  }
+  .hero-banner__sub {
+    color: rgba(241, 245, 249, 0.72) !important;
+  }
+  .hero-banner__bubble.bubble-1 { background: rgba(255, 255, 255, 0.18); }
+  .hero-banner__bubble.bubble-2 { background: rgba(167, 139, 250, 0.32); }
+  .hero-banner__bubble.bubble-3 { background: rgba(96, 165, 250, 0.32); }
+
+  // Profile 页面顶部紫色 hero
+  .profile-hero {
+    background: linear-gradient(135deg, #1e1b4b 0%, #1e293b 100%) !important;
+  }
+
+  // 通用 stat-card：dark 下统一边框/底色，避免出现亮白卡片
+  .dd-stat-card,
+  .stat-card,
+  .stat-cards .stat-card {
+    background: var(--el-bg-color-overlay);
+    border-color: var(--el-border-color-darker);
+  }
+
+  // page-header 副标题在浅色页面色差较大，统一弱化
+  .page-subtitle,
+  .page-header p {
+    color: var(--el-text-color-secondary);
+  }
+
+  // 弹窗 footer 边框在亮色用 #ebeef5，在 dark 用更深
+  .el-dialog__header,
+  .el-dialog__footer {
+    border-color: var(--el-border-color-darker);
   }
 }
 

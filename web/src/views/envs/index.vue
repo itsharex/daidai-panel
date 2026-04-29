@@ -346,32 +346,10 @@ async function loadData() {
     }
 
     if (showAllEnvs.value) {
-      const allItems: any[] = []
-      let currentPage = 1
-      let totalCount = 0
-
-      while (true) {
-        const res = await envApi.list({
-          ...params,
-          page: currentPage,
-          page_size: envAllFetchBatchSize
-        })
-
-        if (currentPage === 1) {
-          totalCount = res.total || 0
-        }
-
-        const items = normalizeEnvRows(res.data || [])
-        allItems.push(...items)
-
-        if (items.length === 0 || allItems.length >= totalCount || items.length < envAllFetchBatchSize) {
-          envList.value = allItems
-          total.value = totalCount
-          break
-        }
-
-        currentPage += 1
-      }
+      // 服务端通过 all=1 一次性返回（带 5000 条硬上限保护），避免循环分页造成的等待与滚动卡顿。
+      const res = await envApi.list({ ...params, all: 1 })
+      envList.value = normalizeEnvRows(res.data || [])
+      total.value = res.total || envList.value.length
     } else {
       const res = await envApi.list({
         ...params,
@@ -457,6 +435,11 @@ async function initSortable() {
       bubbleScroll: true,
       scrollSensitivity: 100,
       scrollSpeed: 18,
+      // 移动端必须从拖拽手柄触发，且需长按 350ms 才进入拖拽态，
+      // 桌面端可全行拖拽不依赖 handle
+      ...(isMobile.value
+        ? { handle: '.env-mobile-drag-handle', delay: 350, delayOnTouchOnly: true, touchStartThreshold: 8 }
+        : { delay: 80, delayOnTouchOnly: true, touchStartThreshold: 4 }),
       onStart: (evt: any) => {
         updateDragPointer(evt)
         startDragAutoScroll()
@@ -933,6 +916,15 @@ function handleStatusFilter(value: '' | 'enabled' | 'disabled') {
             <div class="dd-mobile-card__title-wrap">
               <div class="env-card__title-row">
                 <div class="dd-mobile-card__selection">
+                  <button
+                    v-if="sortableEnabled"
+                    class="env-mobile-drag-handle"
+                    type="button"
+                    aria-label="长按拖动排序"
+                    @click.stop
+                  >
+                    <el-icon :size="16"><Rank /></el-icon>
+                  </button>
                   <el-checkbox :model-value="isSelected(row.id)" @change="toggleSelected(row.id, $event)" />
                   <div class="env-name-wrap">
                     <span class="env-name">{{ row.name }}</span>
@@ -1592,6 +1584,32 @@ function handleStatusFilter(value: '' | 'enabled' | 'disabled') {
   align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
+}
+
+.env-mobile-drag-handle {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--el-border-color-lighter);
+  background: var(--el-fill-color-light);
+  border-radius: 8px;
+  color: var(--el-text-color-secondary);
+  cursor: grab;
+  touch-action: none;
+  transition: background 0.18s, color 0.18s, border-color 0.18s;
+  -webkit-user-select: none;
+  user-select: none;
+  padding: 0;
+}
+
+.env-mobile-drag-handle:active {
+  cursor: grabbing;
+  background: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
+  border-color: var(--el-color-primary-light-7);
 }
 
 .env-card__tools {

@@ -475,6 +475,9 @@ func writeTempSSHKey(privateKey string) (string, error) {
 var (
 	cronCommentRe          = regexp.MustCompile(`(?im)^\s*#?\s*cron\s*[:：]\s*(.+)$`)
 	subscriptionTaskNameRe = regexp.MustCompile(`new\s+Env\s*\(\s*['"` + "`" + `]([^'"` + "`" + `]+)['"` + "`" + `]\s*\)`)
+	// 青龙风格 `cron "EXPR" filename, tag:xxx` 单行声明，常见于 JS 顶部注释。
+	// 例如：cron "6 6 6 6 *" jd_CheckCK.js, tag:京东CK检测by-ccwav
+	cronDirectiveLineRe = regexp.MustCompile(`(?i)\bcron\s+["']([^"'\n\r]+)["']\s+([^\s,;]+)`)
 )
 
 type subscriptionTaskSyncOptions struct {
@@ -819,6 +822,16 @@ func extractSubscriptionCronExpression(line, scriptBase string) string {
 	if matches := cronCommentRe.FindStringSubmatch(line); len(matches) > 1 {
 		expr := strings.TrimSpace(matches[1])
 		if cron.Parse(expr).Valid {
+			return expr
+		}
+	}
+
+	if matches := cronDirectiveLineRe.FindStringSubmatch(line); len(matches) > 2 && scriptBase != "" {
+		expr := strings.TrimSpace(matches[1])
+		fileToken := normalizeSubscriptionCronScriptToken(matches[2])
+		if fileToken != "" &&
+			strings.EqualFold(filepath.Base(fileToken), scriptBase) &&
+			cron.Parse(expr).Valid {
 			return expr
 		}
 	}

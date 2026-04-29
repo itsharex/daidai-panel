@@ -961,6 +961,7 @@ function rerunLog(log: any) {
   border-radius: 16px;
   padding: 22px 26px;
   overflow: hidden;
+  contain: layout paint;
   background: linear-gradient(135deg, #ede9fe 0%, #e0e7ff 50%, #dbeafe 100%);
   border: 1px solid rgba(139, 92, 246, 0.12);
   display: flex;
@@ -974,6 +975,9 @@ function rerunLog(log: any) {
   position: absolute;
   inset: 0;
   pointer-events: none;
+  // 把 blur 装饰层提升为独立合成层，浏览器只在初始时计算一次 blur，
+  // 后续 hover / 滚动等交互不再触发昂贵的重绘。
+  transform: translateZ(0);
 }
 
 .hero-banner__bubble {
@@ -1078,11 +1082,10 @@ function rerunLog(log: any) {
   background: transparent;
   border-radius: 10px;
   cursor: pointer;
-  transition: background 0.18s, transform 0.18s;
+  transition: background 0.18s;
 
   &:hover {
     background: var(--el-fill-color-light);
-    transform: translateY(-2px);
   }
 }
 
@@ -1093,11 +1096,6 @@ function rerunLog(log: any) {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: transform 0.2s;
-
-  .quick-tile:hover & {
-    transform: scale(1.08);
-  }
 }
 
 .quick-tile__label {

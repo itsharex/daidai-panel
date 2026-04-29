@@ -43,6 +43,8 @@ func (h *TaskHandler) List(c *gin.Context) {
 	sortRules := parseTaskListSortRules(c.Query("sort_rules"))
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	allRaw := strings.ToLower(strings.TrimSpace(c.Query("all")))
+	wantAll := allRaw == "1" || allRaw == "true" || allRaw == "yes"
 
 	if page < 1 {
 		page = 1
@@ -74,8 +76,19 @@ func (h *TaskHandler) List(c *gin.Context) {
 			return
 		}
 
+		ordered := applyDefaultTaskListOrdering(query.Session(&gorm.Session{}))
 		var tasks []model.Task
-		if err := applyDefaultTaskListOrdering(query.Session(&gorm.Session{})).
+		if wantAll {
+			const taskAllSafeLimit = 5000
+			if err := ordered.Limit(taskAllSafeLimit).Find(&tasks).Error; err != nil {
+				response.InternalError(c, "加载任务列表失败")
+				return
+			}
+			respondTaskList(c, tasks, total, 1, len(tasks))
+			return
+		}
+
+		if err := ordered.
 			Offset((page - 1) * pageSize).
 			Limit(pageSize).
 			Find(&tasks).Error; err != nil {
@@ -100,6 +113,11 @@ func (h *TaskHandler) List(c *gin.Context) {
 	sortPreparedTaskListItems(prepared, sortRules)
 
 	total := int64(len(prepared))
+	if wantAll {
+		respondPreparedTaskList(c, prepared, total, 1, len(prepared))
+		return
+	}
+
 	start := (page - 1) * pageSize
 	if start > len(prepared) {
 		start = len(prepared)

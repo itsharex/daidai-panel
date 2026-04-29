@@ -959,15 +959,24 @@ async function loadVersion() {
 .route-shell {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  position: relative;
+  contain: layout style;
 
   > :deep(*) {
     min-width: 0;
   }
 
   > :deep(.dd-fixed-page) {
+    flex: 1 1 auto;
+    width: 100%;
+    min-height: 0;
+  }
+
+  > :deep(.dd-scroll-page) {
     flex: 1 1 auto;
     width: 100%;
     min-height: 0;
@@ -1003,8 +1012,10 @@ async function loadVersion() {
 }
 
 // ==================== Page transition ====================
+// 改为纯 opacity 渐变；之前的 translateY 在 0.22s 进场动画里会让页面瞬间高于 .route-shell，
+// 部分 keep-alive 缓存页面切回来时还会触发整页滚动条出现，纯透明度切换不会影响布局尺寸。
 .page-fade-enter-active {
-  animation: pageEnter 0.22s ease-out;
+  animation: pageEnter 0.18s ease-out;
 }
 
 .page-fade-leave-active {
@@ -1012,14 +1023,8 @@ async function loadVersion() {
 }
 
 @keyframes pageEnter {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 @keyframes pageFadeOut {

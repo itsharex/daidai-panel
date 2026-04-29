@@ -39,10 +39,10 @@
 ## 系统要求
 
 - 已 Root 的 Android 设备，至少满足以下任意 root 方案之一：
-  - Magisk **v24.0+**
+  - Magisk **v20.4+**（v20–v23 可装但缺少模块卡片一键更新；推荐 v24+）
   - KernelSU
   - APatch
-- Android 8.0 (API 26) 及以上
+- Android 7.0 (API 24) 及以上（Android 7.x 为基础兼容，少数机型受 SELinux / 命名空间限制可能无法启动；建议 Android 8.0+）
 - CPU 架构：`arm64`（aarch64）或 `x86_64`，CI 两种架构都会发布
 - **剩余可用空间 ≥ 1.5 GB**（Alpine rootfs ~300 MB + 依赖 + 数据 / 日志）
 - **安装阶段需要联网**（下载 Alpine minirootfs + apk 联网装 python3 / nodejs / git 等）

@@ -51,8 +51,11 @@ if [ "$ARCH" != "arm64" ] && [ "$ARCH" != "x64" ]; then
   abort "! 当前仅支持 arm64 / x86_64，设备架构 $ARCH 暂不支持"
 fi
 
+if [ "$API" -lt 24 ]; then
+  abort "! 要求 Android 7.0 (API 24) 及以上，当前 API=$API"
+fi
 if [ "$API" -lt 26 ]; then
-  abort "! 要求 Android 8.0 (API 26) 及以上，当前 API=$API"
+  ui_print "! 注意：Android 7.x 仅做了基础兼容，部分机型可能受 SELinux / 命名空间限制无法启动"
 fi
 
 # ---- 根据架构挑选 daidai-server 二进制 ----------------------------------

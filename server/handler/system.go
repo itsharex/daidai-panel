@@ -41,9 +41,19 @@ type systemHealthSnapshot struct {
 }
 
 var (
-	systemHealthCheckHTTPClient = &http.Client{Timeout: 3 * time.Second}
+	// systemHealthCheckHTTPClient 默认为 nil，运行时按需用 service.NewHTTPClient 构建，
+	// 这样能实时读取 system_configs.proxy_url，让 "网络代理" 配置变更立即对健康检查生效。
+	// 单元测试可直接赋值非 nil 客户端进行 mock。
+	systemHealthCheckHTTPClient *http.Client
 	systemHealthCheckURL        = "https://www.baidu.com"
 )
+
+func resolveSystemHealthCheckClient() *http.Client {
+	if systemHealthCheckHTTPClient != nil {
+		return systemHealthCheckHTTPClient
+	}
+	return service.NewHTTPClient(3 * time.Second)
+}
 
 type SystemHandler struct{}
 
@@ -54,6 +64,12 @@ func NewSystemHandler() *SystemHandler {
 func (h *SystemHandler) Info(c *gin.Context) {
 	info := service.GetResourceInfo()
 	response.Success(c, gin.H{"data": info})
+}
+
+// MachineCode 单独返回面板机器码，便于外部工具通过接口直接获取（无需解析完整系统信息）。
+func (h *SystemHandler) MachineCode(c *gin.Context) {
+	code := service.EnsureMachineCode()
+	response.Success(c, gin.H{"data": gin.H{"machine_code": code}})
 }
 
 func (h *SystemHandler) Dashboard(c *gin.Context) {
@@ -464,7 +480,7 @@ func runSystemHealthChecks() []systemHealthCheckItem {
 		items = append(items, systemHealthCheckItem{Name: "scheduler", Status: "ok", Message: "空闲"})
 	}
 
-	if resp, err := systemHealthCheckHTTPClient.Get(systemHealthCheckURL); err != nil {
+	if resp, err := resolveSystemHealthCheckClient().Get(systemHealthCheckURL); err != nil {
 		items = append(items, systemHealthCheckItem{Name: "network", Status: "error", Message: "无法连接外部网络"})
 	} else {
 		resp.Body.Close()
@@ -542,6 +558,7 @@ func (h *SystemHandler) RegisterRoutes(r *gin.RouterGroup) {
 	sys := r.Group("/system", middleware.JWTAuth())
 	{
 		sys.GET("/info", middleware.OpenAPIAccess("system"), middleware.RequireRole("viewer"), h.Info)
+		sys.GET("/machine-code", middleware.OpenAPIAccess("system"), middleware.RequireRole("viewer"), h.MachineCode)
 		sys.GET("/dashboard", middleware.OpenAPIAccess("system"), middleware.RequireRole("viewer"), h.Dashboard)
 		sys.GET("/stats", middleware.OpenAPIAccess("system"), middleware.RequireRole("viewer"), h.Stats)
 		sys.GET("/version", middleware.OpenAPIAccess("system"), middleware.RequireRole("viewer"), h.Version)
@@ -552,12 +569,12 @@ func (h *SystemHandler) RegisterRoutes(r *gin.RouterGroup) {
 		sys.POST("/update", middleware.RequireAdmin(), h.UpdatePanel)
 		sys.POST("/restart", middleware.RequireAdmin(), h.Restart)
 		sys.GET("/panel-log", middleware.RequireUserToken(), middleware.RequireAdmin(), h.PanelLog)
-		sys.POST("/backup", middleware.RequireAdmin(), h.Backup)
-		sys.POST("/backup/upload", middleware.RequireAdmin(), h.UploadBackup)
-		sys.GET("/backups", middleware.RequireAdmin(), h.BackupList)
-		sys.GET("/backup/download/:filename", middleware.RequireAdmin(), h.DownloadBackup)
-		sys.GET("/restore/progress", middleware.RequireAdmin(), h.RestoreProgress)
-		sys.POST("/restore", middleware.RequireAdmin(), h.Restore)
-		sys.DELETE("/backup", middleware.RequireAdmin(), h.DeleteBackup)
+		sys.POST("/backup", middleware.OpenAPIAccess("backup"), middleware.RequireRole("admin"), h.Backup)
+		sys.POST("/backup/upload", middleware.OpenAPIAccess("backup"), middleware.RequireRole("admin"), h.UploadBackup)
+		sys.GET("/backups", middleware.OpenAPIAccess("backup"), middleware.RequireRole("admin"), h.BackupList)
+		sys.GET("/backup/download/:filename", middleware.OpenAPIAccess("backup"), middleware.RequireRole("admin"), h.DownloadBackup)
+		sys.GET("/restore/progress", middleware.OpenAPIAccess("backup"), middleware.RequireRole("admin"), h.RestoreProgress)
+		sys.POST("/restore", middleware.OpenAPIAccess("backup"), middleware.RequireRole("admin"), h.Restore)
+		sys.DELETE("/backup", middleware.OpenAPIAccess("backup"), middleware.RequireRole("admin"), h.DeleteBackup)
 	}
 }

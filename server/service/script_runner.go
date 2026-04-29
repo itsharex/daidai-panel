@@ -481,47 +481,58 @@ func runSingleCommand(plan *CommandExecutionPlan, timeout int, envVars map[strin
 	totalSize := 0
 	truncated := false
 
-	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 256*1024), 16*1024*1024)
+	// 不再做单行字节数截断：加密 / base64 等场景一行可能上 MB，
+	// 截断会让脚本拿不到完整结果而判定为失败。改用 bufio.Reader 直接按行读，
+	// 没有 token 长度上限；总日志体量仍由 maxLogSize 全局保护。
+	reader := bufio.NewReaderSize(stdout, 256*1024)
+
+	emitLine := func(line string) {
+		if truncated {
+			return
+		}
+		if totalSize >= maxLogSize {
+			truncated = true
+			msg := "\n[日志已截断，超过最大大小限制]"
+			outputBuilder.WriteString(msg)
+			if onOutput != nil {
+				onOutput(msg)
+			}
+			return
+		}
+		outputBuilder.WriteString(line)
+		outputBuilder.WriteString("\n")
+		totalSize += len(line) + 1
+		if onOutput != nil {
+			onOutput(line)
+		}
+	}
 
 	done := make(chan struct{})
 	go func() {
-		for scanner.Scan() {
-			line := scanner.Text()
-			if totalSize < maxLogSize {
-				if len(line) > 8192 {
-					line = line[:8192] + "... [行内容过长已截断]"
-				}
-				outputBuilder.WriteString(line + "\n")
-				totalSize += len(line) + 1
-				if onOutput != nil {
-					onOutput(line)
-				}
-			} else if !truncated {
-				truncated = true
-				msg := "\n[日志已截断，超过最大大小限制]"
-				outputBuilder.WriteString(msg)
-				if onOutput != nil {
-					onOutput(msg)
+		defer close(done)
+		var lineBuf strings.Builder
+		for {
+			chunk, err := reader.ReadString('\n')
+			if len(chunk) > 0 {
+				if strings.HasSuffix(chunk, "\n") {
+					lineBuf.WriteString(strings.TrimRight(chunk, "\r\n"))
+					emitLine(lineBuf.String())
+					lineBuf.Reset()
+				} else {
+					lineBuf.WriteString(chunk)
 				}
 			}
-		}
-		if err := scanner.Err(); err != nil && totalSize < maxLogSize {
-			remaining, _ := io.ReadAll(io.LimitReader(stdout, 32*1024))
-			if len(remaining) > 0 {
-				for _, rl := range strings.Split(string(remaining), "\n") {
-					if totalSize >= maxLogSize {
-						break
-					}
-					outputBuilder.WriteString(rl + "\n")
-					totalSize += len(rl) + 1
-					if onOutput != nil {
-						onOutput(rl)
-					}
+			if err != nil {
+				if lineBuf.Len() > 0 {
+					emitLine(strings.TrimRight(lineBuf.String(), "\r\n"))
+					lineBuf.Reset()
 				}
+				if err != io.EOF && totalSize < maxLogSize && !truncated {
+					emitLine(fmt.Sprintf("[读取脚本输出失败] %s", err.Error()))
+				}
+				return
 			}
 		}
-		close(done)
 	}()
 
 	timer := time.NewTimer(time.Duration(timeout) * time.Second)
@@ -879,7 +890,9 @@ func buildEnv(envVars map[string]string) []string {
 		env = append(env, k+"="+v)
 	}
 
-	return env
+	// 实时读取 system_configs.proxy_url，把 HTTP_PROXY / HTTPS_PROXY 等
+	// 注入 bash / go 等标准命令的执行环境。Python / Node 走 buildBootstrapProcessEnv 已包含此逻辑。
+	return AppendProxyEnv(env)
 }
 
 func RunInlineScript(content, scriptsDir string, envVars map[string]string, timeout int, onOutput OnOutputFunc) error {

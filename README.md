@@ -20,8 +20,8 @@
 
 呆呆面板 (Daidai Panel) 是一款轻量级定时任务管理平台，采用 Go (Gin) + Vue3 (Element Plus) + SQLite 架构，专注于脚本托管与自动化任务调度。支持 Python、Node.js、Shell、TypeScript、Go 等多语言脚本的定时执行与可视化管理，内置 18 种消息推送渠道、订阅管理、环境变量、依赖管理、Open API 等功能。Docker 一键部署，开箱即用。
 
-> 最新稳定版：`v2.1.6` · [更新日志](./docs/release-notes/v2.1.6.md)<br>
-> 本次重点：二进制后台更新保护配置、环境变量多分组、任务运行态重启兜底、日志快捷查看与仪表盘细节优化。
+> 最新稳定版：`v2.1.7` · [更新日志](./docs/release-notes/v2.1.7.md)<br>
+> 本次重点：OpenAPI 一键备份 / 单条环境变量 / 机器码接口、加密脚本日志不再误截断、移动端拖拽手柄、订阅拉库 cron 注释三种样式适配、Magisk 下放 Android 7、暗黑模式色差与整页滚动布局优化。
 
 ## 功能特性
 
@@ -187,7 +187,7 @@ docker run -d --pull=always \
 docker compose -f docker-compose.debian.yml up -d
 
 # 或基于源码本地构建
-docker build --build-arg VERSION=2.1.6 -f Dockerfile.debian -t daidai-panel:debian-local .
+docker build --build-arg VERSION=2.1.7 -f Dockerfile.debian -t daidai-panel:debian-local .
 ```
 
 ### Windows 单机版（不走 Docker）
@@ -381,7 +381,7 @@ docker compose -f docker-compose.debian.yml up -d
 本地基于源码自己构建的镜像，重新 build 即可：
 
 ```bash
-docker build --build-arg VERSION=2.1.6 -f Dockerfile.debian -t daidai-panel:debian-local .
+docker build --build-arg VERSION=2.1.7 -f Dockerfile.debian -t daidai-panel:debian-local .
 ```
 
 ## 容器命令 `ddp`

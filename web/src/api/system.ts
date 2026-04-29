@@ -57,6 +57,7 @@ export interface SystemHealthSnapshot {
 
 export const systemApi = {
   info: () => request.get('/system/info'),
+  machineCode: () => request.get('/system/machine-code'),
   dashboard: (range?: number) => request.get('/system/dashboard', { params: range ? { range } : undefined }),
   stats: () => request.get('/system/stats'),
   version: () => request.get('/system/version'),

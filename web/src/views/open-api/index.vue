@@ -140,7 +140,7 @@
                     <el-button class="copy-btn" size="small" @click="copyText(revealedSecrets[row.id] || '')">
                       <el-icon><DocumentCopy /></el-icon>
                     </el-button>
-                    <el-button class="copy-btn" size="small" @click="delete revealedSecrets[row.id]">
+                    <el-button class="copy-btn" size="small" @click="hideSecret(row.id)">
                       <el-icon><Hide /></el-icon>
                     </el-button>
                   </div>
@@ -213,6 +213,25 @@
               <code class="key-code">{{ maskKey(row.app_key) }}</code>
               <el-button class="copy-btn" size="small" @click="copyText(row.app_key)">
                 <el-icon><DocumentCopy /></el-icon>
+              </el-button>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="App Secret" min-width="240">
+          <template #default="{ row }">
+            <div v-if="revealedSecrets[row.id]" class="key-display">
+              <code class="key-code secret-code">{{ revealedSecrets[row.id] }}</code>
+              <el-button class="copy-btn" size="small" @click="copyText(revealedSecrets[row.id] || '')">
+                <el-icon><DocumentCopy /></el-icon>
+              </el-button>
+              <el-button class="copy-btn" size="small" @click="hideSecret(row.id)">
+                <el-icon><Hide /></el-icon>
+              </el-button>
+            </div>
+            <div v-else class="key-display">
+              <span class="secret-mask">••••••••••••••••</span>
+              <el-button type="primary" link size="small" @click="viewSecret(row)">
+                <el-icon><View /></el-icon>查看
               </el-button>
             </div>
           </template>
@@ -416,6 +435,7 @@ const scopeOptions = [
   { label: '订阅管理', value: 'subscriptions' },
   { label: '日志查看', value: 'logs' },
   { label: '系统信息', value: 'system' },
+  { label: '系统备份', value: 'backup' },
 ]
 
 const scopeLabelMap: Record<string, string> = Object.fromEntries(scopeOptions.map(s => [s.value, s.label]))
@@ -580,6 +600,10 @@ const viewSecret = async (app: any) => {
     if (e === 'cancel' || e?.toString() === 'cancel') return
     ElMessage.error(e?.response?.data?.error || '验证失败')
   }
+}
+
+const hideSecret = (id: number) => {
+  delete revealedSecrets[id]
 }
 
 const toggleEnabled = async (app: any, val: boolean) => {

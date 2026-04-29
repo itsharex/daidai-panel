@@ -145,7 +145,7 @@ func resolveImportedTaskNotificationChannel(taskData map[string]interface{}) (*u
 	var channel model.NotifyChannel
 	if err := database.DB.Where("name = ?", name).First(&channel).Error; err == nil {
 		return &channel.ID, "", nil
-	} else if err != nil && err != gorm.ErrRecordNotFound {
+	} else if err != gorm.ErrRecordNotFound {
 		return nil, "", err
 	}
 

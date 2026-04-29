@@ -9,8 +9,12 @@ export type EnvPayload = {
 }
 
 export const envApi = {
-  list(params?: { keyword?: string; group?: string; groups?: string; enabled?: boolean; page?: number; page_size?: number }) {
+  list(params?: { keyword?: string; group?: string; groups?: string; enabled?: boolean; page?: number; page_size?: number; all?: 0 | 1 }) {
     return request.get('/envs', { params }) as Promise<{ data: any[]; total: number; page: number; page_size: number }>
+  },
+
+  get(id: number) {
+    return request.get(`/envs/${id}`) as Promise<{ data: any }>
   },
 
   create(data: EnvPayload | EnvPayload[]) {

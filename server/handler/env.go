@@ -212,6 +212,8 @@ func (h *EnvHandler) List(c *gin.Context) {
 	enabledRaw := c.Query("enabled")
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	allRaw := strings.ToLower(strings.TrimSpace(c.Query("all")))
+	wantAll := allRaw == "1" || allRaw == "true" || allRaw == "yes"
 
 	if page < 1 {
 		page = 1
@@ -238,13 +240,23 @@ func (h *EnvHandler) List(c *gin.Context) {
 	query.Count(&total)
 
 	var envs []model.EnvVar
-	query.Offset((page - 1) * pageSize).Limit(pageSize).Find(&envs)
+	if wantAll {
+		// 不再做客户端循环分页：服务端一次性返回全部，但仍设置硬上限保护内存。
+		const envAllSafeLimit = 5000
+		query.Limit(envAllSafeLimit).Find(&envs)
+	} else {
+		query.Offset((page - 1) * pageSize).Limit(pageSize).Find(&envs)
+	}
 
 	data := make([]map[string]interface{}, len(envs))
 	for i, e := range envs {
 		data[i] = e.ToDict()
 	}
 
+	if wantAll {
+		response.Paginated(c, data, total, 1, len(data))
+		return
+	}
 	response.Paginated(c, data, total, page, pageSize)
 }
 
@@ -436,6 +448,23 @@ func (h *EnvHandler) Delete(c *gin.Context) {
 	envID, _ := strconv.ParseUint(c.Param("id"), 10, 32)
 	database.DB.Where("id = ?", envID).Delete(&model.EnvVar{})
 	response.Success(c, gin.H{"message": "删除成功"})
+}
+
+// Get 根据 id 返回单个环境变量详情，便于外部脚本 / OpenAPI 调用方按 id 直接拉取。
+func (h *EnvHandler) Get(c *gin.Context) {
+	envID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil || envID == 0 {
+		response.BadRequest(c, "环境变量 ID 无效")
+		return
+	}
+
+	var env model.EnvVar
+	if err := database.DB.First(&env, uint(envID)).Error; err != nil {
+		response.NotFound(c, "环境变量不存在")
+		return
+	}
+
+	response.Success(c, gin.H{"data": env.ToDict()})
 }
 
 func (h *EnvHandler) Enable(c *gin.Context) {
@@ -987,6 +1016,7 @@ func (h *EnvHandler) RegisterRoutes(r *gin.RouterGroup) {
 	envs := r.Group("/envs", middleware.JWTAuth(), middleware.OpenAPIAccess("envs"), middleware.RequireRole("operator"))
 	{
 		envs.GET("", h.List)
+		envs.GET("/:id", h.Get)
 		envs.POST("", h.Create)
 		envs.PUT("/:id", h.Update)
 		envs.DELETE("/:id", h.Delete)
