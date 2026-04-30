@@ -1051,11 +1051,25 @@ async function loadVersion() {
 
   .layout-main {
     overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
     padding: max(12px, env(safe-area-inset-top)) 12px calc(16px + env(safe-area-inset-bottom));
   }
 
+  // 移动端 .route-shell 必须能被子内容撑高，否则被 flex column 容器压缩到等于 .layout-main 的可视高度，
+  // 子页面 overflow visible 的内容画在容器外但不计入 box 尺寸，.layout-main 看不到滚动需求。
+  // 桌面端依赖 flex: 1 + min-height: 0 + overflow: hidden 实现内嵌滚动；移动端反过来：禁止收缩 + 无 contain。
   .route-shell {
+    flex: 1 0 auto;
+    min-height: 0;
     overflow: visible;
+    contain: none;
+
+    > :deep(.dd-fixed-page),
+    > :deep(.dd-scroll-page) {
+      flex: 1 0 auto;
+      min-height: 0;
+      overflow: visible;
+    }
   }
 
   .header-center {
