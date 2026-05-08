@@ -1,5 +1,5 @@
 <template>
-  <div class="open-api-page dd-fixed-page">
+  <div class="open-api-page dd-fixed-page dd-page-hide-heading">
     <div class="page-header">
       <div>
         <h2>🔑 Open API 管理</h2>
@@ -105,6 +105,9 @@
         </el-input>
       </div>
       <div class="toolbar__right">
+        <el-button type="primary" @click="showCreateDialog">
+          <el-icon><Plus /></el-icon> 创建令牌
+        </el-button>
         <el-button @click="loadApps" title="刷新列表">
           <el-icon><Refresh /></el-icon>
         </el-button>

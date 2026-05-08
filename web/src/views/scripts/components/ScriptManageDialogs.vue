@@ -41,7 +41,7 @@ const props = defineProps<{
   onUploadSubmit: () => void | Promise<void>
 }>()
 
-const nestedFolders = computed(() => props.allFolders.filter(folder => folder))
+const nestedFolders = computed(() => props.allFolders.filter(folder => folder && !folder.split('/').some(segment => segment.trim().toLowerCase() === 'node_modules')))
 const ignoreWhitespaceDiff = ref(false)
 
 function normalizeWhitespaceForCompare(content: string) {

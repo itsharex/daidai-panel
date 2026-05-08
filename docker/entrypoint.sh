@@ -11,10 +11,6 @@ chmod 1777 /tmp
 export NODE_PATH="${DATA_DIR}/deps/nodejs/node_modules"
 export PATH="${DATA_DIR}/deps/nodejs/node_modules/.bin:${DATA_DIR}/deps/python/venv/bin:${PATH}"
 
-if [ ! -d "${DATA_DIR}/deps/python/venv" ]; then
-  python3 -m venv "${DATA_DIR}/deps/python/venv" 2>/dev/null || true
-fi
-
 if [ -d "${DATA_DIR}/deps/python/venv" ]; then
   export PYTHONPATH="${DATA_DIR}/deps/python/venv/lib/python3.$(python3 -c 'import sys;print(f"{sys.version_info.minor}")')/site-packages"
 fi

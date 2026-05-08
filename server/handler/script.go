@@ -63,22 +63,31 @@ func normalizeScriptRelativePath(relPath string) (string, error) {
 	}
 
 	normalized := strings.ReplaceAll(relPath, "\\", "/")
-	normalized = strings.TrimPrefix(path.Clean("/"+normalized), "/")
-	if normalized == "" || normalized == "." {
-		return "", fmt.Errorf("路径不能为空")
+	if strings.HasPrefix(normalized, "/") {
+		return "", fmt.Errorf("不允许路径穿越")
 	}
 
-	segments := strings.Split(normalized, "/")
-	for _, segment := range segments {
-		if segment == "" || segment == "." || segment == ".." {
+	rawSegments := strings.Split(normalized, "/")
+	segments := make([]string, 0, len(rawSegments))
+	for _, segment := range rawSegments {
+		segment = strings.TrimSpace(segment)
+		if segment == "" || segment == "." {
+			continue
+		}
+		if segment == ".." {
 			return "", fmt.Errorf("不允许路径穿越")
 		}
 		if invalidScriptPathCharsPattern.MatchString(segment) {
 			return "", fmt.Errorf("路径包含非法字符")
 		}
+		segments = append(segments, segment)
 	}
 
-	return normalized, nil
+	if len(segments) == 0 {
+		return "", fmt.Errorf("路径不能为空")
+	}
+
+	return path.Join(segments...), nil
 }
 
 func safePath(relPath string, mustExist bool) (string, error) {

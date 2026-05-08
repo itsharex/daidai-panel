@@ -32,10 +32,8 @@ func (h *TaskHandler) Batch(c *gin.Context) {
 
 		switch req.Action {
 		case "enable":
-			task.Status = model.TaskStatusEnabled
-			database.DB.Save(&task)
-			if scheduler != nil {
-				scheduler.AddJob(&task)
+			if err := validateAndEnableTask(&task); err != nil {
+				continue
 			}
 		case "disable":
 			disableTaskAndRemoveSchedule(&task)
@@ -72,17 +70,14 @@ func (h *TaskHandler) BatchEnable(c *gin.Context) {
 		return
 	}
 
-	scheduler := service.GetSchedulerV2()
 	count := 0
 	for _, id := range req.TaskIDs {
 		var task model.Task
 		if database.DB.First(&task, id).Error != nil {
 			continue
 		}
-		task.Status = model.TaskStatusEnabled
-		database.DB.Save(&task)
-		if scheduler != nil {
-			scheduler.AddJob(&task)
+		if err := validateAndEnableTask(&task); err != nil {
+			continue
 		}
 		count++
 	}

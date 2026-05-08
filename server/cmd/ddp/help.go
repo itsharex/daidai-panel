@@ -10,9 +10,10 @@ func printHelp() {
   ddp version
   ddp status
   ddp check
-  ddp logs [--lines 200] [--grep 关键字]
+  ddp logs [--lines 200] [--grep 关键字] [--level debug|info|warn|error]
   ddp restart
   ddp update
+  ddp service <install|uninstall|start|stop|restart|status>
   ddp script list
   ddp script cat <相对路径>
   ddp script fetch <url> [--path 相对路径] [--force]
@@ -44,14 +45,16 @@ func printHelp() {
   2. task run 会在当前终端里同步执行并等待结果。
   3. sub pull 会在当前终端里实时输出拉库日志。
   4. update 会自动识别 Docker 或二进制部署；Docker 模式依赖 /var/run/docker.sock 挂载。
-  5. script / env / list / logs 这类命令不会依赖面板前端，容器里直接可用。
+  5. service install 目前会在 Linux 上安装 systemd 守护，并让二进制更新时自动停启该服务。
+  6. script / env / list / logs 这类命令不会依赖面板前端，容器里直接可用。
 
 示例:
   ddp status
   ddp script fetch https://example.com/demo.py --path tools/demo.py
   ddp env set JD_COOKIE "pt_key=xxx;pt_pin=yyy;" --group 京东
   ddp task list --status running
-  ddp logs --lines 200 --grep failed
+  ddp logs --lines 200 --grep failed --level error
+  ddp service install
   ddp backup create --name nightly --only configs,tasks,envs,scripts
   ddp task run 12
   ddp sub list --type git-repo

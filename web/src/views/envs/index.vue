@@ -795,28 +795,7 @@ function handleStatusFilter(value: '' | 'enabled' | 'disabled') {
 </script>
 
 <template>
-  <div class="envs-page dd-fixed-page">
-    <div class="page-header">
-      <div>
-        <h2>🔧 环境变量</h2>
-        <p class="page-subtitle">管理运行时环境变量和全局配置参数，支持任务级和全局变量管理</p>
-      </div>
-      <div class="header-actions">
-        <el-dropdown trigger="click">
-          <el-button><el-icon><More /></el-icon></el-button>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item @click="handleExportAll">导出 JSON</el-dropdown-item>
-              <el-dropdown-item @click="exportFormat = 'shell'; handleExportFiles()">导出 Shell</el-dropdown-item>
-              <el-dropdown-item @click="exportFormat = 'js'; handleExportFiles()">导出 JS</el-dropdown-item>
-              <el-dropdown-item @click="exportFormat = 'python'; handleExportFiles()">导出 Python</el-dropdown-item>
-              <el-dropdown-item divided @click="showImportDialog = true">导入</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
-      </div>
-    </div>
-
+  <div class="envs-page dd-fixed-page dd-page-hide-heading">
     <div class="stat-cards">
       <div class="stat-card">
         <div class="stat-card__content">
@@ -891,6 +870,18 @@ function handleStatusFilter(value: '' | 'enabled' | 'disabled') {
         </el-select>
       </div>
       <div class="toolbar__right">
+        <el-dropdown trigger="click">
+          <el-button><el-icon><More /></el-icon></el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item @click="handleExportAll">导出 JSON</el-dropdown-item>
+              <el-dropdown-item @click="exportFormat = 'shell'; handleExportFiles()">导出 Shell</el-dropdown-item>
+              <el-dropdown-item @click="exportFormat = 'js'; handleExportFiles()">导出 JS</el-dropdown-item>
+              <el-dropdown-item @click="exportFormat = 'python'; handleExportFiles()">导出 Python</el-dropdown-item>
+              <el-dropdown-item divided @click="showImportDialog = true">导入</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
         <div v-if="selectedIds.length > 0" class="batch-actions">
           <el-button @click="handleBatchRename">批量改名</el-button>
           <el-button @click="handleBatchEnable">批量启用</el-button>

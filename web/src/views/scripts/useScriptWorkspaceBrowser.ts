@@ -49,6 +49,46 @@ export function useScriptWorkspaceBrowser() {
 
   const hasChanges = computed(() => fileContent.value !== originalContent.value)
 
+  function extractScriptErrorMessage(err: any, fallback: string) {
+    const message = String(err?.response?.data?.error || err?.message || '').trim()
+    if (!message) {
+      return fallback
+    }
+
+    if (message.includes('当前路径是目录')) {
+      return '当前选中的是目录，不是可编辑脚本文件'
+    }
+    if (message.includes('文件不存在')) {
+      return '脚本不存在，可能已被删除、重命名或移动'
+    }
+    if (message.includes('不允许路径穿越') || message.includes('检测到路径穿越') || message.includes('路径包含非法字符')) {
+      return '脚本路径无效，请刷新文件树后重试'
+    }
+
+    return message
+  }
+
+  function shouldSkipFolder(path: string) {
+    return path
+      .split('/')
+      .map(segment => segment.trim().toLowerCase())
+      .some(segment => segment === 'node_modules')
+  }
+
+  function normalizeTreeNodes(nodes: TreeNode[]): TreeNode[] {
+    return nodes
+      .filter(node => !shouldSkipFolder(node.key))
+      .map((node) => {
+        if (node.isLeaf) {
+          return node
+        }
+        return {
+          ...node,
+          children: normalizeTreeNodes(node.children || [])
+        }
+      })
+  }
+
   const allFolders = computed(() => {
     const folders: string[] = ['']
     const collectFolders = (nodes: TreeNode[], prefix = '') => {
@@ -96,7 +136,7 @@ export function useScriptWorkspaceBrowser() {
     treeLoading.value = true
     try {
       const res = await scriptApi.tree()
-      fileTree.value = res.data || []
+      fileTree.value = normalizeTreeNodes(res.data || [])
     } catch (err: any) {
       ElMessage.error(err?.response?.data?.error || err?.message || '加载文件树失败')
     } finally {
@@ -104,7 +144,7 @@ export function useScriptWorkspaceBrowser() {
     }
   }
 
-  async function loadFileContent(path: string) {
+  async function loadFileContent(path: string, options: { silent?: boolean } = {}) {
     loading.value = true
     try {
       const res = await scriptApi.getContent(path)
@@ -113,7 +153,9 @@ export function useScriptWorkspaceBrowser() {
       originalContent.value = res.data.content
       return true
     } catch (err: any) {
-      ElMessage.error(err?.response?.data?.error || err?.message || '加载文件内容失败')
+      if (!options.silent) {
+        ElMessage.error(extractScriptErrorMessage(err, '加载文件内容失败'))
+      }
       return false
     } finally {
       loading.value = false
@@ -221,6 +263,7 @@ export function useScriptWorkspaceBrowser() {
     editorLanguage,
     hasChanges,
     allFolders,
+    extractScriptErrorMessage,
     loadTree,
     loadFileContent,
     openFile,

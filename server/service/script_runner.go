@@ -507,7 +507,7 @@ func runSingleCommand(plan *CommandExecutionPlan, timeout int, envVars map[strin
 		}
 	}
 
-	done := make(chan struct{})
+	done := make(chan error, 1)
 	go func() {
 		defer close(done)
 		var lineBuf strings.Builder
@@ -527,9 +527,7 @@ func runSingleCommand(plan *CommandExecutionPlan, timeout int, envVars map[strin
 					emitLine(strings.TrimRight(lineBuf.String(), "\r\n"))
 					lineBuf.Reset()
 				}
-				if err != io.EOF && totalSize < maxLogSize && !truncated {
-					emitLine(fmt.Sprintf("[读取脚本输出失败] %s", err.Error()))
-				}
+				done <- err
 				return
 			}
 		}
@@ -548,7 +546,7 @@ func runSingleCommand(plan *CommandExecutionPlan, timeout int, envVars map[strin
 	var returnCode int
 	select {
 	case err := <-waitCh:
-		<-done
+		readErr := <-done
 		if err != nil {
 			if exitErr, ok := err.(*exec.ExitError); ok {
 				returnCode = exitErr.ExitCode()
@@ -556,15 +554,25 @@ func runSingleCommand(plan *CommandExecutionPlan, timeout int, envVars map[strin
 				returnCode = 1
 			}
 		}
+		if readErr != nil && readErr != io.EOF && totalSize < maxLogSize && !truncated {
+			// Wait 结束后，部分平台会把 StdoutPipe/同 FD 的 Stderr 一并关闭。
+			// 此时 reader 侧常见 read |0: file already closed，不代表脚本真实执行失败。
+			if !isBenignProcessPipeReadError(readErr) {
+				emitLine(fmt.Sprintf("[读取脚本输出失败] %s", readErr.Error()))
+			}
+		}
 	case <-timer.C:
 		KillProcessGroup(cmd.Process)
-		<-done
+		readErr := <-done
 		<-waitCh
 		returnCode = -1
 		msg := fmt.Sprintf("\n[任务超时，已在 %d 秒后终止]", timeout)
 		outputBuilder.WriteString(msg)
 		if onOutput != nil {
 			onOutput(msg)
+		}
+		if readErr != nil && readErr != io.EOF && totalSize < maxLogSize && !truncated && !isBenignProcessPipeReadError(readErr) {
+			emitLine(fmt.Sprintf("[读取脚本输出失败] %s", readErr.Error()))
 		}
 	}
 
@@ -573,6 +581,32 @@ func runSingleCommand(plan *CommandExecutionPlan, timeout int, envVars map[strin
 		Output:     outputBuilder.String(),
 		Truncated:  truncated,
 	}, process, nil
+}
+
+func isBenignProcessPipeReadError(err error) bool {
+	if err == nil || err == io.EOF {
+		return true
+	}
+
+	text := strings.ToLower(strings.TrimSpace(err.Error()))
+	if text == "" {
+		return false
+	}
+
+	benignMarkers := []string{
+		"file already closed",
+		"read |0:",
+		"the pipe has been ended",
+		"handle is invalid",
+		"io: read/write on closed pipe",
+	}
+	for _, marker := range benignMarkers {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func runConcurrentCommand(plan *CommandExecutionPlan, timeout int, envVars map[string]string, maxLogSize int, onOutput OnOutputFunc, onProcessStart ...OnProcessStartFunc) (*ScriptResult, *os.Process, error) {

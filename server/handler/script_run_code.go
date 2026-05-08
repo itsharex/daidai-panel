@@ -130,6 +130,10 @@ func (h *ScriptHandler) RunCode(c *gin.Context) {
 			}
 		}
 
+		if hint := service.BuildModuleCompatibilityHint(run.logOutput()); hint != "" {
+			run.appendLog(hint)
+		}
+
 		os.Remove(tmpFile)
 		run.finish(exitCode, waitErr, elapsed)
 	}()

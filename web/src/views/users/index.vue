@@ -198,7 +198,7 @@ function getRoleName(role: string) {
 </script>
 
 <template>
-  <div class="users-page dd-fixed-page">
+  <div class="users-page dd-fixed-page dd-page-hide-heading">
     <div class="page-header">
       <div>
         <h2>👥 用户管理</h2>
@@ -265,6 +265,11 @@ function getRoleName(role: string) {
         <el-input v-model="keyword" placeholder="搜索用户名/角色" clearable class="toolbar__search" @input="handleSearch">
           <template #prefix><el-icon><Search /></el-icon></template>
         </el-input>
+      </div>
+      <div class="toolbar__right">
+        <el-button type="primary" @click="openCreate">
+          <el-icon><Plus /></el-icon> 新建用户
+        </el-button>
       </div>
     </div>
 

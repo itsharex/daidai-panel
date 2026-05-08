@@ -67,7 +67,7 @@ export const systemApi = {
   updateStatus: () => request.get('/system/update-status'),
   updatePanel: () => request.post('/system/update'),
   restart: () => request.post('/system/restart'),
-  panelLog: (params?: { lines?: number; keyword?: string }) =>
+  panelLog: (params?: { lines?: number; keyword?: string; level?: 'debug' | 'info' | 'warn' | 'error' | '' }) =>
     request.get('/system/panel-log', { params }),
   backup: (password?: string, selection?: Partial<BackupSelection>, name?: string) => request.post('/system/backup', { password, selection, name }),
   backupList: () => request.get('/system/backups'),

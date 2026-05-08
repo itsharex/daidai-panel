@@ -621,22 +621,7 @@ function viewLogDetail(log: any) {
 </script>
 
 <template>
-  <div class="subscriptions-page dd-fixed-page">
-    <div class="page-header">
-      <div>
-        <h2>📦 订阅管理</h2>
-        <p class="page-subtitle">管理 Git 仓库和单文件自动拉取订阅，自动获取最新脚本和资源文件</p>
-      </div>
-      <div class="header-actions">
-        <el-button @click="showSSHKeyManageDialog = true; loadSSHKeys()" title="SSH 密钥管理">
-          <el-icon><Key /></el-icon> SSH 密钥
-        </el-button>
-        <el-button @click="handleOpenSettings" title="订阅设置">
-          <el-icon><Setting /></el-icon>
-        </el-button>
-      </div>
-    </div>
-
+  <div class="subscriptions-page dd-fixed-page dd-page-hide-heading">
     <div class="stat-cards">
       <div class="stat-card">
         <div class="stat-card__content">
@@ -693,6 +678,12 @@ function viewLogDetail(log: any) {
         </el-input>
       </div>
       <div class="toolbar__right">
+        <el-button @click="showSSHKeyManageDialog = true; loadSSHKeys()" title="SSH 密钥管理">
+          <el-icon><Key /></el-icon> SSH 密钥
+        </el-button>
+        <el-button @click="handleOpenSettings" title="订阅设置">
+          <el-icon><Setting /></el-icon>
+        </el-button>
         <el-button v-if="selectedIds.length > 0" type="danger" plain size="small" @click="handleBatchDelete">
           <el-icon><Delete /></el-icon> 批量删除
         </el-button>

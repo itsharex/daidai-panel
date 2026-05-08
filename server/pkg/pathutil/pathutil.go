@@ -24,7 +24,7 @@ func ResolveWithinBase(baseDir, target string, mustExist bool) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("基础目录无效: %w", err)
 	}
-	baseResolved := resolveExistingPath(baseAbs)
+	baseResolved := resolvePathFromExistingAncestor(baseAbs)
 
 	candidate := target
 	if !filepath.IsAbs(target) {
@@ -58,8 +58,8 @@ func IsWithinBase(baseDir, target string) bool {
 		return false
 	}
 
-	baseResolved := resolveExistingPath(baseAbs)
-	targetResolved := resolveExistingPath(targetAbs)
+	baseResolved := resolvePathFromExistingAncestor(baseAbs)
+	targetResolved := resolvePathFromExistingAncestor(targetAbs)
 
 	return isWithinResolvedBase(baseResolved, targetResolved)
 }

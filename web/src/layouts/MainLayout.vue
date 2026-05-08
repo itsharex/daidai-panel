@@ -383,7 +383,7 @@ async function loadVersion() {
 
 <style scoped lang="scss">
 .layout-container {
-  height: 100vh;
+  height: 100dvh;
   overflow: hidden;
 }
 
@@ -996,6 +996,22 @@ async function loadVersion() {
   background: var(--el-bg-color-page);
   border-top: 1px solid var(--el-border-color-lighter);
   flex-wrap: wrap;
+}
+
+@media screen and (max-height: 820px) and (min-width: 769px) {
+  .layout-header {
+    height: 52px;
+    padding: 0 16px;
+  }
+
+  .layout-main {
+    padding: 14px 16px;
+  }
+
+  .layout-footer {
+    padding: 8px 16px;
+    font-size: 11px;
+  }
 }
 
 .footer-sep {

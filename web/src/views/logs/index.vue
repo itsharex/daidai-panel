@@ -453,28 +453,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="logs-page dd-fixed-page">
-    <!-- ======= Page Header ======= -->
-    <div class="page-header">
-      <div>
-        <h2>📋 执行日志</h2>
-        <p class="page-subtitle">查看和管理所有任务的执行记录，支持按状态、时间等条件筛选</p>
-      </div>
-      <div class="header-actions">
-        <el-button
-          :type="autoRefresh ? 'primary' : 'default'"
-          @click="toggleAutoRefresh"
-        >
-          <el-icon><Refresh /></el-icon>
-          <span>{{ autoRefresh ? '停止刷新' : '自动刷新' }}</span>
-        </el-button>
-        <el-button v-if="canOperateLogs" @click="handleClean">
-          <el-icon><Delete /></el-icon>
-          <span>清理日志</span>
-        </el-button>
-      </div>
-    </div>
-
+  <div class="logs-page dd-fixed-page dd-page-hide-heading">
     <!-- ======= Stat Cards + Trend Chart ======= -->
     <div class="stat-cards">
       <div class="stat-card">
@@ -533,6 +512,17 @@ onBeforeUnmount(() => {
         </el-input>
       </div>
       <div class="toolbar__right">
+        <el-button
+          :type="autoRefresh ? 'primary' : 'default'"
+          @click="toggleAutoRefresh"
+        >
+          <el-icon><Refresh /></el-icon>
+          <span>{{ autoRefresh ? '停止刷新' : '自动刷新' }}</span>
+        </el-button>
+        <el-button v-if="canOperateLogs" @click="handleClean">
+          <el-icon><Delete /></el-icon>
+          <span>清理日志</span>
+        </el-button>
         <div v-if="canOperateLogs && selectedIds.length > 0" class="batch-actions">
           <el-button size="small" @click="clearSelection">取消选择</el-button>
           <el-button size="small" type="danger" @click="handleBatchDelete">批量删除</el-button>
@@ -1064,8 +1054,9 @@ onBeforeUnmount(() => {
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  height: 88vh;
-  max-height: 88vh;
+  width: min(1120px, 84vw);
+  height: clamp(600px, 77dvh, 800px);
+  max-height: calc(100dvh - 64px);
   margin: auto;
 
   .el-dialog__header {
@@ -1229,7 +1220,7 @@ onBeforeUnmount(() => {
 .detail-log {
   margin: 0;
   flex: 1;
-  min-height: 260px;
+  min-height: 0;
   overflow: auto;
   padding: 18px 22px;
   font-family: var(--dd-font-mono);

@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { getDisplayTaskLabels } from '../taskLabels'
 import { useResponsive } from '@/composables/useResponsive'
+import TaskCronList from './TaskCronList.vue'
 
 const props = defineProps<{
   visible: boolean
@@ -84,11 +85,10 @@ function handleClose() {
         {{ taskTypeText }}
       </el-descriptions-item>
       <el-descriptions-item label="定时规则">
-        <div v-if="task.task_type === 'cron'" style="display: flex; flex-direction: column; gap: 6px">
-          <code v-for="expression in cronExpressions" :key="expression" style="white-space: pre-wrap; word-break: break-all">
-            {{ expression }}
-          </code>
-        </div>
+        <TaskCronList
+          v-if="task.task_type === 'cron'"
+          :expressions="cronExpressions"
+        />
         <span v-else style="color: var(--el-text-color-placeholder)">不使用 Cron</span>
       </el-descriptions-item>
       <el-descriptions-item label="执行命令" :span="2">

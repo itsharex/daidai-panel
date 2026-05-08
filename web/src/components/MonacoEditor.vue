@@ -7,6 +7,7 @@ const props = defineProps<{
   modelValue: string
   language?: string
   readonly?: boolean
+  minHeight?: string | number
 }>()
 
 const emit = defineEmits<{
@@ -178,10 +179,20 @@ defineExpose({
 function darkModeColor(background: string, darkValue: string, lightValue: string) {
   return isDarkColor(background) ? darkValue : lightValue
 }
+
+function resolveMinHeight(value: string | number | undefined) {
+  if (typeof value === 'number') {
+    return `${value}px`
+  }
+  if (typeof value === 'string' && value.trim()) {
+    return value
+  }
+  return '400px'
+}
 </script>
 
 <template>
-  <div class="monaco-editor-wrapper">
+  <div class="monaco-editor-wrapper" :style="{ '--monaco-editor-min-height': resolveMinHeight(props.minHeight) }">
     <div v-if="isLoading" class="monaco-loading">
       <div class="loading-spinner"></div>
       <span>编辑器加载中...</span>
@@ -197,7 +208,7 @@ function darkModeColor(background: string, darkValue: string, lightValue: string
 .monaco-editor-wrapper {
   width: 100%;
   height: 100%;
-  min-height: 400px;
+  min-height: var(--monaco-editor-min-height, 400px);
   position: relative;
 }
 
@@ -212,7 +223,7 @@ function darkModeColor(background: string, darkValue: string, lightValue: string
   align-items: center;
   justify-content: center;
   height: 100%;
-  min-height: 400px;
+  min-height: var(--monaco-editor-min-height, 400px);
   gap: 12px;
   color: var(--el-text-color-secondary);
   font-size: 14px;

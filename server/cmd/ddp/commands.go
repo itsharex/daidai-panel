@@ -47,6 +47,8 @@ func run(args []string) int {
 		err = runRestart(rt)
 	case "update":
 		err = runUpdate(rt)
+	case "service":
+		err = runService(rt, args[1:])
 	case "script":
 		err = runScript(rt, args[1:])
 	case "env":
@@ -240,6 +242,7 @@ func runCheck(rt *cliRuntime) error {
 func runLogs(rt *cliRuntime, args []string) error {
 	lines := 100
 	keyword := ""
+	level := ""
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -259,6 +262,17 @@ func runLogs(rt *cliRuntime, args []string) error {
 			}
 			keyword = args[i+1]
 			i++
+		case "--level":
+			if i+1 >= len(args) {
+				return fmt.Errorf("--level 需要参数")
+			}
+			level = strings.ToLower(strings.TrimSpace(args[i+1]))
+			switch level {
+			case "", "debug", "info", "warn", "error":
+			default:
+				return fmt.Errorf("无效的日志级别: %s", args[i+1])
+			}
+			i++
 		default:
 			return fmt.Errorf("未知参数: %s", args[i])
 		}
@@ -276,6 +290,9 @@ func runLogs(rt *cliRuntime, args []string) error {
 	}
 
 	for _, line := range linesData {
+		if level != "" && !service.MatchPanelLogLevel(line, level) {
+			continue
+		}
 		fmt.Println(line)
 	}
 	return nil

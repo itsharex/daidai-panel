@@ -14,7 +14,7 @@ const tasksMock = [
 const mockData = {
   '/api/auth/user': { user: { id: 1, username: 'linzzxxxx', role: 'admin', enabled: true, avatar_url: '', last_login_at: null, created_at: '2024-01-01', updated_at: '2024-01-01' } },
   '/api/auth/refresh': { access_token: 'fake-refreshed-token' },
-  '/api/system/version': { data: { version: '2.1.6' } },
+  '/api/system/version': { data: { version: '2.1.9' } },
   '/api/system/dashboard': { data: { task_count: 1248, running_tasks: 36, today_logs: 266, success_logs: 263, daily_stats: [
     { date: '2024-06-15', total: 180, success: 172, failed: 8 },
     { date: '2024-06-16', total: 195, success: 188, failed: 7 },

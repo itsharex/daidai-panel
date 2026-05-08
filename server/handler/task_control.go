@@ -15,6 +15,32 @@ import (
 	"gorm.io/gorm"
 )
 
+func validateAndEnableTask(task *model.Task) error {
+	if task == nil {
+		return nil
+	}
+
+	if task.UsesCronSchedule() {
+		task.CronExpression = panelcron.NormalizeExpressions(task.CronExpression)
+		if err := panelcron.ValidateExpressions(task.CronExpression); err != nil {
+			return err
+		}
+	}
+
+	task.Status = model.TaskStatusEnabled
+	if err := database.DB.Save(task).Error; err != nil {
+		return err
+	}
+
+	if scheduler := service.GetSchedulerV2(); scheduler != nil {
+		if err := scheduler.AddJob(task); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func disableTaskAndRemoveSchedule(task *model.Task) string {
 	if task == nil {
 		return "已禁用"
@@ -103,18 +129,9 @@ func (h *TaskHandler) Enable(c *gin.Context) {
 		return
 	}
 
-	if task.UsesCronSchedule() {
-		result := panelcron.Parse(task.CronExpression)
-		if !result.Valid {
-			response.BadRequest(c, "无效的 cron 表达式，无法启用")
-			return
-		}
-	}
-
-	task.Status = model.TaskStatusEnabled
-	database.DB.Save(&task)
-	if scheduler := service.GetSchedulerV2(); scheduler != nil {
-		scheduler.AddJob(&task)
+	if err := validateAndEnableTask(&task); err != nil {
+		response.BadRequest(c, err.Error())
+		return
 	}
 	response.Success(c, gin.H{"message": "已启用", "data": task.ToDict()})
 }

@@ -78,6 +78,28 @@ var registeredSystemConfigSpecs = []systemConfigSpec{
 	newTrimmedStringConfig("editor_background_color", "", "脚本编辑器背景颜色（留空使用默认样式）", "branding"),
 	newTrimmedStringConfig("log_background_color", "#0f172a", "日志视图背景颜色（建议使用深色）", "branding"),
 	newTrimmedStringConfig("log_background_image", "", "日志视图背景图片（data URL）", "branding"),
+	newEnumConfig(
+		"panel_runtime_mode",
+		"auto",
+		"二进制运行时日志输出策略：auto=Docker 输出到 stdout，裸机输出到 panel.log；stdout=同时输出到 stdout 和 panel.log；file=仅写 panel.log",
+		"branding",
+		[]SystemConfigOption{
+			{Value: "auto", Label: "自动"},
+			{Value: "stdout", Label: "输出到 stdout"},
+			{Value: "file", Label: "仅写文件"},
+		},
+	),
+	newEnumConfig(
+		"panel_service_manager",
+		"none",
+		"面板二进制守护方式；启用后更新流程会尝试先停止守护再启动守护",
+		"branding",
+		[]SystemConfigOption{
+			{Value: "none", Label: "无"},
+			{Value: "systemd", Label: "systemd"},
+		},
+	),
+	newTrimmedStringConfig("panel_service_name", "daidai-panel", "systemd 服务名称", "branding"),
 	newBoolConfig("ai_enabled", "false", "启用 AI 脚本助手", "ai"),
 	newValidatedStringConfig(
 		"ai_code_custom_prompt",

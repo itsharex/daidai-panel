@@ -24,6 +24,21 @@ func TestResolveWithinBaseAllowsChildPath(t *testing.T) {
 	}
 }
 
+func TestResolveWithinBaseAllowsChildPathWhenBaseDoesNotExistYet(t *testing.T) {
+	root := t.TempDir()
+	base := filepath.Join(root, "scripts")
+
+	got, err := ResolveWithinBase(base, "demo.sh", false)
+	if err != nil {
+		t.Fatalf("ResolveWithinBase returned error: %v", err)
+	}
+
+	want := resolvePathFromExistingAncestor(filepath.Join(base, "demo.sh"))
+	if got != want {
+		t.Fatalf("unexpected resolved path: got %q want %q", got, want)
+	}
+}
+
 func TestResolveWithinBaseRejectsPrefixCollision(t *testing.T) {
 	root := t.TempDir()
 	base := filepath.Join(root, "scripts")

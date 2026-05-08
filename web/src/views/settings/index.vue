@@ -9,6 +9,7 @@ import IPWhitelistCard from './components/IPWhitelistCard.vue'
 import LoginLogsCard from './components/LoginLogsCard.vue'
 import OverviewHeroCard from './components/OverviewHeroCard.vue'
 import OverviewStatsCard from './components/OverviewStatsCard.vue'
+import PanelLogCard from './components/PanelLogCard.vue'
 import ProxyConfigCard from './components/ProxyConfigCard.vue'
 import SecurityPassword2FACard from './components/SecurityPassword2FACard.vue'
 import SessionManagementCard from './components/SessionManagementCard.vue'
@@ -19,6 +20,7 @@ import UpdateSettingsCard from './components/UpdateSettingsCard.vue'
 import TaskExecutionCard from './components/TaskExecutionCard.vue'
 import { useSettingsConfig } from './useSettingsConfig'
 import { useSettingsOverview } from './useSettingsOverview'
+import { usePanelLogViewer } from './usePanelLogViewer'
 import { useSettingsSecurity } from './useSettingsSecurity'
 import { Bell, Connection, Document, Lock, MagicStick, Monitor, Refresh } from '@element-plus/icons-vue'
 
@@ -30,6 +32,7 @@ const activeTab = ref('overview')
 
 const overview = useSettingsOverview()
 const config = useSettingsConfig()
+const panelLogViewer = usePanelLogViewer()
 const security = useSettingsSecurity()
 
 const {
@@ -82,6 +85,26 @@ const {
   handleTestAIProvider,
   handleSaveAIConfig
 } = config
+
+const {
+  loading: panelLogLoading,
+  lines: panelLogLines,
+  keyword: panelLogKeyword,
+  level: panelLogLevel,
+  autoRefresh: panelLogAutoRefresh,
+  logs: panelLogs,
+  total: panelLogTotal,
+  lastLoadedAt: panelLogLastLoadedAt,
+  byteSizeLabel: panelLogByteSizeLabel,
+  activePreset: panelLogActivePreset,
+  loadPanelLogs,
+  refreshNow: refreshPanelLogs,
+  applyUpdatePreset: applyPanelLogUpdatePreset,
+  applyErrorPreset: applyPanelLogErrorPreset,
+  resetFilters: resetPanelLogFilters,
+  copyLogs: copyPanelLogs,
+  downloadLogs: downloadPanelLogs,
+} = panelLogViewer
 
 const {
   securityTab,
@@ -161,6 +184,8 @@ function handleTabChange(tab: string) {
     void loadUpdatePreferences()
   } else if (tab === 'config' || tab === 'task-exec' || tab === 'proxy' || tab === 'captcha' || tab === 'ai' || tab === 'alert') {
     void loadSystemConfigs()
+  } else if (tab === 'panel-log') {
+    void loadPanelLogs()
   } else if (tab === 'backup') {
     void loadBackups()
   } else if (tab === 'security') {
@@ -180,12 +205,8 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="settings-page dd-scroll-page">
-    <div class="page-header">
-      <div>
-        <h2 class="page-title">⚙️ 系统设置</h2>
-        <p class="page-subtitle">管理面板配置、安全策略、系统信息和数据备份恢复</p>
-      </div>
+  <div class="settings-page dd-scroll-page dd-page-hide-heading">
+    <div class="settings-toolbar">
       <el-button @click="handleRefresh">
         <el-icon><Refresh /></el-icon> 刷新
       </el-button>
@@ -255,6 +276,30 @@ onMounted(() => {
           :configs-saving="configsSaving"
           :form="configForm"
           :on-save="handleSaveTaskConfig"
+        />
+      </el-tab-pane>
+
+      <el-tab-pane v-if="isAdmin" name="panel-log">
+        <template #label>
+          <span class="sub-tab-label"><el-icon :size="14"><Document /></el-icon>面板日志</span>
+        </template>
+        <PanelLogCard
+          v-model:lines="panelLogLines"
+          v-model:keyword="panelLogKeyword"
+          v-model:level="panelLogLevel"
+          v-model:auto-refresh="panelLogAutoRefresh"
+          :loading="panelLogLoading"
+          :logs="panelLogs"
+          :total="panelLogTotal"
+          :last-loaded-at="panelLogLastLoadedAt"
+          :byte-size-label="panelLogByteSizeLabel"
+          :active-preset="panelLogActivePreset"
+          :on-refresh="refreshPanelLogs"
+          :on-apply-update-preset="applyPanelLogUpdatePreset"
+          :on-apply-error-preset="applyPanelLogErrorPreset"
+          :on-reset-filters="resetPanelLogFilters"
+          :on-copy="copyPanelLogs"
+          :on-download="downloadPanelLogs"
         />
       </el-tab-pane>
 
@@ -407,6 +452,13 @@ onMounted(() => {
 
 <style scoped lang="scss">
 .settings-page { padding: 0; }
+
+.settings-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  margin-bottom: 12px;
+}
 
 .page-header {
   display: flex;

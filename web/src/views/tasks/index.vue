@@ -9,6 +9,7 @@ import LogViewer from './components/LogViewer.vue'
 import TaskDetail from './components/TaskDetail.vue'
 import LogFileBrowser from './components/LogFileBrowser.vue'
 import ViewManager from './components/ViewManager.vue'
+import TaskCronList from './components/TaskCronList.vue'
 import { getDisplayTaskLabels } from './taskLabels'
 import { splitTaskCommandDisplay } from './taskCommand'
 import { usePageActivity } from '@/composables/usePageActivity'
@@ -594,27 +595,7 @@ async function handleImport(event: Event) {
 </script>
 
 <template>
-  <div class="tasks-page dd-fixed-page">
-    <div class="page-header">
-      <div>
-        <h2>⏰ 定时任务</h2>
-        <p class="page-subtitle">管理和调度所有定时执行任务，确保自动化任务按计划执行</p>
-      </div>
-      <div class="header-actions">
-        <el-dropdown trigger="click">
-          <el-button><el-icon><More /></el-icon></el-button>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item @click="handleExport">导出任务</el-dropdown-item>
-              <el-dropdown-item v-if="canOperateTasks" @click="triggerImport">导入任务</el-dropdown-item>
-              <el-dropdown-item v-if="canOperateTasks" divided @click="handleCleanLogs">清理日志</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
-        <input ref="importFileRef" type="file" accept=".json" style="display:none" @change="handleImport" />
-      </div>
-    </div>
-
+  <div class="tasks-page dd-fixed-page dd-page-hide-heading">
     <div class="stat-cards">
       <div class="stat-card">
         <div class="stat-card__content">
@@ -673,6 +654,17 @@ async function handleImport(event: Event) {
         </el-input>
       </div>
       <div class="toolbar__right">
+        <el-dropdown trigger="click">
+          <el-button><el-icon><More /></el-icon></el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item @click="handleExport">导出任务</el-dropdown-item>
+              <el-dropdown-item v-if="canOperateTasks" @click="triggerImport">导入任务</el-dropdown-item>
+              <el-dropdown-item v-if="canOperateTasks" divided @click="handleCleanLogs">清理日志</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+        <input ref="importFileRef" type="file" accept=".json" style="display:none" @change="handleImport" />
         <div v-if="canOperateTasks && selectedIds.length > 0" class="batch-actions">
           <el-button size="small" @click="handleBatchAction('enable')">批量启用</el-button>
           <el-button size="small" @click="handleBatchAction('disable')">批量禁用</el-button>
@@ -751,15 +743,10 @@ async function handleImport(event: Event) {
               <span class="dd-mobile-card__label">定时规则</span>
               <div class="dd-mobile-card__value">
                 <template v-if="row.task_type === 'cron'">
-                  <div class="cron-text-list">
-                    <code
-                      v-for="expression in getCronExpressions(row)"
-                      :key="expression"
-                      class="cron-text cron-text--stacked"
-                    >
-                      {{ expression }}
-                    </code>
-                  </div>
+                  <TaskCronList
+                    :expressions="getCronExpressions(row)"
+                    compact
+                  />
                 </template>
                 <span v-else class="text-muted">{{ getTaskTypeLabel(row.task_type) }}</span>
               </div>
@@ -875,15 +862,10 @@ async function handleImport(event: Event) {
         <el-table-column label="定时规则" min-width="100">
           <template #default="{ row }">
             <template v-if="row.task_type === 'cron'">
-              <div class="cron-text-list">
-                <code
-                  v-for="expression in getCronExpressions(row)"
-                  :key="expression"
-                  class="cron-text"
-                >
-                  {{ expression }}
-                </code>
-              </div>
+              <TaskCronList
+                :expressions="getCronExpressions(row)"
+                compact
+              />
             </template>
             <span v-else class="text-muted">{{ getTaskTypeLabel(row.task_type) }}</span>
           </template>
@@ -1284,19 +1266,6 @@ async function handleImport(event: Event) {
     cursor: pointer;
     &:hover { text-decoration: underline; }
   }
-}
-
-.cron-text {
-  font-family: var(--dd-font-mono);
-  font-size: 13px;
-  color: var(--el-text-color-secondary);
-  display: block;
-}
-
-.cron-text-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
 }
 
 .time-text {

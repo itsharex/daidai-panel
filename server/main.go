@@ -26,40 +26,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type startupLogFilter struct {
-	dst io.Writer
-}
-
-func (w *startupLogFilter) Write(p []byte) (int, error) {
-	text := string(p)
-	if shouldSuppressStartupLog(text) {
-		return len(p), nil
-	}
-	return w.dst.Write(p)
-}
-
-func shouldSuppressStartupLog(text string) bool {
-	markers := []string{
-		"database connected:",
-		"added missing column:",
-		"column check completed",
-		"scheduler v2 started:",
-		"scheduler v2 initialized with",
-		"scheduler v2 enqueued",
-		"subscription scheduler initialized with",
-		"resource watcher started",
-		"server starting on",
-	}
-
-	for _, marker := range markers {
-		if strings.Contains(text, marker) {
-			return true
-		}
-	}
-
-	return false
-}
-
 func buildAccessURLs(port int) []string {
 	if port <= 0 {
 		return nil
@@ -152,7 +118,12 @@ func setupPanelLog(dataDir string) io.Writer {
 		return os.Stdout
 	}
 
-	return io.MultiWriter(os.Stdout, logFile)
+	switch service.ResolvePanelRuntimeMode() {
+	case service.PanelRuntimeModeStdout:
+		return io.MultiWriter(os.Stdout, logFile)
+	default:
+		return logFile
+	}
 }
 
 func writeServerPIDFile(dataDir string) func() {
@@ -184,9 +155,9 @@ func main() {
 	}
 
 	panelWriter := setupPanelLog(cfg.Data.Dir)
-	log.SetOutput(&startupLogFilter{dst: panelWriter})
-	gin.DefaultWriter = panelWriter
-	gin.DefaultErrorWriter = panelWriter
+	log.SetOutput(service.NewPanelLogFilterWriter(panelWriter))
+	gin.DefaultWriter = service.NewPanelLogFilterWriter(panelWriter)
+	gin.DefaultErrorWriter = service.NewPanelLogFilterWriter(panelWriter)
 	cleanupPIDFile := writeServerPIDFile(cfg.Data.Dir)
 	defer cleanupPIDFile()
 
@@ -202,6 +173,7 @@ func main() {
 	if err := service.CleanupManagedHelperCopiesUnderRoot(cfg.Data.ScriptsDir); err != nil {
 		log.Printf("cleanup duplicated notify helpers failed: %v", err)
 	}
+	service.WarmManagedPythonVenv()
 
 	service.InitSchedulerV2()
 	defer service.ShutdownSchedulerV2()
@@ -236,7 +208,7 @@ func main() {
 		log.Fatalf("server failed: %v", err)
 	}
 
-	log.SetOutput(panelWriter)
+	log.SetOutput(service.NewPanelLogFilterWriter(panelWriter))
 	printStartupSummary(cfg.Server.Port)
 
 	server := &http.Server{Handler: engine}

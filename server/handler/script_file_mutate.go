@@ -99,14 +99,22 @@ func (h *ScriptHandler) SaveContent(c *gin.Context) {
 		return
 	}
 
+	if info, statErr := os.Stat(full); statErr == nil && info.IsDir() {
+		response.BadRequest(c, "当前路径是目录，不能保存为文件")
+		return
+	}
+
 	content := req.Content
 	if ext == ".sh" {
 		content = string(service.NormalizeShellLineEndings([]byte(content)))
 	}
 
-	os.MkdirAll(filepath.Dir(full), 0755)
+	if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
+		response.InternalError(c, fmt.Sprintf("创建目标目录失败: %s", err.Error()))
+		return
+	}
 	if err := os.WriteFile(full, []byte(content), 0644); err != nil {
-		response.InternalError(c, "写入文件失败")
+		response.InternalError(c, fmt.Sprintf("写入文件失败: %s", err.Error()))
 		return
 	}
 

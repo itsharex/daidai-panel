@@ -60,7 +60,8 @@ function markDebugCodeChanged() {
             v-if="showCodeRunner"
             v-model="runnerCode"
             :language="runnerLanguage === 'shell' ? 'shell' : runnerLanguage"
-            style="height: 100%; min-height: 400px"
+            min-height="0"
+            style="height: 100%; min-height: 0"
           />
         </div>
       </div>
@@ -109,7 +110,8 @@ function markDebugCodeChanged() {
             v-if="showDebugDialog"
             v-model="debugCode"
             :language="editorLanguage"
-            style="height: 100%; min-height: 400px"
+            min-height="0"
+            style="height: 100%; min-height: 0"
             @update:modelValue="markDebugCodeChanged"
           />
         </div>
@@ -152,8 +154,10 @@ function markDebugCodeChanged() {
 .debug-container {
   display: flex;
   gap: 16px;
-  height: 70vh;
-  min-height: 500px;
+  height: min(68dvh, 760px);
+  min-height: clamp(320px, 52dvh, 520px);
+  max-height: calc(100dvh - 220px);
+  min-width: 0;
 }
 
 .debug-code-panel,
@@ -161,6 +165,8 @@ function markDebugCodeChanged() {
   flex: 1;
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  min-height: 0;
   border: 1px solid var(--el-border-color-light);
   border-radius: 8px;
   overflow: hidden;
@@ -181,6 +187,7 @@ function markDebugCodeChanged() {
 
 .panel-content {
   flex: 1;
+  min-height: 0;
   overflow: auto;
   padding: 16px;
   display: flex;
@@ -204,14 +211,15 @@ function markDebugCodeChanged() {
 
 .debug-container.mobile {
   flex-direction: column;
-  height: auto;
-  min-height: auto;
-  max-height: 75vh;
+  height: min(100%, calc(100dvh - 160px));
+  min-height: 0;
+  max-height: calc(100dvh - 160px);
 
   .debug-code-panel,
   .debug-log-panel {
-    min-height: 200px;
-    max-height: 40vh;
+    flex: 1 1 0;
+    min-height: 180px;
+    max-height: none;
   }
 
   .panel-content {

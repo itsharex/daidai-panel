@@ -16,7 +16,9 @@ export function useScriptWorkspace() {
     isEditing: browser.isEditing,
     hasChanges: browser.hasChanges,
     loadTree: browser.loadTree,
-    loadFileContent: browser.loadFileContent
+    loadFileContent: browser.loadFileContent,
+    extractScriptErrorMessage: browser.extractScriptErrorMessage,
+    openFile: browser.openFile
   })
   let skipInitialActivated = true
 

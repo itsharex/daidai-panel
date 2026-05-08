@@ -226,3 +226,38 @@ func TestSummarizeTaskFailureOutputCondensesPythonTraceback(t *testing.T) {
 		t.Fatalf("expected summary to keep relevant script frame, got %q", summary)
 	}
 }
+
+func TestBuildModuleCompatibilityHintRecognizesRequireEsmFailure(t *testing.T) {
+	output := strings.Join([]string{
+		`const { v4: uuidv4 } = require('uuid');`,
+		"                       ^",
+		"Error [ERR_REQUIRE_ESM]: require() of ES Module /app/Dumb-Panel/deps/nodejs/node_modules/uuid/dist-node/index.js from /app/Dumb-Panel/scripts/wc.js not supported.",
+		"Instead change the require of index.js in /app/Dumb-Panel/scripts/wc.js to a dynamic import() which is available in all CommonJS modules.",
+	}, "\n")
+
+	hint := BuildModuleCompatibilityHint(output)
+	if hint == "" {
+		t.Fatal("expected module compatibility hint to be generated")
+	}
+	if !strings.Contains(hint, "ESM 模块") {
+		t.Fatalf("expected hint to mention ESM module, got %q", hint)
+	}
+}
+
+func TestSummarizeTaskFailureOutputPrefersModuleCompatibilityHint(t *testing.T) {
+	output := strings.Join([]string{
+		"[安装成功: uuid]",
+		"[依赖已安装 (1/5)，自动重试执行]",
+		`const { v4: uuidv4 } = require('uuid');`,
+		"Error [ERR_REQUIRE_ESM]: require() of ES Module /app/Dumb-Panel/deps/nodejs/node_modules/uuid/dist-node/index.js from /app/Dumb-Panel/scripts/wc.js not supported.",
+		"Instead change the require of index.js in /app/Dumb-Panel/scripts/wc.js to a dynamic import() which is available in all CommonJS modules.",
+	}, "\n")
+
+	summary := summarizeTaskFailureOutput(output)
+	if !strings.Contains(summary, "ESM 模块") {
+		t.Fatalf("expected summary to surface module compatibility hint, got %q", summary)
+	}
+	if !strings.Contains(summary, "require()") {
+		t.Fatalf("expected summary to mention require(), got %q", summary)
+	}
+}

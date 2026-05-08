@@ -579,7 +579,7 @@ function getChannelConfigSummary(row: any): string[] {
 </script>
 
 <template>
-  <div class="notifications-page dd-fixed-page">
+  <div class="notifications-page dd-fixed-page dd-page-hide-heading">
     <!-- Page Header -->
     <div class="page-header">
       <div>

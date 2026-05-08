@@ -1,0 +1,148 @@
+package service
+
+import (
+	"bufio"
+	"io"
+	"log"
+	"regexp"
+	"strings"
+)
+
+const (
+	PanelLogLevelDebug = "debug"
+	PanelLogLevelInfo  = "info"
+	PanelLogLevelWarn  = "warn"
+	PanelLogLevelError = "error"
+)
+
+var panelLogLinePattern = regexp.MustCompile(`^\[(DEBUG|INFO|WARN|ERROR)\]\s+`)
+var panelLogLevelPriority = map[string]int{
+	PanelLogLevelDebug: 10,
+	PanelLogLevelInfo:  20,
+	PanelLogLevelWarn:  30,
+	PanelLogLevelError: 40,
+}
+
+type PanelLogFilterWriter struct {
+	dst io.Writer
+}
+
+func NewPanelLogFilterWriter(dst io.Writer) *PanelLogFilterWriter {
+	return &PanelLogFilterWriter{dst: dst}
+}
+
+func (w *PanelLogFilterWriter) Write(p []byte) (int, error) {
+	text := string(p)
+	if shouldSuppressPanelStartupLog(text) {
+		return len(p), nil
+	}
+
+	lines := splitLogPayloadLines(text)
+	if len(lines) == 0 {
+		return len(p), nil
+	}
+
+	var builder strings.Builder
+	for _, line := range lines {
+		trimmed := strings.TrimRight(line, "\r\n")
+		if strings.TrimSpace(trimmed) == "" {
+			continue
+		}
+		builder.WriteString(formatPanelLogLine(trimmed))
+		builder.WriteByte('\n')
+	}
+
+	if builder.Len() == 0 {
+		return len(p), nil
+	}
+	_, err := w.dst.Write([]byte(builder.String()))
+	if err != nil {
+		return 0, err
+	}
+	return len(p), nil
+}
+
+func splitLogPayloadLines(text string) []string {
+	scanner := bufio.NewScanner(strings.NewReader(text))
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	lines := make([]string, 0)
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+	if len(lines) == 0 && strings.TrimSpace(text) != "" {
+		lines = append(lines, text)
+	}
+	return lines
+}
+
+func formatPanelLogLine(line string) string {
+	if panelLogLinePattern.MatchString(line) {
+		return line
+	}
+	level := detectPanelLogLevel(line)
+	return "[" + strings.ToUpper(level) + "] " + line
+}
+
+func detectPanelLogLevel(line string) string {
+	lower := strings.ToLower(strings.TrimSpace(line))
+	switch {
+	case strings.Contains(lower, " panic"), strings.Contains(lower, "fatal"), strings.Contains(lower, " failed"), strings.Contains(lower, " error"), strings.Contains(lower, "无法"), strings.Contains(lower, "失败"):
+		return PanelLogLevelError
+	case strings.Contains(lower, "warn"), strings.Contains(lower, "warning"), strings.Contains(lower, "超时"), strings.Contains(lower, "不可用"), strings.Contains(lower, "跳过"):
+		return PanelLogLevelWarn
+	case strings.Contains(lower, "debug"), strings.Contains(lower, "trace"), strings.Contains(lower, "scanner"), strings.Contains(lower, "probe"):
+		return PanelLogLevelDebug
+	default:
+		return PanelLogLevelInfo
+	}
+}
+
+func ParsePanelLogLineLevel(line string) string {
+	match := panelLogLinePattern.FindStringSubmatch(strings.TrimSpace(line))
+	if len(match) >= 2 {
+		return strings.ToLower(strings.TrimSpace(match[1]))
+	}
+	return detectPanelLogLevel(line)
+}
+
+func MatchPanelLogLevel(line, minimumLevel string) bool {
+	minimumLevel = strings.ToLower(strings.TrimSpace(minimumLevel))
+	if minimumLevel == "" {
+		return true
+	}
+
+	currentLevel := ParsePanelLogLineLevel(line)
+	currentPriority, currentOK := panelLogLevelPriority[currentLevel]
+	minimumPriority, minimumOK := panelLogLevelPriority[minimumLevel]
+	if !currentOK || !minimumOK {
+		return currentLevel == minimumLevel
+	}
+
+	return currentPriority >= minimumPriority
+}
+
+func NewPanelLogger(dst io.Writer) *log.Logger {
+	return log.New(NewPanelLogFilterWriter(dst), "", log.LstdFlags)
+}
+
+func shouldSuppressPanelStartupLog(text string) bool {
+	markers := []string{
+		"database connected:",
+		"added missing column:",
+		"column check completed",
+		"scheduler v2 started:",
+		"scheduler v2 initialized with",
+		"scheduler v2 enqueued",
+		"subscription scheduler initialized with",
+		"resource watcher started",
+		"server starting on",
+	}
+
+	for _, marker := range markers {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+
+	return false
+}

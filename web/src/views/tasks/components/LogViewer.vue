@@ -722,6 +722,9 @@ function handleClose() {
     width: 34px;
     height: 34px;
     padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     color: var(--el-text-color-secondary);
     border-color: transparent;
     border-radius: 10px;
@@ -978,14 +981,15 @@ function handleClose() {
 .log-viewer-dialog {
   --viewer-border-soft: color-mix(in srgb, var(--el-border-color-light) 85%, transparent);
 
+  width: min(1240px, 88vw);
   border-radius: 16px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  // 固定窗口尺寸：不随日志内容多少变化，内部 .viewer-log 用 flex:1 + overflow:auto 在窗口内滚动。
-  // 只写 max-height 会让日志少时 dialog 被塌陷成一条，所以 height 和 max-height 同时写，既固定又兜底。
-  height: 90vh;
-  max-height: 90vh;
+  // 桌面端按内容观感收紧：
+  // 保持足够阅读空间，但避免空日志时出现大面积“黑幕感”。
+  height: clamp(620px, 79dvh, 820px);
+  max-height: calc(100dvh - 56px);
   // align-center 模式下 el-overlay-dialog 是 flex 容器，用 margin: auto 让 dialog 垂直+水平居中；
   // 如果写成 margin: 0 auto 上下 margin 会变成 0，dialog 会贴到容器底部。
   margin: auto;
@@ -994,6 +998,7 @@ function handleClose() {
   // 由 Element Plus 默认样式 .el-dialog.is-fullscreen { height:100%; ... } 接管，
   // 但我们的 height:90vh 优先级一样，需要显式让 fullscreen 时恢复全屏。
   &.is-fullscreen {
+    width: 100%;
     height: 100%;
     max-height: 100%;
     border-radius: 0;

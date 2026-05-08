@@ -199,7 +199,7 @@ async function handleCancelEdit() {
 </script>
 
 <template>
-  <div class="scripts-page dd-fixed-page" :class="{ mobile: isMobile, compact: isCompactLayout }">
+  <div class="scripts-page dd-fixed-page dd-page-hide-heading" :class="{ mobile: isMobile, compact: isCompactLayout }">
     <div class="page-header">
       <div>
         <h2>脚本管理</h2>

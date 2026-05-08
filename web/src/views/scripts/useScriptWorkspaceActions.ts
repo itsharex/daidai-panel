@@ -12,7 +12,9 @@ interface ScriptWorkspaceActionsOptions {
   isEditing: Ref<boolean>
   hasChanges: ComputedRef<boolean>
   loadTree: () => Promise<void>
-  loadFileContent: (path: string) => Promise<boolean>
+  loadFileContent: (path: string, options?: { silent?: boolean }) => Promise<boolean>
+  extractScriptErrorMessage: (err: any, fallback: string) => string
+  openFile?: (path: string, options?: { skipUnsavedCheck?: boolean }) => Promise<boolean>
 }
 
 export function useScriptWorkspaceActions({
@@ -23,7 +25,9 @@ export function useScriptWorkspaceActions({
   isEditing,
   hasChanges,
   loadTree,
-  loadFileContent
+  loadFileContent,
+  extractScriptErrorMessage,
+  openFile
 }: ScriptWorkspaceActionsOptions) {
   const router = useRouter()
 
@@ -59,26 +63,57 @@ export function useScriptWorkspaceActions({
     return err === 'cancel' || err === 'close' || String(err) === 'cancel' || String(err) === 'close'
   }
 
+  async function verifyEditableTarget(path: string) {
+    const normalizedPath = path.trim()
+    if (!normalizedPath) {
+      ElMessage.warning('当前没有可保存的脚本')
+      return false
+    }
+
+    const loaded = await loadFileContent(normalizedPath, { silent: true })
+    if (!loaded) {
+      ElMessage.error('保存失败：脚本可能已被删除、移动，或当前选中的不是可编辑文件')
+      return false
+    }
+
+    if (isBinary.value) {
+      ElMessage.warning('当前文件为二进制文件，不能在线保存')
+      return false
+    }
+
+    return true
+  }
+
   async function saveCurrentFile() {
     if (!selectedFile.value || isBinary.value) return
     saving.value = true
     try {
+      const currentPath = selectedFile.value
+      const snapshotContent = fileContent.value
+      const verified = await verifyEditableTarget(currentPath)
+      if (!verified) {
+        return false
+      }
+
+      // 校验会刷新后端最新内容；如果用户本地正有改动，需要把待保存内容覆盖回去。
+      fileContent.value = snapshotContent
+
       let versionMessage = 'V1 初始版本'
       if (originalContent.value !== '') {
         try {
-          const res = await scriptApi.listVersions(selectedFile.value)
+          const res = await scriptApi.listVersions(currentPath)
           const versionCount = res.data?.length || 0
           versionMessage = `V${versionCount + 1} 更新`
         } catch {
           versionMessage = 'V2 更新'
         }
       }
-      await scriptApi.saveContent(selectedFile.value, fileContent.value, versionMessage)
+      await scriptApi.saveContent(currentPath, fileContent.value, versionMessage)
       originalContent.value = fileContent.value
       ElMessage.success('保存成功')
       return true
     } catch (err: any) {
-      ElMessage.error(err?.response?.data?.error || '保存失败')
+      ElMessage.error(extractScriptErrorMessage(err, '保存失败'))
       return false
     } finally {
       saving.value = false
@@ -101,9 +136,13 @@ export function useScriptWorkspaceActions({
       newFileName.value = ''
       newFileParent.value = ''
       await loadTree()
-      selectedFile.value = fullPath
-      isEditing.value = true
-      await loadFileContent(fullPath)
+      if (openFile) {
+        await openFile(fullPath, { skipUnsavedCheck: true })
+      } else {
+        selectedFile.value = fullPath
+        isEditing.value = true
+        await loadFileContent(fullPath)
+      }
     } catch (err: any) {
       ElMessage.error(err?.response?.data?.error || err?.message || '创建失败')
     }

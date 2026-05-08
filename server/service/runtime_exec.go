@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"daidai-panel/config"
@@ -24,6 +25,8 @@ type managedRuntimePaths struct {
 
 	searchDirs []string
 }
+
+var managedPythonVenvMu sync.Mutex
 
 // pythonEnvBootstrap 只负责三件事：
 //  1. 从 env.json 注入任务环境变量到 os.environ
@@ -138,6 +141,45 @@ func currentManagedRuntimePaths() managedRuntimePaths {
 	}
 }
 
+func ensureManagedPythonVenv(syncCreate bool) bool {
+	dataDir := ""
+	if config.C != nil {
+		dataDir = config.C.Data.Dir
+	}
+	if strings.TrimSpace(dataDir) == "" {
+		return false
+	}
+
+	venvDir := filepath.Join(dataDir, "deps", "python", "venv")
+	if info, err := os.Stat(resolveManagedVenvBin(venvDir)); err == nil && info.IsDir() {
+		return true
+	}
+
+	if !syncCreate {
+		go ensureManagedPythonVenv(true)
+		return false
+	}
+
+	managedPythonVenvMu.Lock()
+	defer managedPythonVenvMu.Unlock()
+
+	if info, err := os.Stat(resolveManagedVenvBin(venvDir)); err == nil && info.IsDir() {
+		return true
+	}
+
+	_ = os.MkdirAll(filepath.Dir(venvDir), 0o755)
+	cmd := exec.Command("python3", "-m", "venv", venvDir)
+	return cmd.Run() == nil
+}
+
+func EnsureManagedPythonVenv() bool {
+	return ensureManagedPythonVenv(true)
+}
+
+func WarmManagedPythonVenv() {
+	ensureManagedPythonVenv(false)
+}
+
 func resolveManagedVenvBin(venvDir string) string {
 	venvDir = strings.TrimSpace(venvDir)
 	if venvDir == "" {
@@ -165,6 +207,7 @@ func resolveManagedVenvBin(venvDir string) string {
 }
 
 func ResolveManagedPipBinary() string {
+	EnsureManagedPythonVenv()
 	runtimePaths := currentManagedRuntimePaths()
 	for _, name := range []string{"pip3", "pip"} {
 		if binary := findExecutableInDir(runtimePaths.VenvBin, name); binary != "" {
@@ -175,6 +218,8 @@ func ResolveManagedPipBinary() string {
 }
 
 func createManagedPythonCommand(scriptPath string, scriptArgs []string, workDir string, envVars map[string]string, runtimePaths managedRuntimePaths) (*exec.Cmd, func(), error) {
+	EnsureManagedPythonVenv()
+	runtimePaths = currentManagedRuntimePaths()
 	pythonBin, err := resolveManagedBinary("python3", []string{runtimePaths.VenvBin}, runtimePaths.searchDirs)
 	if err != nil {
 		pythonBin, err = resolveManagedBinary("python", []string{runtimePaths.VenvBin}, runtimePaths.searchDirs)

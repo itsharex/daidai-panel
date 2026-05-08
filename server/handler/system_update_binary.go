@@ -403,6 +403,25 @@ func writeBinaryUpdateHelperScript(plan *panelUpdatePlan, sourceRoot, workDir st
 func writeUnixBinaryUpdateHelperScript(plan *panelUpdatePlan, sourceRoot, workDir string) (string, error) {
 	scriptPath := filepath.Join(workDir, "apply-update.sh")
 	logPath := filepath.Join(workDir, "binary-update.log")
+	serviceManager := service.ResolvePanelServiceManager()
+	serviceName := service.ResolvePanelServiceName()
+	systemdStopBlock := ""
+	systemdStartBlock := ""
+	if serviceManager == service.PanelServiceManagerSystemd && serviceName != "" {
+		systemdStopBlock = fmt.Sprintf(`
+if command -v systemctl >/dev/null 2>&1; then
+  log "stop systemd service: %s"
+  systemctl stop %s >/dev/null 2>&1 || true
+fi
+`, serviceName, shellQuote(serviceName))
+		systemdStartBlock = fmt.Sprintf(`
+if command -v systemctl >/dev/null 2>&1; then
+  log "start systemd service: %s"
+  systemctl start %s >/dev/null 2>&1 || true
+  exit 0
+fi
+`, serviceName, shellQuote(serviceName))
+	}
 	body := fmt.Sprintf(`#!/bin/sh
 set -eu
 PID=%d
@@ -420,6 +439,7 @@ if [ -z "$DEST" ] || [ "$DEST" = "/" ]; then
   log "refuse to update unsafe install dir: $DEST"
   exit 1
 fi
+%s
 
 if [ "$SERVER_PID" -gt 0 ] && [ "$SERVER_PID" != "$PID" ]; then
   kill -TERM "$SERVER_PID" 2>/dev/null || true
@@ -462,10 +482,11 @@ if [ ! -x "./$BINARY" ]; then
   log "target binary is not executable: $DEST/$BINARY"
   exit 1
 fi
+%s
 
 log "start new panel process: $BINARY"
 nohup "./$BINARY" >/dev/null 2>&1 &
-`, plan.CurrentPID, plan.ServerPID, shellQuote(sourceRoot), shellQuote(plan.InstallDir), shellQuote(plan.BinaryName), shellQuote(logPath), binaryUpdateProtectedConfig)
+`, plan.CurrentPID, plan.ServerPID, shellQuote(sourceRoot), shellQuote(plan.InstallDir), shellQuote(plan.BinaryName), shellQuote(logPath), systemdStopBlock, binaryUpdateProtectedConfig, systemdStartBlock)
 
 	if err := os.WriteFile(scriptPath, []byte(body), 0o755); err != nil {
 		return "", fmt.Errorf("写入更新脚本失败: %w", err)

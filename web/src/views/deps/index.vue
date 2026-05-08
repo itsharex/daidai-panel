@@ -1,5 +1,5 @@
 <template>
-  <div class="deps-page dd-fixed-page">
+  <div class="deps-page dd-fixed-page dd-page-hide-heading">
     <div class="page-header">
       <div>
         <h2>📚 依赖管理</h2>

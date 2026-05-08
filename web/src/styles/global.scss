@@ -75,6 +75,12 @@ html, body {
   min-width: 0;
 }
 
+.dd-page-hide-heading {
+  .page-header {
+    display: none !important;
+  }
+}
+
 @media screen and (min-width: 769px) {
   .dd-scroll-page {
     height: 100%;
@@ -185,23 +191,41 @@ a {
 }
 
 .el-dialog {
+  --el-dialog-margin-top: clamp(16px, 4vh, 40px);
   border-radius: 16px;
   overflow: hidden;
+  max-height: calc(100dvh - (var(--el-dialog-margin-top) * 2));
+  display: flex;
+  flex-direction: column;
 
   .el-dialog__header {
     padding: 20px 24px 16px;
     margin-right: 0;
     border-bottom: 1px solid var(--el-border-color-lighter);
+    flex-shrink: 0;
   }
 
   .el-dialog__body {
     padding: 24px;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
   }
 
   .el-dialog__footer {
     padding: 16px 24px 20px;
     border-top: 1px solid var(--el-border-color-lighter);
+    flex-shrink: 0;
   }
+
+  &.is-fullscreen {
+    max-height: 100dvh;
+  }
+}
+
+.el-overlay {
+  background-color: rgba(15, 23, 42, 0.24) !important;
+  backdrop-filter: blur(1.5px);
 }
 
 .el-table {

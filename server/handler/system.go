@@ -335,13 +335,19 @@ func (h *SystemHandler) PanelSettings(c *gin.Context) {
 	editorBackgroundColor := model.GetRegisteredConfig("editor_background_color")
 	logBackgroundColor := model.GetRegisteredConfig("log_background_color")
 	logBackgroundImage := model.GetRegisteredConfig("log_background_image")
+	panelRuntimeMode := service.ResolvePanelRuntimeMode()
+	panelServiceManager := model.GetRegisteredConfig("panel_service_manager")
+	panelServiceName := model.GetRegisteredConfig("panel_service_name")
 	response.Success(c, gin.H{
 		"data": gin.H{
-			"panel_title":             title,
-			"panel_icon":              icon,
-			"editor_background_color": editorBackgroundColor,
-			"log_background_color":    logBackgroundColor,
-			"log_background_image":    logBackgroundImage,
+		"panel_title":             title,
+		"panel_icon":              icon,
+		"editor_background_color": editorBackgroundColor,
+		"log_background_color":    logBackgroundColor,
+		"log_background_image":    logBackgroundImage,
+		"panel_runtime_mode":      panelRuntimeMode,
+		"panel_service_manager":   panelServiceManager,
+		"panel_service_name":      panelServiceName,
 		},
 	})
 }
@@ -416,6 +422,7 @@ func (h *SystemHandler) Restart(c *gin.Context) {
 func (h *SystemHandler) PanelLog(c *gin.Context) {
 	linesStr := c.DefaultQuery("lines", "100")
 	keyword := c.Query("keyword")
+	level := strings.ToLower(strings.TrimSpace(c.Query("level")))
 
 	lines, _ := strconv.Atoi(linesStr)
 	if lines <= 0 || lines > 10000 {
@@ -432,8 +439,12 @@ func (h *SystemHandler) PanelLog(c *gin.Context) {
 
 	var allLines []string
 	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
 		line := scanner.Text()
+		if level != "" && !service.MatchPanelLogLevel(line, level) {
+			continue
+		}
 		if keyword == "" || strings.Contains(line, keyword) {
 			allLines = append(allLines, line)
 		}
@@ -448,6 +459,7 @@ func (h *SystemHandler) PanelLog(c *gin.Context) {
 		"data": gin.H{
 			"logs":  allLines[start:],
 			"total": len(allLines),
+			"level": level,
 		},
 	})
 }

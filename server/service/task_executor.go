@@ -417,6 +417,13 @@ func (e *TaskExecutor) runTask(req *ExecutionRequest, taskLog *model.TaskLog, ti
 			}
 		}
 
+		if hint := BuildModuleCompatibilityHint(lastFailureOutput); hint != "" {
+			onOutput(hint)
+			outputCollectorMu.Lock()
+			lastFailureOutput = strings.TrimSpace(outputCollector.String())
+			outputCollectorMu.Unlock()
+		}
+
 		retries++
 	}
 
@@ -587,6 +594,10 @@ func summarizeTaskFailureOutput(output string) string {
 		return ""
 	}
 
+	if hint := BuildModuleCompatibilityHint(output); hint != "" {
+		return truncateTaskFailureSummary(hint, 320)
+	}
+
 	lines := normalizeTaskFailureLines(output)
 	if len(lines) == 0 {
 		return ""
@@ -605,6 +616,21 @@ func summarizeTaskFailureOutput(output string) string {
 	}
 
 	return truncateTaskFailureSummary(strings.Join(tailTaskFailureLines(lines, 4), "\n"), 420)
+}
+
+func BuildModuleCompatibilityHint(output string) string {
+	lower := strings.ToLower(strings.TrimSpace(output))
+	if lower == "" {
+		return ""
+	}
+
+	if strings.Contains(lower, "err_require_esm") &&
+		strings.Contains(lower, "require() of es module") &&
+		strings.Contains(lower, "dynamic import()") {
+		return "[提示] 当前依赖是 ESM 模块，但脚本使用了 CommonJS require() 方式加载。请改用 import() / ESM 写法，或安装兼容 require() 的旧版本依赖。"
+	}
+
+	return ""
 }
 
 var (

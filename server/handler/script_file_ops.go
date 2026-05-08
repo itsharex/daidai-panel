@@ -51,6 +51,15 @@ func (h *ScriptHandler) Tree(c *gin.Context) {
 	response.Success(c, gin.H{"data": tree})
 }
 
+func shouldSkipScriptTreeDir(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "node_modules":
+		return true
+	default:
+		return false
+	}
+}
+
 func buildTree(baseDir, prefix string) []map[string]interface{} {
 	dir := filepath.Join(baseDir, prefix)
 	entries, err := os.ReadDir(dir)
@@ -78,6 +87,9 @@ func buildTree(baseDir, prefix string) []map[string]interface{} {
 		}
 
 		if entry.IsDir() {
+			if shouldSkipScriptTreeDir(name) {
+				continue
+			}
 			children := buildTree(baseDir, rel)
 			dirs = append(dirs, map[string]interface{}{
 				"key":      rel,
@@ -117,6 +129,11 @@ func (h *ScriptHandler) GetContent(c *gin.Context) {
 	full, err := safePath(path, true)
 	if err != nil {
 		response.BadRequest(c, err.Error())
+		return
+	}
+
+	if info, statErr := os.Stat(full); statErr == nil && info.IsDir() {
+		response.BadRequest(c, "当前路径是目录，不能作为脚本文件打开")
 		return
 	}
 

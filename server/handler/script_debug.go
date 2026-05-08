@@ -177,6 +177,10 @@ func (h *ScriptHandler) DebugRun(c *gin.Context) {
 			}
 		}
 
+		if hint := service.BuildModuleCompatibilityHint(run.logOutput()); hint != "" {
+			run.appendLog(hint)
+		}
+
 		run.finish(exitCode, waitErr, elapsed)
 	}()
 
