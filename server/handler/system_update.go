@@ -222,7 +222,7 @@ func buildDockerPanelUpdatePlan() (*panelUpdatePlan, error) {
 	}
 
 	if _, err := os.Stat(dockerSocketPath); err != nil {
-		return nil, fmt.Errorf("未检测到 %s，请在部署时挂载 Docker Socket 后再使用一键更新", dockerSocketPath)
+		return nil, fmt.Errorf("未检测到 %s，当前 Docker 部署不能在容器内直接重建自身；请改为在宿主机执行 docker compose pull && docker compose up -d，或临时挂载 Docker Socket 后再使用面板内一键更新", dockerSocketPath)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

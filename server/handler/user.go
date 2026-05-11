@@ -9,6 +9,7 @@ import (
 	"daidai-panel/pkg/crypto"
 	"daidai-panel/pkg/response"
 	"daidai-panel/pkg/validator"
+	"daidai-panel/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -139,6 +140,9 @@ func (h *UserHandler) Update(c *gin.Context) {
 	}
 
 	database.DB.First(&user, userID)
+	if len(updates) > 0 {
+		service.RevokeAllUserSessions(user.ID)
+	}
 	response.Success(c, gin.H{"message": "更新成功", "data": user.ToDict()})
 }
 
@@ -190,6 +194,7 @@ func (h *UserHandler) ResetPassword(c *gin.Context) {
 	}
 
 	database.DB.Model(&user).Update("password", hashed)
+	service.RevokeAllUserSessions(user.ID)
 	response.Success(c, gin.H{"message": "密码重置成功"})
 }
 

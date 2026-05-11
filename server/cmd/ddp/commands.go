@@ -210,7 +210,7 @@ func runCheck(rt *cliRuntime) error {
 	if _, err := os.Stat("/var/run/docker.sock"); err == nil {
 		add("Docker Socket", "OK", "已挂载 /var/run/docker.sock，可使用 ddp update", false)
 	} else {
-		add("Docker Socket", "WARN", "未挂载，Docker 容器更新不可用；二进制部署会尝试后台更新", false)
+		add("Docker Socket", "WARN", "未挂载；Docker 容器场景请在宿主机执行 docker compose pull && docker compose up -d，二进制部署仍会尝试后台更新", false)
 	}
 
 	if plan, err := handler.BuildPanelUpdatePlanInfo(); err == nil {

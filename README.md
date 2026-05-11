@@ -121,6 +121,8 @@
 
 ```yaml
 # docker-compose.yml
+name: daidai-panel
+
 services:
   daidai-panel:
     image: docker.1ms.run/linzixuanzz/daidai-panel:latest
@@ -130,11 +132,26 @@ services:
       - "5700:5700"                                # 宿主机端口:容器内 Nginx 端口
     volumes:
       - ./Dumb-Panel:/app/Dumb-Panel               # 面板数据目录，升级保留
-      - /var/run/docker.sock:/var/run/docker.sock  # 面板内一键更新用，不需要可删
     environment:
       - TZ=Asia/Shanghai
       - CONTAINER_NAME=daidai-panel
       - IMAGE_NAME=docker.1ms.run/linzixuanzz/daidai-panel:latest
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: daidai-watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    labels:
+      - com.centurylinklabs.watchtower.enable=false
+    command:
+      - --label-enable
+      - --cleanup
+      - --interval
+      - "3600"
 ```
 
 ```bash
@@ -145,7 +162,23 @@ docker compose up -d
 
 > `docker.1ms.run/` 是 Docker Hub 镜像加速前缀，实际仓库仍是 `linzixuanzz/daidai-panel`。需要换源就改这段。
 
-想用 `docker run` 而不是 compose，等价命令：
+这份 compose 已经是推荐的可直接上线版本：
+
+1. 面板容器只挂业务数据目录 `./Dumb-Panel:/app/Dumb-Panel`
+2. `docker.sock` 只暴露给 Watchtower，不暴露给面板容器
+3. 只有打了 `com.centurylinklabs.watchtower.enable=true` 标签的容器会被自动更新
+4. Watchtower 自己显式打了 `com.centurylinklabs.watchtower.enable=false`，避免被这套规则误纳入管理
+5. `--cleanup` 会在更新后清理旧镜像
+6. `--interval 3600` 表示每 1 小时检查一次更新
+
+如果你不想自动更新，可以直接删除 `watchtower` 服务和 `labels`，然后改成在宿主机手动执行：
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+想用 `docker run` 而不是 compose，推荐等价方式是分别启动面板容器和 Watchtower 容器：
 
 ```bash
 docker run -d --pull=always \
@@ -153,12 +186,83 @@ docker run -d --pull=always \
   --restart unless-stopped \
   -p 5700:5700 \
   -v $(pwd)/Dumb-Panel:/app/Dumb-Panel \
-  -v /var/run/docker.sock:/var/run/docker.sock \
   -e TZ=Asia/Shanghai \
   -e CONTAINER_NAME=daidai-panel \
   -e IMAGE_NAME=docker.1ms.run/linzixuanzz/daidai-panel:latest \
+  --label com.centurylinklabs.watchtower.enable=true \
   docker.1ms.run/linzixuanzz/daidai-panel:latest
+
+docker run -d \
+  --name daidai-watchtower \
+  --restart unless-stopped \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  --label com.centurylinklabs.watchtower.enable=false \
+  containrrr/watchtower:latest \
+  --label-enable \
+  --cleanup \
+  --interval 3600
 ```
+
+### 生产版 Watchtower（定时窗口 + 通知 + 滚动更新）
+
+仓库里另外提供了一份更稳妥的生产版配置：
+
+- [docker-compose.watchtower.prod.yml](./docker-compose.watchtower.prod.yml)
+- [.env.watchtower.prod.example](./.env.watchtower.prod.example)
+
+推荐用法：
+
+```bash
+cp .env.watchtower.prod.example .env.watchtower.prod
+# 按你的环境修改 .env.watchtower.prod
+docker compose -f docker-compose.watchtower.prod.yml --env-file .env.watchtower.prod up -d
+```
+
+仓库里也直接附带了一份默认成品配置：
+
+- [.env.watchtower.prod](./.env.watchtower.prod)
+
+这份默认值已经按“**每天凌晨 04:00 维护窗口检查更新 + Push Plus 通知占位**”写好。你只需要把里面的 `PUSHPLUS_TOKEN` 改成自己的 token，就可以直接启动：
+
+```bash
+docker compose -f docker-compose.watchtower.prod.yml --env-file .env.watchtower.prod up -d
+```
+
+这份生产版和基础版的区别：
+
+1. 用 `WATCHTOWER_SCHEDULE` 固定在维护窗口更新，而不是按固定秒数轮询
+2. 开启 `WATCHTOWER_NOTIFICATION_REPORT=true`，每次更新会发汇总通知
+3. 预留 `WATCHTOWER_NOTIFICATION_URL`，可以直接接 Slack / Discord / Gotify 等 Shoutrrr 通道，也可以接 Push Plus
+4. 开启 `--rolling-restart`，Watchtower 会按容器逐个更新，而不是一次性把所有被它管理的容器一起停掉
+5. 配置了 `--stop-timeout 30s` 和面板自身 `healthcheck`，更适合生产环境下的优雅停机和状态探测
+
+Push Plus 说明：
+
+1. Watchtower 使用的是 Shoutrrr 通知层，Shoutrrr 没有原生 Push Plus 服务名
+2. 但可以通过 **Generic Webhook** 正常接入 Push Plus 的 `POST https://www.pushplus.plus/send`
+3. 示例地址已经写在 [.env.watchtower.prod.example](./.env.watchtower.prod.example) 和默认成品 [.env.watchtower.prod](./.env.watchtower.prod) 里，替换 token 即可使用
+
+关于 `--rolling-restart`，这里有个边界要说明：
+
+- 如果你让 Watchtower 同时管理多个业务容器，它会一个一个更新，避免“全部同时重启”
+- 但如果你当前只有**单实例**的 `daidai-panel`，升级时依然会有一次短暂重启中断
+- 真正接近零停机，需要反向代理 + 多实例 / 蓝绿发布，而不是只靠 Watchtower
+
+#### 生产运维建议
+
+1. 单实例部署建议把维护窗口放在业务低峰期，比如每天凌晨 `04:00`
+2. 如果你对稳定性要求更高，可以先把镜像 tag 固定到明确版本，再由你手动切换版本号，Watchtower 只负责执行已确认版本的重启
+3. 建议至少保留一种外部通知渠道，避免更新失败后只有容器日志里能看到
+4. 单实例场景下，更新前用户正在打开的页面会经历一次短暂中断，这是正常现象
+5. 如果你还托管了反向代理、数据库、监控等多个容器，`--rolling-restart` 能避免它们被 Watchtower 同时重启
+6. 如果你后续准备追求更低中断时间，下一步应考虑“反向代理 + 双实例/蓝绿发布”，而不是继续在单实例上堆参数
+
+#### 更新前后通知说明
+
+1. Watchtower 的通知是**事件通知**，会在检查、发现更新、拉取、重启、失败等阶段发出报告
+2. 当前生产版已开启 `WATCHTOWER_NOTIFICATION_REPORT=true`，会尽量发汇总结果
+3. 这不等价于“应用级业务健康验证”，它能告诉你容器是否更新完成，但不能替代你自己的业务巡检
+4. 如果你希望更严格，可以额外加一个宿主机定时任务，在更新窗口结束后请求 `http://127.0.0.1:5700/api/health` 并把结果再次推送到 Push Plus
 
 ### 支持的 CPU 架构
 

@@ -76,6 +76,9 @@ defineProps<{
             <p v-if="updateInfo.update_target?.deployment_type !== 'binary' && updateInfo.update_target?.mirror_host" class="hero-meta">镜像源：{{ updateInfo.update_target.mirror_host }}</p>
             <p v-if="updateInfo.update_target?.deployment_type !== 'binary' && updateInfo.update_target?.channel" class="hero-meta">渠道：{{ updateInfo.update_target.channel === 'debian' ? 'Debian' : 'Latest (Alpine)' }}</p>
             <p v-if="!updateInfo.auto_update_supported" class="hero-meta">{{ updateInfo.update_disabled_reason || '当前部署暂不支持一键更新' }}</p>
+            <p v-if="!updateInfo.auto_update_supported && updateInfo.update_target?.deployment_type !== 'binary'" class="hero-meta">
+              可改为在宿主机执行：`docker compose pull && docker compose up -d`
+            </p>
             <div class="hero-alert-actions">
               <el-button v-if="isAdmin && updateInfo.auto_update_supported" type="primary" size="small" round :loading="updatingPanel" @click="onStartUpdate">立即更新</el-button>
               <el-button size="small" round @click="onOpenReleaseNotes">查看更新日志</el-button>

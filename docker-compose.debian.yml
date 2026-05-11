@@ -9,8 +9,23 @@ services:
       - "5700:5700" # 宿主机端口:容器内 Nginx 端口
     volumes:
       - ./Dumb-Panel:/app/Dumb-Panel
-      - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - TZ=Asia/Shanghai
       - CONTAINER_NAME=daidai-panel
       - IMAGE_NAME=docker.1ms.run/linzixuanzz/daidai-panel:debian
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: daidai-watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    labels:
+      - com.centurylinklabs.watchtower.enable=false
+    command:
+      - --label-enable
+      - --cleanup
+      - --interval
+      - "3600"

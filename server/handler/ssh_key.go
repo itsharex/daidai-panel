@@ -105,7 +105,7 @@ func (h *SSHKeyHandler) Detail(c *gin.Context) {
 }
 
 func (h *SSHKeyHandler) RegisterRoutes(r *gin.RouterGroup) {
-	keys := r.Group("/ssh-keys", middleware.JWTAuth())
+	keys := r.Group("/ssh-keys", middleware.JWTAuth(), middleware.RequireUserToken(), middleware.RequireAdmin())
 	{
 		keys.GET("", h.List)
 		keys.POST("", h.Create)
