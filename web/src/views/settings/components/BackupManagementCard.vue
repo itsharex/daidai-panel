@@ -81,6 +81,13 @@ const backupSelectionOptions: Array<{ key: keyof BackupSelection; title: string;
 function triggerUploadBackup() {
   backupFileInput.value?.click()
 }
+
+function updateBackupSelection(key: keyof BackupSelection, value: boolean) {
+  backupSelection.value = {
+    ...backupSelection.value,
+    [key]: value
+  }
+}
 </script>
 
 <template>
@@ -171,7 +178,7 @@ function triggerUploadBackup() {
           >
             <el-checkbox
               :model-value="backupSelection[option.key]"
-              @update:model-value="backupSelection[option.key] = Boolean($event)"
+              @update:model-value="updateBackupSelection(option.key, Boolean($event))"
             >
               {{ option.title }}
             </el-checkbox>

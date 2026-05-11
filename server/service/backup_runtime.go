@@ -628,6 +628,8 @@ func restoreBackupManifest(manifest BackupManifest, extractedDir string) error {
 	}
 	UpdateRestoreProgress("restoring-data", "正在写入数据库与核心配置...", 56)
 
+	runtimeConfigValues := snapshotProtectedRuntimeSystemConfigs()
+
 	tx := database.DB.Begin()
 	if tx.Error != nil {
 		return tx.Error
@@ -745,6 +747,8 @@ func restoreBackupManifest(manifest BackupManifest, extractedDir string) error {
 		return err
 	}
 
+	restoreProtectedRuntimeSystemConfigs(runtimeConfigValues)
+
 	if selection.Scripts {
 		UpdateRestoreProgress("restoring-files", "正在恢复脚本文件与资源...", 72)
 		if err := restoreScriptFiles(extractedDir, manifest.Source); err != nil {
@@ -788,12 +792,52 @@ func deleteAll(tx *gorm.DB, table string) error {
 
 func restoreSystemConfigs(tx *gorm.DB, configs []model.SystemConfig) error {
 	for _, item := range configs {
+		if shouldSkipRestoredSystemConfigKey(item.Key) {
+			continue
+		}
 		item.ID = 0
 		if err := tx.Create(&item).Error; err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func shouldSkipRestoredSystemConfigKey(key string) bool {
+	switch strings.TrimSpace(key) {
+	case
+		"auto_update_last_checked_at",
+		"auto_update_pending_version",
+		"auto_update_pending_started_at":
+		return true
+	default:
+		return false
+	}
+}
+
+func protectedRuntimeSystemConfigKeys() []string {
+	return []string{
+		"auto_update_last_checked_at",
+		"auto_update_pending_version",
+		"auto_update_pending_started_at",
+	}
+}
+
+func snapshotProtectedRuntimeSystemConfigs() map[string]string {
+	result := make(map[string]string, len(protectedRuntimeSystemConfigKeys()))
+	for _, key := range protectedRuntimeSystemConfigKeys() {
+		result[key] = model.GetConfig(key, "")
+	}
+	return result
+}
+
+func restoreProtectedRuntimeSystemConfigs(values map[string]string) {
+	for key, value := range values {
+		if strings.TrimSpace(value) == "" {
+			continue
+		}
+		_ = model.SetConfig(key, value)
+	}
 }
 
 func restoreUsers(tx *gorm.DB, users []BackupUser) (map[uint]uint, error) {

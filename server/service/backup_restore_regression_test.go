@@ -1,6 +1,12 @@
 package service
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
+	"encoding/json"
+	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -246,6 +252,56 @@ func TestRestoreBackupManifestIgnoresLegacyOpenAppCallCount(t *testing.T) {
 	}
 }
 
+func TestRestoreBackupManifestSkipsAutoUpdateRuntimeStateConfigs(t *testing.T) {
+	testutil.SetupTestEnv(t)
+
+	if err := model.SetConfig("auto_update_last_checked_at", "2026-05-12T08:00:00+08:00"); err != nil {
+		t.Fatalf("seed auto_update_last_checked_at: %v", err)
+	}
+	if err := model.SetConfig("auto_update_pending_version", "2.2.0"); err != nil {
+		t.Fatalf("seed auto_update_pending_version: %v", err)
+	}
+	if err := model.SetConfig("auto_update_pending_started_at", "2026-05-12T08:05:00+08:00"); err != nil {
+		t.Fatalf("seed auto_update_pending_started_at: %v", err)
+	}
+
+	manifest := BackupManifest{
+		Format:  "daidai-panel-backup",
+		Version: "0.4.0",
+		Source:  "daidai-panel",
+		Selection: BackupSelection{
+			Configs: true,
+		},
+		Data: BackupPayload{
+			Configs: BackupConfigBundle{
+				SystemConfigs: []model.SystemConfig{
+					{Key: "panel_title", Value: "来自旧备份的标题"},
+					{Key: "auto_update_last_checked_at", Value: "2025-01-01T00:00:00Z"},
+					{Key: "auto_update_pending_version", Value: "2.1.8"},
+					{Key: "auto_update_pending_started_at", Value: "2025-01-01T00:05:00Z"},
+				},
+			},
+		},
+	}
+
+	if err := restoreBackupManifest(manifest, t.TempDir()); err != nil {
+		t.Fatalf("restore backup manifest: %v", err)
+	}
+
+	if got := model.GetRegisteredConfig("panel_title"); got != "来自旧备份的标题" {
+		t.Fatalf("expected normal business config to restore, got %q", got)
+	}
+	if got := model.GetConfig("auto_update_last_checked_at", ""); got != "2026-05-12T08:00:00+08:00" {
+		t.Fatalf("expected auto_update_last_checked_at to keep current value, got %q", got)
+	}
+	if got := model.GetConfig("auto_update_pending_version", ""); got != "2.2.0" {
+		t.Fatalf("expected auto_update_pending_version to keep current value, got %q", got)
+	}
+	if got := model.GetConfig("auto_update_pending_started_at", ""); got != "2026-05-12T08:05:00+08:00" {
+		t.Fatalf("expected auto_update_pending_started_at to keep current value, got %q", got)
+	}
+}
+
 func TestSnapshotConfigBundleIncludesDependencyMirrors(t *testing.T) {
 	root := testutil.SetupTestEnv(t)
 	home := filepath.Join(root, "home")
@@ -322,5 +378,172 @@ func TestRestoreBackupManifestAppliesDependencyMirrorsBeforeDependencyResume(t *
 	}
 	if gotNpmMirror != "https://mirrors.cloud.tencent.com/npm/" {
 		t.Fatalf("expected npm mirror to be restored before dependency resume, got %q", gotNpmMirror)
+	}
+}
+
+func TestRestoreBackupManifestReplacesCoreBusinessData(t *testing.T) {
+	testutil.SetupTestEnv(t)
+
+	if err := database.DB.Create(&model.Task{
+		Name:    "current-task",
+		Command: "python3 current.py",
+		Status:  model.TaskStatusEnabled,
+	}).Error; err != nil {
+		t.Fatalf("create current task: %v", err)
+	}
+	if err := database.DB.Create(&model.EnvVar{
+		Name:    "CURRENT_ENV",
+		Value:   "current",
+		Enabled: true,
+	}).Error; err != nil {
+		t.Fatalf("create current env: %v", err)
+	}
+	if err := model.SetConfig("panel_title", "当前面板标题"); err != nil {
+		t.Fatalf("set current panel title: %v", err)
+	}
+
+	manifest := BackupManifest{
+		Format:  "daidai-panel-backup",
+		Version: "0.4.0",
+		Source:  "daidai-panel",
+		Selection: BackupSelection{
+			Configs: true,
+			Tasks:   true,
+			EnvVars: true,
+		},
+		Data: BackupPayload{
+			Configs: BackupConfigBundle{
+				SystemConfigs: []model.SystemConfig{
+					{Key: "panel_title", Value: "备份里的标题"},
+				},
+			},
+			Tasks: []model.Task{
+				{
+					Name:    "restored-task",
+					Command: "python3 restored.py",
+					Status:  model.TaskStatusEnabled,
+				},
+			},
+			EnvVars: []model.EnvVar{
+				{
+					Name:    "RESTORED_ENV",
+					Value:   "restored",
+					Enabled: true,
+				},
+			},
+		},
+	}
+
+	if err := restoreBackupManifest(manifest, t.TempDir()); err != nil {
+		t.Fatalf("restore backup manifest: %v", err)
+	}
+
+	var tasks []model.Task
+	if err := database.DB.Order("id ASC").Find(&tasks).Error; err != nil {
+		t.Fatalf("list tasks: %v", err)
+	}
+	if len(tasks) != 1 || tasks[0].Name != "restored-task" {
+		t.Fatalf("expected current tasks to be replaced by restored task, got %+v", tasks)
+	}
+
+	var envs []model.EnvVar
+	if err := database.DB.Order("id ASC").Find(&envs).Error; err != nil {
+		t.Fatalf("list envs: %v", err)
+	}
+	if len(envs) != 1 || envs[0].Name != "RESTORED_ENV" || envs[0].Value != "restored" {
+		t.Fatalf("expected current envs to be replaced by restored env, got %+v", envs)
+	}
+
+	if got := model.GetRegisteredConfig("panel_title"); got != "备份里的标题" {
+		t.Fatalf("expected panel_title to be restored, got %q", got)
+	}
+}
+
+func TestCreateBackupIncludesSelectedContentInArchive(t *testing.T) {
+	testutil.SetupTestEnv(t)
+
+	if err := database.DB.Create(&model.Task{
+		Name:    "backup-task",
+		Command: "python3 backup.py",
+		Status:  model.TaskStatusEnabled,
+	}).Error; err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+	if err := database.DB.Create(&model.EnvVar{
+		Name:    "BACKUP_ENV",
+		Value:   "backup-value",
+		Enabled: true,
+	}).Error; err != nil {
+		t.Fatalf("create env: %v", err)
+	}
+	if err := model.SetConfig("panel_title", "备份标题"); err != nil {
+		t.Fatalf("set panel_title: %v", err)
+	}
+
+	filePath, err := CreateBackup(BackupCreateOptions{
+		Selection: BackupSelection{
+			Configs: true,
+			Tasks:   true,
+			EnvVars: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("create backup: %v", err)
+	}
+
+	raw, err := os.ReadFile(filePath)
+	if err != nil {
+		t.Fatalf("read backup file: %v", err)
+	}
+
+	gzipReader, err := gzip.NewReader(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatalf("open gzip backup: %v", err)
+	}
+	defer gzipReader.Close()
+
+	tarReader := tar.NewReader(gzipReader)
+	var manifest BackupManifest
+	foundManifest := false
+	for {
+		header, err := tarReader.Next()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			t.Fatalf("read tar entry: %v", err)
+		}
+		if header.Name != "manifest.json" {
+			continue
+		}
+		body, err := io.ReadAll(tarReader)
+		if err != nil {
+			t.Fatalf("read manifest body: %v", err)
+		}
+		if err := json.Unmarshal(body, &manifest); err != nil {
+			t.Fatalf("decode manifest: %v", err)
+		}
+		foundManifest = true
+		break
+	}
+
+	if !foundManifest {
+		t.Fatal("expected manifest.json in backup archive")
+	}
+	if len(manifest.Data.Tasks) != 1 || manifest.Data.Tasks[0].Name != "backup-task" {
+		t.Fatalf("expected selected task to be included, got %+v", manifest.Data.Tasks)
+	}
+	if len(manifest.Data.EnvVars) != 1 || manifest.Data.EnvVars[0].Name != "BACKUP_ENV" {
+		t.Fatalf("expected selected env to be included, got %+v", manifest.Data.EnvVars)
+	}
+	foundPanelTitle := false
+	for _, cfg := range manifest.Data.Configs.SystemConfigs {
+		if cfg.Key == "panel_title" && cfg.Value == "备份标题" {
+			foundPanelTitle = true
+			break
+		}
+	}
+	if !foundPanelTitle {
+		t.Fatalf("expected selected config panel_title to be included, got %+v", manifest.Data.Configs.SystemConfigs)
 	}
 }
