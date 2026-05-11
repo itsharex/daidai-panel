@@ -760,8 +760,19 @@ func resolveUpdateImageTarget(imageName, mirrorHost string) (pullImageName, reso
 	imageName = strings.TrimSpace(imageName)
 	mirrorHost = strings.TrimSpace(mirrorHost)
 	registryHost, repoRef := splitImageRegistry(imageName)
+	baseImage, _, _ := splitImageTag(imageName)
+	_, repoIdentifier := splitImageRegistry(baseImage)
+	if strings.TrimSpace(repoIdentifier) == "" {
+		repoIdentifier = strings.TrimSpace(baseImage)
+	}
 
-	if mirrorHost != "" && (registryHost == defaultDockerHubRegistryHost || registryHost == mirrorHost) {
+	if mirrorHost != "" {
+		if repoRef == "" {
+			repoRef = repoIdentifier
+		}
+		if repoIdentifier != "linzixuanzz/daidai-panel" {
+			return imageName, "", buildRegistryEndpoint(registryHost)
+		}
 		if registryHost == mirrorHost {
 			return imageName, mirrorHost, buildRegistryEndpoint(mirrorHost)
 		}

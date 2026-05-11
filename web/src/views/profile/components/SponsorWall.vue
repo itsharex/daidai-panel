@@ -561,4 +561,38 @@ function rankLabel(rank: number) {
     align-items: flex-start;
   }
 }
+
+:global(html.dark) {
+  .sponsor-wall {
+    background:
+      radial-gradient(circle at top right, rgba(249, 115, 22, 0.12), transparent 28%),
+      radial-gradient(circle at bottom left, rgba(250, 204, 21, 0.1), transparent 25%),
+      linear-gradient(135deg, rgba(30, 41, 59, 0.96), rgba(15, 23, 42, 0.94));
+    border-color: rgba(249, 115, 22, 0.18);
+  }
+
+  .title-text,
+  .sponsor-wall__summary,
+  .sponsor-empty h4,
+  .sponsor-empty p,
+  .podium-card__name,
+  .sponsor-card__name {
+    color: #f8fafc;
+  }
+
+  .summary-pill,
+  .sponsor-loading__card,
+  .sponsor-empty,
+  .podium-card,
+  .sponsor-card,
+  .podium-card__rank {
+    background: color-mix(in srgb, var(--el-bg-color-overlay) 92%, black);
+    border-color: rgba(249, 115, 22, 0.18);
+  }
+
+  .podium-base {
+    background: linear-gradient(180deg, rgba(71, 85, 105, 0.9), rgba(51, 65, 85, 0.88));
+    border-color: rgba(249, 115, 22, 0.16);
+  }
+}
 </style>

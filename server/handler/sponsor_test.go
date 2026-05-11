@@ -22,7 +22,7 @@ func newSponsorRouter() *gin.Engine {
 func TestSponsorListReturnsEmptyWhenFeedUnavailable(t *testing.T) {
 	testutil.SetupTestEnv(t)
 	originalFeedURL := defaultSponsorFeedURL
-	defaultSponsorFeedURL = "http://127.0.0.1:1/api/public/sponsors"
+	defaultSponsorFeedURL = "http://127.0.0.1:1/"
 	t.Cleanup(func() {
 		defaultSponsorFeedURL = originalFeedURL
 	})
@@ -58,7 +58,7 @@ func TestSponsorListProxiesRemoteFeed(t *testing.T) {
 	testutil.SetupTestEnv(t)
 
 	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/public/sponsors" {
+		if r.URL.Path != "/" {
 			http.NotFound(w, r)
 			return
 		}
@@ -84,7 +84,7 @@ func TestSponsorListProxiesRemoteFeed(t *testing.T) {
 	defer remote.Close()
 
 	originalFeedURL := defaultSponsorFeedURL
-	defaultSponsorFeedURL = remote.URL + "/api/public/sponsors"
+	defaultSponsorFeedURL = remote.URL + "/"
 	t.Cleanup(func() {
 		defaultSponsorFeedURL = originalFeedURL
 	})
@@ -127,18 +127,18 @@ func TestSponsorListProxiesRemoteFeed(t *testing.T) {
 
 func TestResolveRemoteURLUpgradesSameHostAvatarToHTTPS(t *testing.T) {
 	got := resolveRemoteURL(
-		"https://dumblist.9999.blue/api/public/sponsors",
-		"http://dumblist.9999.blue/uploads/demo.png",
+		"https://dumblist.linzixuan.top/",
+		"http://dumblist.linzixuan.top/uploads/demo.png",
 	)
 
-	if got != "https://dumblist.9999.blue/uploads/demo.png" {
+	if got != "https://dumblist.linzixuan.top/uploads/demo.png" {
 		t.Fatalf("expected same-host avatar url upgraded to https, got %q", got)
 	}
 }
 
 func TestResolveRemoteURLKeepsThirdPartyAbsoluteAvatarURL(t *testing.T) {
 	got := resolveRemoteURL(
-		"https://dumblist.9999.blue/api/public/sponsors",
+		"https://dumblist.linzixuan.top/",
 		"http://example.com/uploads/demo.png",
 	)
 

@@ -16,6 +16,7 @@ const (
 )
 
 var panelLogLinePattern = regexp.MustCompile(`^\[(DEBUG|INFO|WARN|ERROR)\]\s+`)
+var panelGINLinePattern = regexp.MustCompile(`^\[GIN\]\s+\d{4}/\d{2}/\d{2}\s+-\s+\d{2}:\d{2}:\d{2}\s+\|\s+(\d{3})\s+\|\s+(.+?)\s+\|\s+([^|]+?)\s+\|\s+([A-Z]+)\s+\"([^\"]+)\"$`)
 var panelLogLevelPriority = map[string]int{
 	PanelLogLevelDebug: 10,
 	PanelLogLevelInfo:  20,
@@ -79,8 +80,44 @@ func formatPanelLogLine(line string) string {
 	if panelLogLinePattern.MatchString(line) {
 		return line
 	}
+	if compacted, ok := compactGINLogLine(line); ok {
+		return compacted
+	}
 	level := detectPanelLogLevel(line)
 	return "[" + strings.ToUpper(level) + "] " + line
+}
+
+func compactGINLogLine(line string) (string, bool) {
+	match := panelGINLinePattern.FindStringSubmatch(strings.TrimSpace(line))
+	if len(match) != 6 {
+		return "", false
+	}
+
+	statusCode := strings.TrimSpace(match[1])
+	latency := normalizeGINLatency(match[2])
+	clientIP := strings.TrimSpace(match[3])
+	method := strings.TrimSpace(match[4])
+	path := strings.TrimSpace(match[5])
+	level := logLevelForStatusCode(statusCode)
+
+	return "[" + strings.ToUpper(level) + "] " + method + " " + path + " -> " + statusCode + " " + latency + " @" + clientIP, true
+}
+
+func normalizeGINLatency(raw string) string {
+	raw = strings.TrimSpace(raw)
+	raw = strings.ReplaceAll(raw, " ", "")
+	return raw
+}
+
+func logLevelForStatusCode(statusCode string) string {
+	switch {
+	case strings.HasPrefix(statusCode, "5"):
+		return PanelLogLevelError
+	case strings.HasPrefix(statusCode, "4"):
+		return PanelLogLevelWarn
+	default:
+		return PanelLogLevelInfo
+	}
 }
 
 func detectPanelLogLevel(line string) string {
@@ -95,6 +132,27 @@ func detectPanelLogLevel(line string) string {
 	default:
 		return PanelLogLevelInfo
 	}
+}
+
+func NewGINLoggerWriter() io.Writer {
+	return &ginAccessLogWriter{}
+}
+
+type ginAccessLogWriter struct{}
+
+func (w *ginAccessLogWriter) Write(p []byte) (int, error) {
+	text := strings.TrimSpace(string(p))
+	if text == "" {
+		return len(p), nil
+	}
+
+	if compacted, ok := compactGINLogLine(text); ok {
+		log.Print(compacted)
+		return len(p), nil
+	}
+
+	log.Print(strings.TrimRight(text, "\r\n"))
+	return len(p), nil
 }
 
 func ParsePanelLogLineLevel(line string) string {

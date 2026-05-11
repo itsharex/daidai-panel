@@ -88,6 +88,7 @@ const {
 
 const {
   loading: panelLogLoading,
+  refreshing: panelLogRefreshing,
   lines: panelLogLines,
   keyword: panelLogKeyword,
   level: panelLogLevel,
@@ -289,6 +290,7 @@ onMounted(() => {
           v-model:level="panelLogLevel"
           v-model:auto-refresh="panelLogAutoRefresh"
           :loading="panelLogLoading"
+          :refreshing="panelLogRefreshing"
           :logs="panelLogs"
           :total="panelLogTotal"
           :last-loaded-at="panelLogLastLoadedAt"

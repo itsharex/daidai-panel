@@ -17,7 +17,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-var defaultSponsorFeedURL = "https://dumblist.9999.blue/api/public/sponsors"
+var defaultSponsorFeedURL = "https://dumblist.linzixuan.top/"
 
 const sponsorFeedLogInterval = 10 * time.Minute
 
@@ -119,6 +119,19 @@ func fetchSponsorFeed(feedURL string) (sponsorFeedSummary, error) {
 	if raw, ok := root["data"]; ok && len(raw) > 0 && string(raw) != "null" {
 		if err := json.Unmarshal(raw, &summary); err != nil {
 			return sponsorFeedSummary{}, err
+		}
+	} else if raw, ok := root["sponsors"]; ok && len(raw) > 0 && string(raw) != "null" {
+		if err := json.Unmarshal(raw, &summary.Sponsors); err != nil {
+			return sponsorFeedSummary{}, err
+		}
+		if rawCount, ok := root["count"]; ok && len(rawCount) > 0 && string(rawCount) != "null" {
+			_ = json.Unmarshal(rawCount, &summary.Count)
+		}
+		if rawTotal, ok := root["total_amount"]; ok && len(rawTotal) > 0 && string(rawTotal) != "null" {
+			_ = json.Unmarshal(rawTotal, &summary.TotalAmount)
+		}
+		if rawUpdatedAt, ok := root["updated_at"]; ok && len(rawUpdatedAt) > 0 && string(rawUpdatedAt) != "null" {
+			_ = json.Unmarshal(rawUpdatedAt, &summary.UpdatedAt)
 		}
 	} else {
 		body, err := json.Marshal(root)

@@ -819,4 +819,38 @@ onBeforeUnmount(() => {
     grid-template-columns: 1fr;
   }
 }
+
+:global(html.dark) {
+  .restore-progress-hero {
+    background:
+      radial-gradient(circle at top, rgba(30, 41, 59, 0.96), rgba(15, 23, 42, 0.88)),
+      linear-gradient(180deg, rgba(59, 130, 246, 0.08), rgba(15, 23, 42, 0.24));
+    box-shadow: 0 18px 42px rgba(0, 0, 0, 0.3);
+  }
+
+  .restore-progress-core,
+  .restore-progress-bar,
+  .restore-progress-tag,
+  .restore-step,
+  .restore-progress-meta span {
+    background: color-mix(in srgb, var(--el-bg-color-overlay) 92%, black);
+    border-color: var(--el-border-color-darker);
+    box-shadow: none;
+  }
+
+  .restore-step.is-done {
+    background: color-mix(in srgb, var(--el-color-primary) 12%, var(--el-bg-color-overlay));
+  }
+
+  .restore-step.is-failed,
+  .restore-progress-error {
+    background: color-mix(in srgb, #7f1d1d 35%, var(--el-bg-color-overlay));
+    border-color: rgba(220, 38, 38, 0.3);
+    color: #fecaca;
+  }
+
+  .restore-progress-error p {
+    color: #fecaca;
+  }
+}
 </style>

@@ -14,6 +14,7 @@ export function usePanelLogViewer() {
   const { isPageActive } = usePageActivity()
 
   const loading = ref(false)
+  const refreshing = ref(false)
   const lines = ref(defaultPanelLogLines)
   const keyword = ref('')
   const level = ref<PanelLogLevel>(defaultPanelLogLevel)
@@ -79,7 +80,12 @@ export function usePanelLogViewer() {
   }
 
   async function loadPanelLogs(showError = true) {
-    loading.value = true
+    const firstLoad = logs.value.length === 0 && !lastLoadedAt.value
+    if (firstLoad) {
+      loading.value = true
+    } else {
+      refreshing.value = true
+    }
     try {
       const res = await systemApi.panelLog({
         lines: lines.value,
@@ -95,6 +101,7 @@ export function usePanelLogViewer() {
       }
     } finally {
       loading.value = false
+      refreshing.value = false
       scheduleAutoRefresh()
     }
   }
@@ -175,6 +182,7 @@ export function usePanelLogViewer() {
 
   return {
     loading,
+    refreshing,
     lines,
     keyword,
     level,

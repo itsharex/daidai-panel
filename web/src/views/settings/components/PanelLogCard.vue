@@ -6,6 +6,7 @@ import type { PanelLogLevel } from '../usePanelLogViewer'
 
 const props = defineProps<{
   loading: boolean
+  refreshing?: boolean
   lines: number
   keyword: string
   level: PanelLogLevel
@@ -48,10 +49,11 @@ const renderedHtml = computed(() => ansiToHtml(normalizeAnsi(props.logs.join('\n
     <template #header>
       <div class="card-header">
         <span class="card-title"><el-icon><Tickets /></el-icon> 面板日志</span>
-        <div class="panel-log-card__meta">
+      <div class="panel-log-card__meta">
           <span>共 {{ total }} 行</span>
           <span>{{ byteSizeLabel }}</span>
           <span v-if="lastLoadedAt">更新于 {{ lastLoadedAt }}</span>
+          <span v-if="refreshing" class="panel-log-card__badge">同步中</span>
         </div>
       </div>
     </template>
@@ -156,6 +158,17 @@ const renderedHtml = computed(() => ansiToHtml(normalizeAnsi(props.logs.join('\n
   flex-wrap: wrap;
   font-size: 12px;
   color: var(--el-text-color-secondary);
+}
+
+.panel-log-card__badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--el-color-primary);
+  background: color-mix(in srgb, var(--el-color-primary) 10%, transparent);
 }
 
 .panel-log-toolbar {
