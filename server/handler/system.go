@@ -366,13 +366,22 @@ func (h *SystemHandler) CheckUpdate(c *gin.Context) {
 	autoUpdateSupported := true
 	updateDisabledReason := ""
 	updateTarget := gin.H{}
+	watchtowerCfg := currentWatchtowerRuntimeConfig()
 
-	plan, planErr := buildPanelUpdatePlanForRelease(release)
-	if planErr != nil {
-		autoUpdateSupported = false
-		updateDisabledReason = planErr.Error()
+	if watchtowerCfg.Managed {
+		autoUpdateSupported = watchtowerCfg.ManualTriggerSupported
+		if !watchtowerCfg.ManualTriggerSupported {
+			updateDisabledReason = "当前由 Watchtower 托管自动更新；面板可展示更新状态，但未配置 Watchtower HTTP API 手动触发能力"
+		}
+		updateTarget = buildWatchtowerUpdateTarget(watchtowerCfg)
 	} else {
-		updateTarget = buildPanelUpdateTarget(plan)
+		plan, planErr := buildPanelUpdatePlanForRelease(release)
+		if planErr != nil {
+			autoUpdateSupported = false
+			updateDisabledReason = planErr.Error()
+		} else {
+			updateTarget = buildPanelUpdateTarget(plan)
+		}
 	}
 
 	response.Success(c, gin.H{
@@ -392,6 +401,27 @@ func (h *SystemHandler) CheckUpdate(c *gin.Context) {
 }
 
 func (h *SystemHandler) UpdatePanel(c *gin.Context) {
+	if watchtowerCfg := currentWatchtowerRuntimeConfig(); watchtowerCfg.Managed {
+		result, err := triggerWatchtowerUpdate(watchtowerCfg)
+		if err != nil {
+			response.BadRequest(c, err.Error())
+			return
+		}
+
+		response.Success(c, gin.H{
+			"message": "已触发 Watchtower 检查更新",
+			"data": gin.H{
+				"status":         "running",
+				"phase":          "watchtower-triggered",
+				"message":        "已请求 Watchtower 立即检查并执行容器更新",
+				"deployment_type": "docker",
+				"update_manager": panelUpdateManagerWatchtower,
+				"watchtower_response": result,
+			},
+		})
+		return
+	}
+
 	plan, err := buildPanelUpdatePlan()
 	if err != nil {
 		response.BadRequest(c, err.Error())

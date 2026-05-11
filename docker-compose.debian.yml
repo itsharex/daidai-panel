@@ -13,11 +13,12 @@ services:
       - TZ=Asia/Shanghai
       - CONTAINER_NAME=daidai-panel
       - IMAGE_NAME=docker.1ms.run/linzixuanzz/daidai-panel:debian
+      - PANEL_UPDATE_MANAGER=watchtower
     labels:
       - com.centurylinklabs.watchtower.enable=true
 
   watchtower:
-    image: containrrr/watchtower:latest
+    image: nickfedor/watchtower:latest
     container_name: daidai-watchtower
     restart: unless-stopped
     volumes:

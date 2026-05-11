@@ -23,6 +23,8 @@ const (
 	defaultDockerHubRegistryHost = "registry-1.docker.io"
 	panelUpdateDeploymentDocker  = "docker"
 	panelUpdateDeploymentBinary  = "binary"
+	panelUpdateManagerPanel      = "panel"
+	panelUpdateManagerWatchtower = "watchtower"
 )
 
 type panelUpdateStatusSnapshot struct {
@@ -68,6 +70,15 @@ type panelUpdatePlan struct {
 	CurrentPID     int
 	ServerPID      int
 	ServerPIDFile  string
+}
+
+type watchtowerRuntimeConfig struct {
+	Managed                 bool
+	APIURL                  string
+	APIToken                string
+	Schedule                string
+	PeriodicPollsEnabled    bool
+	ManualTriggerSupported  bool
 }
 
 type dockerInspectInfo struct {
@@ -192,6 +203,90 @@ func (m *panelUpdateManager) snapshotCopy() panelUpdateStatusSnapshot {
 
 func (h *SystemHandler) UpdateStatus(c *gin.Context) {
 	response.Success(c, gin.H{"data": panelUpdater.snapshotCopy()})
+}
+
+func currentWatchtowerRuntimeConfig() watchtowerRuntimeConfig {
+	manager := strings.ToLower(strings.TrimSpace(os.Getenv("PANEL_UPDATE_MANAGER")))
+	apiURL := strings.TrimSpace(os.Getenv("WATCHTOWER_HTTP_API_URL"))
+	apiToken := strings.TrimSpace(os.Getenv("WATCHTOWER_HTTP_API_TOKEN"))
+	schedule := strings.TrimSpace(os.Getenv("WATCHTOWER_SCHEDULE"))
+	periodicPolls := parseEnvBool(os.Getenv("WATCHTOWER_HTTP_API_PERIODIC_POLLS"))
+
+	managed := manager == panelUpdateManagerWatchtower || apiURL != ""
+	manualSupported := managed && apiURL != "" && apiToken != ""
+
+	return watchtowerRuntimeConfig{
+		Managed:                managed,
+		APIURL:                 apiURL,
+		APIToken:               apiToken,
+		Schedule:               schedule,
+		PeriodicPollsEnabled:   periodicPolls,
+		ManualTriggerSupported: manualSupported,
+	}
+}
+
+func parseEnvBool(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+func buildWatchtowerUpdateTarget(cfg watchtowerRuntimeConfig) gin.H {
+	return gin.H{
+		"deployment_type":              panelUpdateDeploymentDocker,
+		"update_manager":               panelUpdateManagerWatchtower,
+		"watchtower_managed":           true,
+		"watchtower_schedule":          cfg.Schedule,
+		"watchtower_http_api_enabled":  cfg.APIURL != "",
+		"watchtower_trigger_supported": cfg.ManualTriggerSupported,
+		"watchtower_periodic_polls":    cfg.PeriodicPollsEnabled,
+	}
+}
+
+func triggerWatchtowerUpdate(cfg watchtowerRuntimeConfig) (map[string]interface{}, error) {
+	if !cfg.Managed {
+		return nil, fmt.Errorf("当前部署未启用 Watchtower 托管更新")
+	}
+	if !cfg.ManualTriggerSupported {
+		return nil, fmt.Errorf("当前 Watchtower 未配置 HTTP API 手动触发能力，请先设置 WATCHTOWER_HTTP_API_URL 与 WATCHTOWER_HTTP_API_TOKEN")
+	}
+
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
+	client := &http.Client{
+		Timeout:   2 * time.Minute,
+		Transport: transport,
+	}
+
+	apiURL := strings.TrimRight(cfg.APIURL, "/") + "/v1/update"
+	req, err := http.NewRequest(http.MethodPost, apiURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("构建 Watchtower 更新请求失败: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+cfg.APIToken)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("调用 Watchtower 更新接口失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var payload map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil && resp.StatusCode < http.StatusBadRequest {
+		return nil, fmt.Errorf("解析 Watchtower 更新响应失败: %w", err)
+	}
+
+	if resp.StatusCode >= http.StatusBadRequest {
+		if message, ok := payload["error"].(string); ok && strings.TrimSpace(message) != "" {
+			return nil, fmt.Errorf("Watchtower 更新触发失败: %s", message)
+		}
+		return nil, fmt.Errorf("Watchtower 更新触发失败: HTTP %d", resp.StatusCode)
+	}
+
+	return payload, nil
 }
 
 func buildPanelUpdatePlan() (*panelUpdatePlan, error) {

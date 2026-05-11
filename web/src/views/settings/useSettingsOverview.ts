@@ -150,9 +150,12 @@ export function useSettingsOverview() {
     try {
       const updateTarget = updateInfo.value?.update_target || {}
       const isBinaryUpdate = updateTarget.deployment_type === 'binary'
+      const isWatchtowerManaged = updateTarget.update_manager === 'watchtower' || updateTarget.watchtower_managed === true
       const mirrorHost = updateTarget.mirror_host
       const pullImageName = updateTarget.pull_image_name
-      const confirmMessage = isBinaryUpdate
+      const confirmMessage = isWatchtowerManaged
+        ? buildWatchtowerUpdateConfirmMessage(updateTarget)
+        : isBinaryUpdate
         ? buildBinaryUpdateConfirmMessage(updateTarget)
         : buildDockerUpdateConfirmMessage(mirrorHost, pullImageName)
       await ElMessageBox.confirm(
@@ -183,6 +186,11 @@ export function useSettingsOverview() {
     try {
       const res = await systemApi.updatePanel()
       applyUpdateSnapshot(res.data || updateStatus.value)
+      if (updateInfo.value?.update_target?.update_manager === 'watchtower' || updateInfo.value?.update_target?.watchtower_managed === true) {
+        updatingPanel.value = false
+        ElMessage.success('已触发 Watchtower 检查更新，请稍后查看 Watchtower 日志或等待容器重建结果')
+        return
+      }
       startUpdateStatusPolling()
     } catch (err: any) {
       failUpdateProgress(err?.response?.data?.error || err?.message || '更新失败，请手动更新')
@@ -195,6 +203,13 @@ export function useSettingsOverview() {
       : '当前将直接从默认镜像仓库拉取更新镜像。'
     const pullTargetText = pullImageName ? `\n拉取目标：${pullImageName}` : ''
     return `确认开始更新面板吗？系统会先拉取最新镜像，再自动重建容器。更新期间服务会短暂中断。\n${mirrorText}${pullTargetText}`
+  }
+
+  function buildWatchtowerUpdateConfirmMessage(updateTarget: any) {
+    const scheduleText = updateTarget.watchtower_schedule
+      ? `\n当前调度：${updateTarget.watchtower_schedule}`
+      : ''
+    return `确认手动触发 Watchtower 立即检查更新吗？\n这会请求 Watchtower 立刻执行一次更新检查，而不是等待下一次定时窗口。${scheduleText}`
   }
 
   function buildBinaryUpdateConfirmMessage(updateTarget: any) {

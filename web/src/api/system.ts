@@ -42,6 +42,8 @@ export interface PanelUpdateStatus {
   asset_url?: string
   install_dir?: string
   binary_name?: string
+  update_manager?: 'panel' | 'watchtower'
+  watchtower_response?: Record<string, any>
 }
 
 export interface SystemHealthItem {

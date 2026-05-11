@@ -20,8 +20,8 @@
 
 呆呆面板 (Daidai Panel) 是一款轻量级定时任务管理平台，采用 Go (Gin) + Vue3 (Element Plus) + SQLite 架构，专注于脚本托管与自动化任务调度。支持 Python、Node.js、Shell、TypeScript、Go 等多语言脚本的定时执行与可视化管理，内置 18 种消息推送渠道、订阅管理、环境变量、依赖管理、Open API 等功能。Docker 一键部署，开箱即用。
 
-> 最新稳定版：`v2.2.1` · [更新日志](./docs/release-notes/v2.2.1.md)<br>
-> 本次重点：修复备份创建内容选择不同步、恢复后运行态配置被旧备份污染，以及旧备份导入后部分运行态显示异常的问题。
+> 最新稳定版：`v2.2.2` · [更新日志](./docs/release-notes/v2.2.2.md)<br>
+> 本次重点：切换到兼容新版 Docker API 的 Watchtower 方案，支持后台识别 Watchtower 托管模式，并为手动触发更新预留 HTTP API 能力。
 
 ## 功能特性
 
@@ -140,13 +140,15 @@ services:
       - com.centurylinklabs.watchtower.enable=true
 
   watchtower:
-    image: containrrr/watchtower:latest
+    image: nickfedor/watchtower:latest
     container_name: daidai-watchtower
     restart: unless-stopped
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     labels:
       - com.centurylinklabs.watchtower.enable=false
+    environment:
+      - PANEL_UPDATE_MANAGER=watchtower
     command:
       - --label-enable
       - --cleanup
@@ -170,6 +172,7 @@ docker compose up -d
 4. Watchtower 自己显式打了 `com.centurylinklabs.watchtower.enable=false`，避免被这套规则误纳入管理
 5. `--cleanup` 会在更新后清理旧镜像
 6. `--interval 3600` 表示每 1 小时检查一次更新
+7. 当前默认使用 `nickfedor/watchtower:latest`，用于兼容新版 Docker API
 
 如果你不想自动更新，可以直接删除 `watchtower` 服务和 `labels`，然后改成在宿主机手动执行：
 
@@ -197,7 +200,7 @@ docker run -d \
   --restart unless-stopped \
   -v /var/run/docker.sock:/var/run/docker.sock \
   --label com.centurylinklabs.watchtower.enable=false \
-  containrrr/watchtower:latest \
+  nickfedor/watchtower:latest \
   --label-enable \
   --cleanup \
   --interval 3600
@@ -233,14 +236,23 @@ docker compose -f docker-compose.watchtower.prod.yml --env-file .env.watchtower.
 1. 用 `WATCHTOWER_SCHEDULE` 固定在维护窗口更新，而不是按固定秒数轮询
 2. 开启 `WATCHTOWER_NOTIFICATION_REPORT=true`，每次更新会发汇总通知
 3. 预留 `WATCHTOWER_NOTIFICATION_URL`，可以直接接 Slack / Discord / Gotify 等 Shoutrrr 通道，也可以接 Push Plus
-4. 开启 `--rolling-restart`，Watchtower 会按容器逐个更新，而不是一次性把所有被它管理的容器一起停掉
-5. 配置了 `--stop-timeout 30s` 和面板自身 `healthcheck`，更适合生产环境下的优雅停机和状态探测
+4. 预留 `WATCHTOWER_HTTP_API_TOKEN` 与 `WATCHTOWER_HTTP_API_URL`，用于面板后台手动触发 Watchtower 立即检查更新
+5. 开启 `--rolling-restart`，Watchtower 会按容器逐个更新，而不是一次性把所有被它管理的容器一起停掉
+6. 配置了 `--stop-timeout 30s`、`healthcheck` 和 `--http-api-update`，更适合生产环境下的优雅停机、手动触发与状态探测
 
 Push Plus 说明：
 
 1. Watchtower 使用的是 Shoutrrr 通知层，Shoutrrr 没有原生 Push Plus 服务名
 2. 但可以通过 **Generic Webhook** 正常接入 Push Plus 的 `POST https://www.pushplus.plus/send`
 3. 示例地址已经写在 [.env.watchtower.prod.example](./.env.watchtower.prod.example) 和默认成品 [.env.watchtower.prod](./.env.watchtower.prod) 里，替换 token 即可使用
+
+Watchtower 托管说明：
+
+1. 当前推荐的 Watchtower 镜像为：
+   - `nickfedor/watchtower:latest`
+2. 这样做的原因是部分旧版 Watchtower 在新版 Docker daemon 上会报：
+   - `client version 1.25 is too old. Minimum supported API version is 1.40`
+3. 生产版配置已预留 HTTP API 参数，面板后台可在识别到 Watchtower 托管模式后提供“手动触发一次检查”的入口
 
 关于 `--rolling-restart`，这里有个边界要说明：
 
