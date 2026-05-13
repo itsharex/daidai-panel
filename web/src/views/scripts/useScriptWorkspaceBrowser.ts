@@ -11,6 +11,7 @@ type ScriptBrowserState = {
   isBinary: boolean
   isEditing: boolean
   mobileShowEditor: boolean
+  editorAutoFocusTicket: number
 }
 
 export function useScriptWorkspaceBrowser() {
@@ -26,12 +27,14 @@ export function useScriptWorkspaceBrowser() {
   const loading = ref(false)
   const treeLoading = ref(false)
   const isEditing = ref(false)
+  const editorAutoFocusTicket = ref(0)
 
   const editorLanguage = computed(() => {
     if (!selectedFile.value) return 'javascript'
     const ext = selectedFile.value.split('.').pop()?.toLowerCase()
     const langMap: Record<string, string> = {
       js: 'javascript',
+      mjs: 'javascript',
       ts: 'typescript',
       py: 'python',
       sh: 'shell',
@@ -119,7 +122,8 @@ export function useScriptWorkspaceBrowser() {
       originalContent: originalContent.value,
       isBinary: isBinary.value,
       isEditing: isEditing.value,
-      mobileShowEditor: mobileShowEditor.value
+      mobileShowEditor: mobileShowEditor.value,
+      editorAutoFocusTicket: editorAutoFocusTicket.value
     }
   }
 
@@ -130,6 +134,7 @@ export function useScriptWorkspaceBrowser() {
     isBinary.value = state.isBinary
     isEditing.value = state.isEditing
     mobileShowEditor.value = state.mobileShowEditor
+    editorAutoFocusTicket.value = state.editorAutoFocusTicket
   }
 
   async function loadTree() {
@@ -208,6 +213,10 @@ export function useScriptWorkspaceBrowser() {
     return true
   }
 
+  function triggerEditorAutoFocus() {
+    editorAutoFocusTicket.value += 1
+  }
+
   async function handleNodeClick(data: TreeNode) {
     if (!data.isLeaf) return
     await openFile(data.key)
@@ -260,6 +269,7 @@ export function useScriptWorkspaceBrowser() {
     loading,
     treeLoading,
     isEditing,
+    editorAutoFocusTicket,
     editorLanguage,
     hasChanges,
     allFolders,
@@ -267,6 +277,7 @@ export function useScriptWorkspaceBrowser() {
     loadTree,
     loadFileContent,
     openFile,
+    triggerEditorAutoFocus,
     handleNodeClick,
     allowDrag,
     allowDrop,

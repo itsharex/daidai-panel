@@ -86,6 +86,7 @@ func RunCommandWithPlan(plan *CommandExecutionPlan, timeout int, envVars map[str
 var extInterpreterMap = map[string]string{
 	".py": "python3",
 	".js": "node",
+	".mjs": "node",
 	".ts": "ts-node",
 	".sh": "bash",
 	".go": "go",
@@ -93,6 +94,7 @@ var extInterpreterMap = map[string]string{
 
 var desiInterpreterMap = map[string]string{
 	".js": "node",
+	".mjs": "node",
 	".py": "python3",
 	".ts": "ts-node",
 	".sh": "bash",
@@ -400,7 +402,7 @@ func isValidTaskRemainder(tokens []string, forcedMode commandExecutionMode) bool
 
 func isSupportedScriptExtension(path string) bool {
 	switch strings.ToLower(filepath.Ext(path)) {
-	case ".py", ".js", ".ts", ".sh", ".go":
+	case ".py", ".js", ".mjs", ".ts", ".sh", ".go":
 		return true
 	default:
 		return false

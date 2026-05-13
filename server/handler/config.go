@@ -5,6 +5,7 @@ import (
 	"daidai-panel/middleware"
 	"daidai-panel/model"
 	"daidai-panel/pkg/response"
+	"daidai-panel/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -17,10 +18,19 @@ func NewConfigHandler() *ConfigHandler {
 
 func reloadRuntimeConfigKeys(keys ...string) {
 	for _, key := range keys {
-		if key != "trusted_proxy_cidrs" {
-			continue
+		switch key {
+		case "trusted_proxy_cidrs":
+			_ = middleware.ConfigureTrustedProxyCIDRs(model.GetRegisteredConfig(key))
+		case "backup_schedule_enabled",
+			"backup_schedule_frequency",
+			"backup_schedule_time",
+			"backup_schedule_weekday",
+			"backup_schedule_monthday",
+			"backup_schedule_name",
+			"backup_schedule_password",
+			"backup_schedule_selection":
+			service.ReloadBackupScheduler()
 		}
-		_ = middleware.ConfigureTrustedProxyCIDRs(model.GetRegisteredConfig(key))
 	}
 }
 

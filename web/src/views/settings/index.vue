@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
-import AIConfigCard from './components/AIConfigCard.vue'
 import AlertConfigCard from './components/AlertConfigCard.vue'
 import BackupManagementCard from './components/BackupManagementCard.vue'
 import CaptchaConfigCard from './components/CaptchaConfigCard.vue'
@@ -22,7 +21,7 @@ import { useSettingsConfig } from './useSettingsConfig'
 import { useSettingsOverview } from './useSettingsOverview'
 import { usePanelLogViewer } from './usePanelLogViewer'
 import { useSettingsSecurity } from './useSettingsSecurity'
-import { Bell, Connection, Document, Lock, MagicStick, Monitor, Refresh } from '@element-plus/icons-vue'
+import { Bell, Connection, Document, Lock, Monitor, Refresh } from '@element-plus/icons-vue'
 
 const authStore = useAuthStore()
 const roleLevel: Record<string, number> = { viewer: 1, operator: 2, admin: 3 }
@@ -70,8 +69,6 @@ const {
   captchaFeatureImplemented,
   configsLoading,
   configsSaving,
-  aiTestingProvider,
-  aiProviderTestStates,
   configForm,
   loadSystemConfigs,
   handleSaveSystemConfig,
@@ -82,8 +79,7 @@ const {
   handleSaveTaskConfig,
   handleSaveProxy,
   handleSaveCaptcha,
-  handleTestAIProvider,
-  handleSaveAIConfig
+  handleSaveBackupSchedule
 } = config
 
 const {
@@ -115,6 +111,7 @@ const {
   backupName,
   backupPassword,
   backupSelection,
+  backupScheduleSelection,
   showRestoreDialog,
   restoreFilename,
   restorePassword,
@@ -177,18 +174,50 @@ function handleRefresh() {
   handleTabChange(activeTab.value)
 }
 
+function serializeBackupScheduleSelection() {
+  const order: Array<keyof typeof backupScheduleSelection.value> = [
+    'configs',
+    'tasks',
+    'subscriptions',
+    'env_vars',
+    'logs',
+    'scripts',
+    'dependencies'
+  ]
+  return order.filter((key) => backupScheduleSelection.value[key]).join(',')
+}
+
+function applyBackupScheduleSelection(raw: string) {
+  const selected = new Set(
+    raw
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean)
+  )
+  backupScheduleSelection.value = {
+    configs: selected.has('configs'),
+    tasks: selected.has('tasks'),
+    subscriptions: selected.has('subscriptions'),
+    env_vars: selected.has('env_vars'),
+    logs: selected.has('logs'),
+    scripts: selected.has('scripts'),
+    dependencies: selected.has('dependencies')
+  }
+}
+
 function handleTabChange(tab: string) {
   if (tab === 'overview') {
     void loadVersion()
     void loadSystemStats()
     void loadSystemInfo()
     void loadUpdatePreferences()
-  } else if (tab === 'config' || tab === 'task-exec' || tab === 'proxy' || tab === 'captcha' || tab === 'ai' || tab === 'alert') {
+  } else if (tab === 'config' || tab === 'task-exec' || tab === 'proxy' || tab === 'captcha' || tab === 'alert') {
     void loadSystemConfigs()
   } else if (tab === 'panel-log') {
     void loadPanelLogs()
   } else if (tab === 'backup') {
     void loadBackups()
+    void loadSystemConfigs()
   } else if (tab === 'security') {
     void load2FAStatus()
   }
@@ -203,6 +232,14 @@ onMounted(() => {
     securityTab.value = 'password-2fa'
   }
 })
+
+watch(
+  () => configForm.value.backup_schedule_selection,
+  (value) => {
+    applyBackupScheduleSelection(value || '')
+  },
+  { immediate: true }
+)
 </script>
 
 <template>
@@ -334,29 +371,18 @@ onMounted(() => {
         />
       </el-tab-pane>
 
-      <el-tab-pane v-if="isAdmin" name="ai">
-        <template #label>
-          <span class="sub-tab-label"><el-icon :size="14"><MagicStick /></el-icon>AI 助手</span>
-        </template>
-        <AIConfigCard
-          :configs-loading="configsLoading"
-          :configs-saving="configsSaving"
-          :ai-testing-provider="aiTestingProvider"
-          :ai-provider-test-states="aiProviderTestStates"
-          :form="configForm"
-          :on-test="handleTestAIProvider"
-          :on-save="handleSaveAIConfig"
-        />
-      </el-tab-pane>
-
       <el-tab-pane v-if="isAdmin" label="备份恢复" name="backup">
         <BackupManagementCard
           v-model:show-backup-dialog="showBackupDialog"
           v-model:backup-name="backupName"
           v-model:backup-password="backupPassword"
           v-model:backup-selection="backupSelection"
+          v-model:backup-schedule-selection="backupScheduleSelection"
           v-model:show-restore-dialog="showRestoreDialog"
           v-model:restore-password="restorePassword"
+          :settings-form="configForm"
+          :configs-saving="configsSaving"
+          :on-save-schedule="() => handleSaveBackupSchedule(serializeBackupScheduleSelection())"
           :backups="backups"
           :backups-loading="backupsLoading"
           :restore-filename="restoreFilename"

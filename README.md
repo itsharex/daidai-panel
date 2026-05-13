@@ -18,15 +18,15 @@
 
 ---
 
-呆呆面板 (Daidai Panel) 是一款轻量级定时任务管理平台，采用 Go (Gin) + Vue3 (Element Plus) + SQLite 架构，专注于脚本托管与自动化任务调度。支持 Python、Node.js、Shell、TypeScript、Go 等多语言脚本的定时执行与可视化管理，内置 18 种消息推送渠道、订阅管理、环境变量、依赖管理、Open API 等功能。Docker 一键部署，开箱即用。
+呆呆面板 (Daidai Panel) 是一款轻量级定时任务管理平台，采用 Go (Gin) + Vue3 (Element Plus) + SQLite 架构，专注于脚本托管与自动化任务调度。支持 Python、Node.js（含 `.js` / `.mjs`）、Shell、TypeScript、Go 等多语言脚本的定时执行与可视化管理，内置 18 种消息推送渠道、订阅管理、环境变量、依赖管理、Open API 等功能。Docker 一键部署，开箱即用。
 
-> 最新稳定版：`v2.2.2` · [更新日志](./docs/release-notes/v2.2.2.md)<br>
-> 本次重点：切换到兼容新版 Docker API 的 Watchtower 方案，支持后台识别 Watchtower 托管模式，并为手动触发更新预留 HTTP API 能力。
+> 最新稳定版：`v2.2.3` · [更新日志](./docs/release-notes/v2.2.3.md)<br>
+> 本次重点：补齐 `.mjs` 脚本运行支持，移除 AI Code，并新增每天 / 每周 / 每月定时备份能力。
 
 ## 功能特性
 
 - **定时任务** — Cron 表达式调度，支持重试、超时、任务依赖、前后置钩子
-- **脚本管理** — 在线代码编辑器，支持 Python、Node.js、Shell、TypeScript、Go，拖拽移动文件
+- **脚本管理** — 在线代码编辑器，支持 Python、Node.js（含 `.mjs`）、Shell、TypeScript、Go，拖拽移动文件
 - **执行日志** — SSE 实时日志流，历史日志查看与自动清理
 - **环境变量** — 分组管理、拖拽排序、批量导入导出（兼容青龙格式）
 - **订阅管理** — 自动从 Git 仓库拉取脚本，支持定期同步
@@ -34,7 +34,7 @@
 - **通知推送** — Bark、Telegram、Server酱、企业微信、钉钉、飞书等 18 种渠道
 - **开放 API** — App Key / App Secret 认证，支持第三方系统对接
 - **系统安全** — 双因素认证 (2FA)、IP 白名单、登录日志、会话管理
-- **数据备份** — 一键备份与恢复，导出全部数据
+- **数据备份** — 一键备份与恢复，支持每天/每周/每月定时备份
 - **系统监控** — 实时 CPU / 内存 / 磁盘监控，任务执行趋势统计
 
 <details>
@@ -55,6 +55,7 @@
 - 支持文件上传与拖拽移动
 - 脚本版本管理
 - 调试运行与实时日志输出
+- 支持 `.mjs` 脚本调试与任务执行
 
 ### 执行日志
 - SSE 实时日志流
@@ -86,6 +87,7 @@
 - IP 白名单
 - 登录日志与会话管理
 - 数据备份与恢复
+- 定时备份（每天 / 每周 / 每月）
 - 面板标题与图标自定义
 
 </details>
@@ -102,7 +104,6 @@
 | 执行日志 | ![执行日志](./images/执行日志.png) |
 | 用户管理 | ![用户管理](./images/用户管理.png) |
 | 脚本管理 | ![脚本管理](./images/脚本管理.png) |
-| AI Code | ![AI Code](./images/AI%20Code.png) |
 | 环境变量 | ![环境变量](./images/环境变量.png) |
 | 订阅管理 | ![订阅管理](./images/订阅管理.png) |
 | 通知渠道 | ![通知渠道](./images/通知渠道.png) |
@@ -303,7 +304,7 @@ Watchtower 托管说明：
 docker compose -f docker-compose.debian.yml up -d
 
 # 或基于源码本地构建
-docker build --build-arg VERSION=2.1.9 -f Dockerfile.debian -t daidai-panel:debian-local .
+docker build --build-arg VERSION=2.2.3 -f Dockerfile.debian -t daidai-panel:debian-local .
 ```
 
 ### Windows 单机版（不走 Docker）
@@ -497,7 +498,7 @@ docker compose -f docker-compose.debian.yml up -d
 本地基于源码自己构建的镜像，重新 build 即可：
 
 ```bash
-docker build --build-arg VERSION=2.1.9 -f Dockerfile.debian -t daidai-panel:debian-local .
+docker build --build-arg VERSION=2.2.3 -f Dockerfile.debian -t daidai-panel:debian-local .
 ```
 
 ## 容器命令 `ddp`

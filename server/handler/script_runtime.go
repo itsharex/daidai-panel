@@ -16,6 +16,7 @@ import (
 var scriptInterpreterMap = map[string][]string{
 	".py": {"python", "-u"},
 	".js": {"node"},
+	".mjs": {"node"},
 	".ts": {"npx", "ts-node"},
 	".sh": {"bash"},
 	".go": {"go", "run"},
@@ -24,6 +25,8 @@ var scriptInterpreterMap = map[string][]string{
 var scriptLanguageExtMap = map[string]string{
 	"python":     ".py",
 	"javascript": ".js",
+	"node":       ".mjs",
+	"mjs":        ".mjs",
 	"typescript": ".ts",
 	"shell":      ".sh",
 	"go":         ".go",
@@ -188,7 +191,7 @@ func scriptRuntimeInterpreter(ext string) (string, error) {
 	switch ext {
 	case ".py":
 		return "python3", nil
-	case ".js":
+	case ".js", ".mjs":
 		return "node", nil
 	case ".ts":
 		return "ts-node", nil

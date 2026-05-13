@@ -15,6 +15,7 @@ interface ScriptWorkspaceActionsOptions {
   loadFileContent: (path: string, options?: { silent?: boolean }) => Promise<boolean>
   extractScriptErrorMessage: (err: any, fallback: string) => string
   openFile?: (path: string, options?: { skipUnsavedCheck?: boolean }) => Promise<boolean>
+  triggerEditorAutoFocus?: () => void
 }
 
 export function useScriptWorkspaceActions({
@@ -27,7 +28,8 @@ export function useScriptWorkspaceActions({
   loadTree,
   loadFileContent,
   extractScriptErrorMessage,
-  openFile
+  openFile,
+  triggerEditorAutoFocus
 }: ScriptWorkspaceActionsOptions) {
   const router = useRouter()
 
@@ -137,11 +139,16 @@ export function useScriptWorkspaceActions({
       newFileParent.value = ''
       await loadTree()
       if (openFile) {
-        await openFile(fullPath, { skipUnsavedCheck: true })
+        const opened = await openFile(fullPath, { skipUnsavedCheck: true })
+        if (opened) {
+          isEditing.value = true
+          triggerEditorAutoFocus?.()
+        }
       } else {
         selectedFile.value = fullPath
         isEditing.value = true
         await loadFileContent(fullPath)
+        triggerEditorAutoFocus?.()
       }
     } catch (err: any) {
       ElMessage.error(err?.response?.data?.error || err?.message || '创建失败')

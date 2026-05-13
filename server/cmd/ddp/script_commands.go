@@ -15,7 +15,7 @@ import (
 )
 
 var cliAllowedScriptExtensions = map[string]bool{
-	".py": true, ".js": true, ".sh": true, ".ts": true, ".json": true,
+	".py": true, ".js": true, ".mjs": true, ".sh": true, ".ts": true, ".json": true,
 	".yaml": true, ".yml": true, ".txt": true, ".md": true, ".conf": true,
 	".ini": true, ".env": true, ".toml": true, ".xml": true, ".csv": true,
 	".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".svg": true,

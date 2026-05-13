@@ -172,6 +172,7 @@ defineExpose({
       editor.getAction('editor.action.formatDocument')?.run()
     }
   },
+  focus: () => editor?.focus(),
   getValue: () => editor?.getValue() || '',
   setValue: (value: string) => editor?.setValue(value),
 })

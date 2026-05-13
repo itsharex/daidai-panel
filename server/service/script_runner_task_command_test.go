@@ -31,6 +31,11 @@ func TestParseCommandExecutionPlanSupportsTaskModesAndArgs(t *testing.T) {
 		t.Fatalf("write go script: %v", err)
 	}
 
+	mjsScript := filepath.Join(config.C.Data.ScriptsDir, "esm-demo.mjs")
+	if err := os.WriteFile(mjsScript, []byte("console.log('esm ok')\n"), 0644); err != nil {
+		t.Fatalf("write mjs script: %v", err)
+	}
+
 	t.Run("parses now mode with timeout override and passthrough args", func(t *testing.T) {
 		plan, err := ParseCommandExecutionPlan(`task -m 5m demo folder/my script.py now -- -u whyour -p password`, config.C.Data.ScriptsDir)
 		if err != nil {
@@ -130,6 +135,23 @@ func TestParseCommandExecutionPlanSupportsTaskModesAndArgs(t *testing.T) {
 		}
 		if filepath.Base(plan.FullPath) != "worker.go" {
 			t.Fatalf("expected worker.go path, got %q", plan.FullPath)
+		}
+	})
+
+	t.Run("parses mjs task script", func(t *testing.T) {
+		plan, err := ParseCommandExecutionPlan(`task esm-demo.mjs now`, config.C.Data.ScriptsDir)
+		if err != nil {
+			t.Fatalf("parse mjs task plan: %v", err)
+		}
+
+		if plan.Interpreter != "node" {
+			t.Fatalf("expected node interpreter, got %q", plan.Interpreter)
+		}
+		if filepath.Base(plan.FullPath) != "esm-demo.mjs" {
+			t.Fatalf("expected esm-demo.mjs path, got %q", plan.FullPath)
+		}
+		if plan.Mode != commandModeNow {
+			t.Fatalf("expected now mode, got %q", plan.Mode)
 		}
 	})
 

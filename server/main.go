@@ -181,6 +181,9 @@ func main() {
 	service.InitSubscriptionScheduler()
 	defer service.ShutdownSubscriptionScheduler()
 
+	service.InitBackupScheduler()
+	defer service.ShutdownBackupScheduler()
+
 	service.StartResourceWatcher()
 	defer service.StopResourceWatcher()
 

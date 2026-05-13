@@ -778,6 +778,9 @@ func restoreBackupManifest(manifest BackupManifest, extractedDir string) error {
 	if subScheduler := GetSubscriptionScheduler(); subScheduler != nil {
 		subScheduler.ReloadAllJobs()
 	}
+	if backupScheduler := GetBackupScheduler(); backupScheduler != nil {
+		backupScheduler.Reload()
+	}
 	if selection.Dependencies {
 		UpdateRestoreProgress("finalizing", "正在提交依赖重装任务...", 96)
 		dependencyReinstallBatchFunc(createdDependencies)

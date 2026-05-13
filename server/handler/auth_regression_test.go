@@ -32,7 +32,6 @@ func newProtectedRouter() *gin.Engine {
 	handler.NewNotificationHandler().RegisterRoutes(api)
 	handler.NewSystemHandler().RegisterRoutes(api)
 	handler.NewConfigHandler().RegisterRoutes(api)
-	handler.NewAICodeHandler().RegisterRoutes(api)
 	handler.NewSubscriptionHandler().RegisterRoutes(api)
 	handler.NewSecurityHandler().RegisterRoutes(api)
 

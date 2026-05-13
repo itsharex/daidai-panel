@@ -1,26 +1,14 @@
 import { ref } from 'vue'
 import { configApi } from '@/api/system'
-import { aiApi, type AIProviderId } from '@/api/ai'
 import { ElMessage } from 'element-plus'
 import { applyPanelAppearance } from '@/utils/panelAppearance'
-import type { AIProviderTestState, SettingsConfigForm } from './types'
-
-const defaultAICodeCustomPromptTemplate = [
-  '- 默认使用简体中文编写必要的日志、注释和错误提示，输出内容要方便在面板日志里直接排查。',
-  '- 默认生成可直接运行的完整脚本；如果是修改现有脚本，优先最小必要改动，保留原有变量名、入口形式和已有依赖风格。',
-  '- 所有网络请求都应显式设置合理的 timeout；需要重试时只做有限次重试，并输出清晰日志。',
-  '- 不要吞掉异常；失败时要输出明确错误原因，必要时返回非 0 退出码或抛出异常，方便面板识别失败。',
-  '- 如果脚本需要通知、环境变量管理、任务或脚本相关能力，优先沿用面板官方 helper、官方接口和当前仓库已有调用方式。',
-  '- 除非用户明确要求，否则不要引入体积大、安装重或与当前脚本无关的新依赖。'
-].join('\n')
+import type { SettingsConfigForm } from './types'
 
 export function useSettingsConfig() {
   // 此开关原为功能上线门控，当前已全量启用（保留常量以兼容消费方）
   const captchaFeatureImplemented = true
   const configsLoading = ref(false)
   const configsSaving = ref(false)
-  const aiTestingProvider = ref('')
-  const aiProviderTestStates = ref<Record<string, AIProviderTestState>>({})
 
   const configForm = ref<SettingsConfigForm>({
     max_concurrent_tasks: 5,
@@ -52,32 +40,14 @@ export function useSettingsConfig() {
     editor_background_color: '',
     log_background_color: '#0f172a',
     log_background_image: '',
-    ai_enabled: false,
-    ai_code_custom_prompt: defaultAICodeCustomPromptTemplate,
-    ai_default_provider: 'openai',
-    ai_request_timeout_seconds: 120,
-    ai_temperature: '0.2',
-    ai_openai_base_url: 'https://api.openai.com/v1',
-    ai_openai_api_key: '',
-    ai_openai_model: '',
-    ai_openai_api_format: 'openai_chat',
-    ai_openai_is_full_url: false,
-    ai_anthropic_base_url: 'https://api.anthropic.com',
-    ai_anthropic_api_key: '',
-    ai_anthropic_model: '',
-    ai_anthropic_api_format: 'anthropic',
-    ai_anthropic_auth_strategy: 'anthropic_key',
-    ai_anthropic_is_full_url: false,
-    ai_gemini_base_url: 'https://generativelanguage.googleapis.com',
-    ai_gemini_api_key: '',
-    ai_gemini_model: '',
-    ai_gemini_is_full_url: false,
-    ai_custom_base_url: '',
-    ai_custom_api_key: '',
-    ai_custom_model: '',
-    ai_custom_api_format: 'openai_chat',
-    ai_custom_auth_strategy: 'bearer',
-    ai_custom_is_full_url: false
+    backup_schedule_enabled: false,
+    backup_schedule_frequency: 'daily',
+    backup_schedule_time: '03:00',
+    backup_schedule_weekday: '1',
+    backup_schedule_monthday: 1,
+    backup_schedule_name: '',
+    backup_schedule_password: '',
+    backup_schedule_selection: 'configs,tasks,subscriptions,env_vars,logs,scripts,dependencies'
   })
 
   function readConfigString(cfgs: Record<string, any>, key: string, fallback = ''): string {
@@ -136,32 +106,14 @@ export function useSettingsConfig() {
         editor_background_color: readConfigString(cfgs, 'editor_background_color', ''),
         log_background_color: readConfigString(cfgs, 'log_background_color', '#0f172a'),
         log_background_image: readConfigString(cfgs, 'log_background_image', ''),
-        ai_enabled: readConfigBool(cfgs, 'ai_enabled', false),
-        ai_code_custom_prompt: readConfigString(cfgs, 'ai_code_custom_prompt', defaultAICodeCustomPromptTemplate),
-        ai_default_provider: readConfigString(cfgs, 'ai_default_provider', 'openai'),
-        ai_request_timeout_seconds: readConfigNumber(cfgs, 'ai_request_timeout_seconds', 120),
-        ai_temperature: readConfigString(cfgs, 'ai_temperature', '0.2'),
-        ai_openai_base_url: readConfigString(cfgs, 'ai_openai_base_url', 'https://api.openai.com/v1'),
-        ai_openai_api_key: readConfigString(cfgs, 'ai_openai_api_key', ''),
-        ai_openai_model: readConfigString(cfgs, 'ai_openai_model', ''),
-        ai_openai_api_format: readConfigString(cfgs, 'ai_openai_api_format', 'openai_chat'),
-        ai_openai_is_full_url: readConfigBool(cfgs, 'ai_openai_is_full_url', false),
-        ai_anthropic_base_url: readConfigString(cfgs, 'ai_anthropic_base_url', 'https://api.anthropic.com'),
-        ai_anthropic_api_key: readConfigString(cfgs, 'ai_anthropic_api_key', ''),
-        ai_anthropic_model: readConfigString(cfgs, 'ai_anthropic_model', ''),
-        ai_anthropic_api_format: readConfigString(cfgs, 'ai_anthropic_api_format', 'anthropic'),
-        ai_anthropic_auth_strategy: readConfigString(cfgs, 'ai_anthropic_auth_strategy', 'anthropic_key'),
-        ai_anthropic_is_full_url: readConfigBool(cfgs, 'ai_anthropic_is_full_url', false),
-        ai_gemini_base_url: readConfigString(cfgs, 'ai_gemini_base_url', 'https://generativelanguage.googleapis.com'),
-        ai_gemini_api_key: readConfigString(cfgs, 'ai_gemini_api_key', ''),
-        ai_gemini_model: readConfigString(cfgs, 'ai_gemini_model', ''),
-        ai_gemini_is_full_url: readConfigBool(cfgs, 'ai_gemini_is_full_url', false),
-        ai_custom_base_url: readConfigString(cfgs, 'ai_custom_base_url', ''),
-        ai_custom_api_key: readConfigString(cfgs, 'ai_custom_api_key', ''),
-        ai_custom_model: readConfigString(cfgs, 'ai_custom_model', ''),
-        ai_custom_api_format: readConfigString(cfgs, 'ai_custom_api_format', 'openai_chat'),
-        ai_custom_auth_strategy: readConfigString(cfgs, 'ai_custom_auth_strategy', 'bearer'),
-        ai_custom_is_full_url: readConfigBool(cfgs, 'ai_custom_is_full_url', false)
+        backup_schedule_enabled: readConfigBool(cfgs, 'backup_schedule_enabled', false),
+        backup_schedule_frequency: readConfigString(cfgs, 'backup_schedule_frequency', 'daily'),
+        backup_schedule_time: readConfigString(cfgs, 'backup_schedule_time', '03:00'),
+        backup_schedule_weekday: readConfigString(cfgs, 'backup_schedule_weekday', '1'),
+        backup_schedule_monthday: readConfigNumber(cfgs, 'backup_schedule_monthday', 1),
+        backup_schedule_name: readConfigString(cfgs, 'backup_schedule_name', ''),
+        backup_schedule_password: readConfigString(cfgs, 'backup_schedule_password', ''),
+        backup_schedule_selection: readConfigString(cfgs, 'backup_schedule_selection', 'configs,tasks,subscriptions,env_vars,logs,scripts,dependencies')
       }
       applyPanelAppearance(configForm.value)
     } catch (err: any) {
@@ -258,125 +210,18 @@ export function useSettingsConfig() {
     void saveConfigKeys(['captcha_enabled', 'captcha_id', 'captcha_key', 'captcha_fail_mode'])
   }
 
-  function setAIProviderTestState(provider: string, state: AIProviderTestState) {
-    aiProviderTestStates.value = {
-      ...aiProviderTestStates.value,
-      [provider]: state
-    }
-  }
-
-  function providerTestPayload(provider: AIProviderId | string) {
-    const timeout_seconds = Number(configForm.value.ai_request_timeout_seconds || 120)
-    switch (provider) {
-      case 'anthropic':
-        return {
-          provider,
-          base_url: configForm.value.ai_anthropic_base_url,
-          api_key: configForm.value.ai_anthropic_api_key,
-          model: configForm.value.ai_anthropic_model,
-          api_format: configForm.value.ai_anthropic_api_format,
-          auth_strategy: configForm.value.ai_anthropic_auth_strategy,
-          is_full_url: configForm.value.ai_anthropic_is_full_url,
-          timeout_seconds
-        }
-      case 'gemini':
-        return {
-          provider,
-          base_url: configForm.value.ai_gemini_base_url,
-          api_key: configForm.value.ai_gemini_api_key,
-          model: configForm.value.ai_gemini_model,
-          api_format: 'gemini',
-          auth_strategy: 'google_key',
-          is_full_url: configForm.value.ai_gemini_is_full_url,
-          timeout_seconds
-        }
-      case 'custom':
-        return {
-          provider,
-          base_url: configForm.value.ai_custom_base_url,
-          api_key: configForm.value.ai_custom_api_key,
-          model: configForm.value.ai_custom_model,
-          api_format: configForm.value.ai_custom_api_format,
-          auth_strategy: configForm.value.ai_custom_auth_strategy,
-          is_full_url: configForm.value.ai_custom_is_full_url,
-          timeout_seconds
-        }
-      default:
-        return {
-          provider: 'openai',
-          base_url: configForm.value.ai_openai_base_url,
-          api_key: configForm.value.ai_openai_api_key,
-          model: configForm.value.ai_openai_model,
-          api_format: configForm.value.ai_openai_api_format,
-          auth_strategy: 'bearer',
-          is_full_url: configForm.value.ai_openai_is_full_url,
-          timeout_seconds
-        }
-    }
-  }
-
-  async function handleTestAIProvider(provider: AIProviderId | string) {
-    const payload = providerTestPayload(provider)
-    if (!String(payload.base_url || '').trim()) {
-      ElMessage.warning('请先填写 API 地址')
-      setAIProviderTestState(provider, { status: 'error', message: '缺少 API 地址' })
-      return
-    }
-    if (!String(payload.api_key || '').trim()) {
-      ElMessage.warning('请先填写 API Key')
-      setAIProviderTestState(provider, { status: 'error', message: '缺少 API Key' })
-      return
-    }
-    if (!String(payload.model || '').trim()) {
-      ElMessage.warning('请先填写模型名称')
-      setAIProviderTestState(provider, { status: 'error', message: '缺少模型名称' })
-      return
-    }
-
-    aiTestingProvider.value = String(provider)
-    setAIProviderTestState(provider, { status: 'idle', message: '' })
-    try {
-      const res = await aiApi.testConnection(payload)
-      const message = res.data?.message || '连接测试成功'
-      setAIProviderTestState(provider, { status: 'success', message })
-      ElMessage.success(message)
-    } catch (err: any) {
-      const message = err?.response?.data?.error || err?.message || '连接测试失败'
-      setAIProviderTestState(provider, { status: 'error', message })
-      ElMessage.error(message)
-    } finally {
-      aiTestingProvider.value = ''
-    }
-  }
-
-  function handleSaveAIConfig() {
+  function handleSaveBackupSchedule(selectionCSV?: string) {
+    const normalizedSelection = selectionCSV?.trim() || configForm.value.backup_schedule_selection
+    configForm.value.backup_schedule_selection = normalizedSelection
     void saveConfigKeys([
-      'ai_enabled',
-      'ai_code_custom_prompt',
-      'ai_default_provider',
-      'ai_request_timeout_seconds',
-      'ai_temperature',
-      'ai_openai_base_url',
-      'ai_openai_api_key',
-      'ai_openai_model',
-      'ai_openai_api_format',
-      'ai_openai_is_full_url',
-      'ai_anthropic_base_url',
-      'ai_anthropic_api_key',
-      'ai_anthropic_model',
-      'ai_anthropic_api_format',
-      'ai_anthropic_auth_strategy',
-      'ai_anthropic_is_full_url',
-      'ai_gemini_base_url',
-      'ai_gemini_api_key',
-      'ai_gemini_model',
-      'ai_gemini_is_full_url',
-      'ai_custom_base_url',
-      'ai_custom_api_key',
-      'ai_custom_model',
-      'ai_custom_api_format',
-      'ai_custom_auth_strategy',
-      'ai_custom_is_full_url'
+      'backup_schedule_enabled',
+      'backup_schedule_frequency',
+      'backup_schedule_time',
+      'backup_schedule_weekday',
+      'backup_schedule_monthday',
+      'backup_schedule_name',
+      'backup_schedule_password',
+      'backup_schedule_selection'
     ])
   }
 
@@ -384,8 +229,6 @@ export function useSettingsConfig() {
     captchaFeatureImplemented,
     configsLoading,
     configsSaving,
-    aiTestingProvider,
-    aiProviderTestStates,
     configForm,
     loadSystemConfigs,
     handleSaveSystemConfig,
@@ -396,7 +239,6 @@ export function useSettingsConfig() {
     handleSaveTaskConfig,
     handleSaveProxy,
     handleSaveCaptcha,
-    handleTestAIProvider,
-    handleSaveAIConfig
+    handleSaveBackupSchedule
   }
 }

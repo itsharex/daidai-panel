@@ -18,7 +18,8 @@ export function useScriptWorkspace() {
     loadTree: browser.loadTree,
     loadFileContent: browser.loadFileContent,
     extractScriptErrorMessage: browser.extractScriptErrorMessage,
-    openFile: browser.openFile
+    openFile: browser.openFile,
+    triggerEditorAutoFocus: browser.triggerEditorAutoFocus
   })
   let skipInitialActivated = true
 

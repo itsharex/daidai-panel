@@ -58,12 +58,6 @@ const router = createRouter({
           meta: { title: '脚本管理', icon: 'Document', minRole: 'operator' }
         },
         {
-          path: 'ai-code',
-          name: 'AICode',
-          component: () => import('@/views/ai-code/index.vue'),
-          meta: { title: 'Ai Code', icon: 'MagicStick', minRole: 'operator' }
-        },
-        {
           path: 'envs',
           name: 'Envs',
           component: () => import('@/views/envs/index.vue'),

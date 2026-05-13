@@ -696,6 +696,7 @@ func getSubscriptionAllowedExtensions(raw string) map[string]bool {
 
 	return map[string]bool{
 		".js": true,
+		".mjs": true,
 		".ts": true,
 		".py": true,
 		".sh": true,

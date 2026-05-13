@@ -1,11 +1,9 @@
 <script setup lang="ts">
 import { ElMessageBox } from 'element-plus'
-import ScriptAIAssistantDialog from './components/ScriptAIAssistantDialog.vue'
 import ScriptExecutionDialogs from './components/ScriptExecutionDialogs.vue'
 import ScriptManageDialogs from './components/ScriptManageDialogs.vue'
 import ScriptsEditorPane from './components/ScriptsEditorPane.vue'
 import ScriptsSidebar from './components/ScriptsSidebar.vue'
-import { useScriptAI } from './useScriptAI'
 import { useScriptExecution } from './useScriptExecution'
 import { useScriptWorkspace } from './useScriptWorkspace'
 
@@ -13,20 +11,6 @@ const workspace = useScriptWorkspace()
 const execution = useScriptExecution({
   selectedFile: workspace.selectedFile,
   fileContent: workspace.fileContent
-})
-const ai = useScriptAI({
-  selectedFile: workspace.selectedFile,
-  fileContent: workspace.fileContent,
-  isBinary: workspace.isBinary,
-  isEditing: workspace.isEditing,
-  hasChanges: workspace.hasChanges,
-  editorLanguage: workspace.editorLanguage,
-  loadTree: workspace.loadTree,
-  loadFileContent: workspace.loadFileContent,
-  debugLogs: execution.debugLogs,
-  debugExitCode: execution.debugExitCode,
-  debugError: execution.debugError,
-  openDebugAndStart: execution.openDebugAndStart
 })
 
 const {
@@ -42,6 +26,7 @@ const {
   saving,
   treeLoading,
   isEditing,
+  editorAutoFocusTicket,
   showCreateFileDialog,
   showCreateDirDialog,
   showRenameDialog,
@@ -114,43 +99,6 @@ const {
   handleStopRunner
 } = execution
 
-const {
-  showAIDialog,
-  aiEnabled,
-  configLoading,
-  generating,
-  configuredProviders,
-  provider,
-  modelOverride,
-  mode,
-  responseMode,
-  prompt,
-  targetPath,
-  manualLanguage,
-  includeDebugLogs,
-  autoDebugAfterApply,
-  conversationMode,
-  hasConversation,
-  conversationTurnCount,
-  previewBaseContent,
-  resultSummary,
-  resultContent,
-  resultPreviewContent,
-  resultWarnings,
-  resultProviderLabel,
-  resultModel,
-  resultResponseMode,
-  resultCanApply,
-  generationError,
-  hasDebugContext,
-  resolvedLanguage,
-  applyButtonText,
-  openAIDialogFor,
-  handleGenerate,
-  handleCancelGenerate,
-  handleApply
-} = ai
-
 async function handleDebugSave() {
   if (!selectedFile.value || isBinary.value) {
     return
@@ -175,10 +123,6 @@ function openSelectedFileRenameDialog() {
 
 function handleDeleteSelectedFile() {
   return handleDelete(selectedFile.value)
-}
-
-function openSelectedFileAIDialog() {
-  openAIDialogFor(selectedFile.value ? 'modify' : 'generate')
 }
 
 async function handleCancelEdit() {
@@ -239,9 +183,10 @@ async function handleCancelEdit() {
         :formatting="formatting"
         :loading="loading"
         :editor-language="editorLanguage"
+        :editor-auto-focus-ticket="editorAutoFocusTicket"
         :on-mobile-back="handleMobileBack"
         :on-debug-run="handleDebugRun"
-        :on-open-ai="openSelectedFileAIDialog"
+        :on-open-create-file="openCreateFileDialog"
         :on-add-to-task="handleAddToTask"
         :on-save="handleSave"
         :on-cancel-edit="handleCancelEdit"
@@ -312,52 +257,12 @@ async function handleCancelEdit() {
       :on-run-code="handleRunCode"
       :on-stop-runner="handleStopRunner"
     />
-
-    <ScriptAIAssistantDialog
-      v-model:show-ai-dialog="showAIDialog"
-      v-model:provider="provider"
-      v-model:model-override="modelOverride"
-      v-model:mode="mode"
-      v-model:response-mode="responseMode"
-      v-model:prompt="prompt"
-      v-model:target-path="targetPath"
-      v-model:manual-language="manualLanguage"
-      v-model:include-debug-logs="includeDebugLogs"
-      v-model:auto-debug-after-apply="autoDebugAfterApply"
-      v-model:conversation-mode="conversationMode"
-      :is-mobile="isMobile"
-      :ai-enabled="aiEnabled"
-      :config-loading="configLoading"
-      :generating="generating"
-      :selected-file="selectedFile"
-      :available-providers="configuredProviders"
-      :has-debug-context="hasDebugContext"
-      :current-content="previewBaseContent"
-      :preview-language="resolvedLanguage"
-      :result-summary="resultSummary"
-      :result-warnings="resultWarnings"
-      :result-content="resultContent"
-      :result-preview-content="resultPreviewContent"
-      :result-provider-label="resultProviderLabel"
-      :result-model="resultModel"
-      :result-response-mode="resultResponseMode"
-      :result-can-apply="resultCanApply"
-      :generation-error="generationError"
-      :apply-button-text="applyButtonText"
-      :has-conversation="hasConversation"
-      :conversation-turn-count="conversationTurnCount"
-      :on-generate="handleGenerate"
-      :on-cancel="handleCancelGenerate"
-      :on-apply="handleApply"
-    />
   </div>
 </template>
 
 <style scoped lang="scss">
 .scripts-page {
   --scripts-accent: #3b82f6;
-  --scripts-ai-accent-start: #8b5cf6;
-  --scripts-ai-accent-end: #6366f1;
   --scripts-surface: var(--el-bg-color);
   --scripts-surface-muted: color-mix(in srgb, var(--el-fill-color) 70%, transparent);
   --scripts-border-soft: var(--el-border-color-lighter);

@@ -85,7 +85,7 @@ func DetectAutoInstallCandidate(ext, output, workDir string) *AutoInstallCandida
 				RecordName:    requested,
 			}
 		}
-	case ".js", ".ts":
+	case ".js", ".mjs", ".ts":
 		if matches := autoInstallNodeModuleRe.FindStringSubmatch(output); len(matches) > 1 {
 			requested := strings.TrimSpace(matches[1])
 			if requested == "" || strings.HasPrefix(requested, ".") || strings.HasPrefix(requested, "/") || thirdPartyExcludedModules[requested] {

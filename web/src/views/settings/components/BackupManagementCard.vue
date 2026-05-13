@@ -9,10 +9,21 @@ const showBackupDialog = defineModel<boolean>('showBackupDialog', { required: tr
 const backupName = defineModel<string>('backupName', { required: true })
 const backupPassword = defineModel<string>('backupPassword', { required: true })
 const backupSelection = defineModel<BackupSelection>('backupSelection', { required: true })
+const backupScheduleSelection = defineModel<BackupSelection>('backupScheduleSelection', { required: true })
 const showRestoreDialog = defineModel<boolean>('showRestoreDialog', { required: true })
 const restorePassword = defineModel<string>('restorePassword', { required: true })
 
 defineProps<{
+  settingsForm: {
+    backup_schedule_enabled: boolean
+    backup_schedule_frequency: 'daily' | 'weekly' | 'monthly' | string
+    backup_schedule_time: string
+    backup_schedule_weekday: string
+    backup_schedule_monthday: number
+    backup_schedule_name: string
+    backup_schedule_password: string
+  }
+  configsSaving: boolean
   backups: Array<{ name: string; size: number; created_at: string }>
   backupsLoading: boolean
   restoreFilename: string
@@ -28,6 +39,7 @@ defineProps<{
   restoreProgressError: string
   onCreateBackup: () => void | Promise<void>
   onUploadBackup: (event: Event) => void | Promise<void>
+  onSaveSchedule: () => void | Promise<void>
   onConfirmCreateBackup: () => void | Promise<void>
   onDownloadBackup: (filename: string) => void | Promise<void>
   onRestoreBackup: (filename: string) => void | Promise<void>
@@ -85,6 +97,13 @@ function triggerUploadBackup() {
 function updateBackupSelection(key: keyof BackupSelection, value: boolean) {
   backupSelection.value = {
     ...backupSelection.value,
+    [key]: value
+  }
+}
+
+function updateBackupScheduleSelection(key: keyof BackupSelection, value: boolean) {
+  backupScheduleSelection.value = {
+    ...backupScheduleSelection.value,
     [key]: value
   }
 }
@@ -164,6 +183,90 @@ function updateBackupSelection(key: keyof BackupSelection, value: boolean) {
     <el-alert type="info" :closable="false" show-icon style="margin-top: 16px">
       支持导入呆呆面板备份（`.tgz` / `.enc` / 旧版 `.json`）以及青龙面板导出的 `.tgz` 备份包
     </el-alert>
+
+    <el-divider />
+
+    <section class="schedule-section">
+      <div class="schedule-header">
+        <div>
+          <h4>定时备份</h4>
+          <p>按每天、每周或每月自动创建面板备份，便于长期保留和灾备恢复。</p>
+        </div>
+        <el-button type="primary" :loading="configsSaving" @click="onSaveSchedule">
+          保存定时配置
+        </el-button>
+      </div>
+
+      <div class="schedule-grid">
+        <div class="schedule-field schedule-field--switch">
+          <label>启用定时备份</label>
+          <el-switch v-model="settingsForm.backup_schedule_enabled" inline-prompt active-text="开" inactive-text="关" />
+        </div>
+        <div class="schedule-field">
+          <label>备份频率</label>
+          <el-select v-model="settingsForm.backup_schedule_frequency" style="width: 100%">
+            <el-option label="每天" value="daily" />
+            <el-option label="每周" value="weekly" />
+            <el-option label="每月" value="monthly" />
+          </el-select>
+        </div>
+        <div class="schedule-field">
+          <label>执行时间</label>
+          <el-time-select
+            v-model="settingsForm.backup_schedule_time"
+            style="width: 100%"
+            start="00:00"
+            step="00:30"
+            end="23:30"
+            placeholder="选择执行时间"
+          />
+        </div>
+        <div v-if="settingsForm.backup_schedule_frequency === 'weekly'" class="schedule-field">
+          <label>每周执行日</label>
+          <el-select v-model="settingsForm.backup_schedule_weekday" style="width: 100%">
+            <el-option label="周日" value="0" />
+            <el-option label="周一" value="1" />
+            <el-option label="周二" value="2" />
+            <el-option label="周三" value="3" />
+            <el-option label="周四" value="4" />
+            <el-option label="周五" value="5" />
+            <el-option label="周六" value="6" />
+          </el-select>
+        </div>
+        <div v-if="settingsForm.backup_schedule_frequency === 'monthly'" class="schedule-field">
+          <label>每月执行日</label>
+          <el-input-number v-model="settingsForm.backup_schedule_monthday" :min="1" :max="28" style="width: 100%" />
+        </div>
+        <div class="schedule-field">
+          <label>文件名前缀</label>
+          <el-input v-model="settingsForm.backup_schedule_name" placeholder="可选，例如：daily-auto-backup" />
+        </div>
+        <div class="schedule-field">
+          <label>加密密码</label>
+          <el-input v-model="settingsForm.backup_schedule_password" type="password" show-password placeholder="可选，留空则不加密" />
+        </div>
+      </div>
+
+      <div class="schedule-selection">
+        <label class="schedule-selection-title">定时备份内容</label>
+        <div class="backup-selection-grid">
+          <label
+            v-for="option in backupSelectionOptions"
+            :key="`schedule-${option.key}`"
+            class="backup-selection-card"
+            :class="{ 'is-active': backupScheduleSelection[option.key] }"
+          >
+            <el-checkbox
+              :model-value="backupScheduleSelection[option.key]"
+              @update:model-value="updateBackupScheduleSelection(option.key, Boolean($event))"
+            >
+              {{ option.title }}
+            </el-checkbox>
+            <span class="backup-selection-hint">{{ option.description }}</span>
+          </label>
+        </div>
+      </div>
+    </section>
   </el-card>
 
   <el-dialog v-model="showBackupDialog" title="创建备份" width="520px" :fullscreen="dialogFullscreen">
@@ -305,12 +408,78 @@ function updateBackupSelection(key: keyof BackupSelection, value: boolean) {
   margin-left: 26px;
 }
 
+.schedule-section {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.schedule-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+
+  h4 {
+    margin: 0 0 6px;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--el-text-color-primary);
+  }
+
+  p {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.7;
+    color: var(--el-text-color-secondary);
+  }
+}
+
+.schedule-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px 18px;
+}
+
+.schedule-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+
+  label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--el-text-color-primary);
+  }
+}
+
+.schedule-field--switch {
+  justify-content: flex-end;
+}
+
+.schedule-selection {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.schedule-selection-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--el-text-color-primary);
+}
+
 @media (max-width: 768px) {
   .card-header-buttons {
     width: 100%;
   }
 
   .backup-selection-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .schedule-grid {
     grid-template-columns: 1fr;
   }
 }

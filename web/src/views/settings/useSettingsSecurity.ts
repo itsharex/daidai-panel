@@ -38,6 +38,15 @@ export function useSettingsSecurity() {
     scripts: true,
     dependencies: true,
   })
+  const backupScheduleSelection = ref<BackupSelection>({
+    configs: true,
+    tasks: true,
+    subscriptions: true,
+    env_vars: true,
+    logs: true,
+    scripts: true,
+    dependencies: true,
+  })
   const showRestoreDialog = ref(false)
   const restoreFilename = ref('')
   const restorePassword = ref('')
@@ -605,6 +614,7 @@ export function useSettingsSecurity() {
     backupName,
     backupPassword,
     backupSelection,
+    backupScheduleSelection,
     showRestoreDialog,
     restoreFilename,
     restorePassword,

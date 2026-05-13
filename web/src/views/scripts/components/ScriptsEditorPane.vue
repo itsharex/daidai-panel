@@ -10,7 +10,6 @@ import {
   Document,
   Download,
   Edit,
-  MagicStick,
   MoreFilled,
   Plus,
   VideoPlay
@@ -31,9 +30,10 @@ const props = defineProps<{
   formatting: boolean
   loading: boolean
   editorLanguage: string
+  editorAutoFocusTicket?: number
   onMobileBack: () => void
   onDebugRun: () => void | Promise<void>
-  onOpenAi: () => void | Promise<void>
+  onOpenCreateFile: () => void | Promise<void>
   onAddToTask: () => void
   onSave: () => void | Promise<void>
   onCancelEdit: () => void | Promise<void>
@@ -96,6 +96,7 @@ function startEdit() {
 }
 
 const previewRef = ref<HTMLElement | null>(null)
+const monacoEditorRef = ref<{ focus?: () => void } | null>(null)
 
 // Ctrl+A / Cmd+A while the preview is focused selects only the script content,
 // not the whole page. Monaco handles its own selection natively, so this only
@@ -126,6 +127,16 @@ watch(
   },
   { immediate: true }
 )
+
+watch(
+  () => [isEditing.value, props.editorAutoFocusTicket, props.loading, props.isBinary, props.selectedFile] as const,
+  ([editing, focusTicket, loading, binary, file]) => {
+    if (!editing || loading || binary || !file || !focusTicket) return
+    void nextTick(() => {
+      monacoEditorRef.value?.focus?.()
+    })
+  }
+)
 </script>
 
 <template>
@@ -135,13 +146,13 @@ watch(
       <div class="empty-card">
         <div class="empty-aura" aria-hidden="true"></div>
         <div class="empty-badge">
-          <el-icon :size="20"><MagicStick /></el-icon>
+          <el-icon :size="20"><Plus /></el-icon>
         </div>
-        <h2 class="empty-title">选一个文件开始，或让 AI 帮你写一个</h2>
-        <p class="empty-subtitle">左侧树里点击任意脚本即可查看，或直接用 AI 生成一份新脚本草稿再保存到目录。</p>
+        <h2 class="empty-title">新建一个脚本开始使用</h2>
+        <p class="empty-subtitle">从左侧选择已有脚本，或直接创建一个新文件并立即开始编辑、调试和添加任务。</p>
         <div class="empty-actions">
-          <el-button class="ai-cta" type="primary" size="large" @click="onOpenAi">
-            <el-icon><MagicStick /></el-icon>让 AI 生成脚本
+          <el-button class="create-cta" type="primary" size="large" @click="onOpenCreateFile">
+            <el-icon><Plus /></el-icon>新建脚本
           </el-button>
         </div>
       </div>
@@ -220,12 +231,12 @@ watch(
           </el-button>
 
           <el-button
-            class="action-btn action-btn--ai"
+            class="action-btn action-btn--task"
             :size="isMobile ? 'small' : 'default'"
             :disabled="isBinary"
-            @click="onOpenAi"
+            @click="onAddToTask"
           >
-            <el-icon><MagicStick /></el-icon><span v-if="!isMobile">AI 助手</span>
+            <el-icon><Plus /></el-icon><span v-if="!isMobile">添加任务</span>
           </el-button>
 
           <el-dropdown trigger="click" placement="bottom-end">
@@ -239,9 +250,6 @@ watch(
                 </el-dropdown-item>
                 <el-dropdown-item @click="onLoadVersions" :disabled="isBinary">
                   <el-icon><Clock /></el-icon>版本历史
-                </el-dropdown-item>
-                <el-dropdown-item @click="onAddToTask" :disabled="isBinary">
-                  <el-icon><Plus /></el-icon>添加任务
                 </el-dropdown-item>
                 <el-dropdown-item @click="onOpenRename">
                   <el-icon><Edit /></el-icon>重命名
@@ -273,6 +281,7 @@ watch(
           @keydown="handlePreviewKeydown"
         >{{ fileContent }}</pre>
         <MonacoEditor
+          ref="monacoEditorRef"
           v-else
           v-model="fileContent"
           :language="editorLanguage"
@@ -388,14 +397,14 @@ watch(
   justify-content: center;
 }
 
-.ai-cta {
-  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+.create-cta {
+  background: linear-gradient(135deg, #2563eb, #0ea5e9);
   border: none;
   min-width: 160px;
 
   &:hover,
   &:focus {
-    background: linear-gradient(135deg, #4f46e5, #7c3aed);
+    background: linear-gradient(135deg, #1d4ed8, #0284c7);
     border: none;
   }
 }
@@ -578,25 +587,16 @@ watch(
   --el-button-text-color: #67c23a;
 }
 
-.action-btn--ai {
-  color: #fff;
-  background: linear-gradient(135deg, #6366f1, #8b5cf6);
-  border: none;
-  box-shadow: 0 4px 12px -6px rgba(99, 102, 241, 0.5);
-
-  &:hover {
-    background: linear-gradient(135deg, #4f46e5, #7c3aed);
-    color: #fff;
-  }
-
-  &:focus-visible {
-    outline: 2px solid color-mix(in srgb, #8b5cf6 70%, transparent);
-    outline-offset: 2px;
-  }
+.action-btn--task {
+  --el-button-bg-color: rgba(37, 99, 235, 0.1);
+  --el-button-border-color: rgba(37, 99, 235, 0.28);
+  --el-button-hover-bg-color: rgba(37, 99, 235, 0.16);
+  --el-button-hover-border-color: rgba(37, 99, 235, 0.55);
+  --el-button-hover-text-color: #2563eb;
+  --el-button-text-color: #2563eb;
 
   &.is-disabled {
-    opacity: 0.55;
-    filter: saturate(0.6);
+    opacity: 0.72;
   }
 }
 

@@ -37,7 +37,7 @@ type BackupData struct {
 
 func collectScripts(scriptsDir string) []ScriptFile {
 	var files []ScriptFile
-	allowedExts := map[string]bool{".js": true, ".py": true, ".ts": true, ".sh": true}
+	allowedExts := map[string]bool{".js": true, ".mjs": true, ".py": true, ".ts": true, ".sh": true}
 
 	filepath.Walk(scriptsDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {

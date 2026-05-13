@@ -22,6 +22,16 @@ func TestScriptCommandPartsSupportsGo(t *testing.T) {
 	}
 }
 
+func TestScriptCommandPartsSupportsMJS(t *testing.T) {
+	parts, err := scriptCommandParts(".mjs", "demo.mjs")
+	if err != nil {
+		t.Fatalf("expected mjs command, got error: %v", err)
+	}
+	if len(parts) != 2 || parts[0] != "node" || parts[1] != "demo.mjs" {
+		t.Fatalf("unexpected mjs command parts: %#v", parts)
+	}
+}
+
 func TestScriptCommandPartsRejectsUnsupportedExtension(t *testing.T) {
 	if _, err := scriptCommandParts(".rb", "demo.rb"); err == nil {
 		t.Fatal("expected unsupported extension error")
@@ -31,6 +41,12 @@ func TestScriptCommandPartsRejectsUnsupportedExtension(t *testing.T) {
 func TestScriptLanguageExtMapSupportsGo(t *testing.T) {
 	if got := scriptLanguageExtMap["go"]; got != ".go" {
 		t.Fatalf("expected go language map to .go, got %q", got)
+	}
+}
+
+func TestScriptLanguageExtMapSupportsNodeMJS(t *testing.T) {
+	if got := scriptLanguageExtMap["node"]; got != ".mjs" {
+		t.Fatalf("expected node language map to .mjs, got %q", got)
 	}
 }
 

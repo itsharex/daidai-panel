@@ -28,7 +28,6 @@ func Setup(engine *gin.Engine) {
 	openAPIHandler := handler.NewOpenAPIHandler()
 	depsHandler := handler.NewDepsHandler()
 	configHandler := handler.NewConfigHandler()
-	aiCodeHandler := handler.NewAICodeHandler()
 	platformTokenHandler := handler.NewPlatformTokenHandler()
 	sponsorHandler := handler.NewSponsorHandler()
 	androidRuntimeHandler := handler.NewAndroidRuntimeHandler()
@@ -74,9 +73,6 @@ func Setup(engine *gin.Engine) {
 
 	configHandler.RegisterRoutes(v1)
 	configHandler.RegisterRoutes(legacy)
-
-	aiCodeHandler.RegisterRoutes(v1)
-	aiCodeHandler.RegisterRoutes(legacy)
 
 	platformTokenHandler.RegisterRoutes(v1)
 	platformTokenHandler.RegisterRoutes(legacy)
